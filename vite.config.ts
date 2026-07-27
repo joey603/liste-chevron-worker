@@ -22,7 +22,7 @@ export default defineConfig({
         vite: {
           build: {
             rollupOptions: {
-              external: ['electron'],
+              external: ['electron', 'electron-updater'],
             },
           },
         },
@@ -32,7 +32,7 @@ export default defineConfig({
         vite: {
           build: {
             rollupOptions: {
-              external: ['electron'],
+              external: ['electron', 'electron-updater'],
             },
           },
         },

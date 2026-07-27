@@ -253,6 +253,13 @@ export default function App() {
   const [toast, setToast] = useState<Toast>(null)
   const [busy, setBusy] = useState(false)
   const [showListPreview, setShowListPreview] = useState(false)
+  const [updateState, setUpdateState] = useState<
+    | null
+    | { phase: 'available'; version: string }
+    | { phase: 'downloading'; version: string; percent: number }
+    | { phase: 'installing'; version: string }
+    | { phase: 'error'; message: string }
+  >(null)
   const [listSearch, setListSearch] = useState('')
   const [listSort, setListSort] = useState<ListSort>('time')
   const [listLayout, setListLayout] = useState<ListLayout>('rows')
@@ -342,6 +349,58 @@ export default function App() {
     const t = window.setTimeout(() => setToast(null), 2600)
     return () => window.clearTimeout(t)
   }, [toast])
+
+  useEffect(() => {
+    const api = window.listeApi
+    if (!api?.onUpdateAvailable) return
+
+    const offAvailable = api.onUpdateAvailable((info) => {
+      setUpdateState({ phase: 'available', version: info.version })
+    })
+    const offProgress = api.onUpdateProgress((info) => {
+      setUpdateState((prev) => {
+        const version =
+          prev && 'version' in prev ? prev.version : __APP_VERSION__
+        return {
+          phase: 'downloading',
+          version,
+          percent: Math.max(0, Math.min(100, info.percent || 0)),
+        }
+      })
+    })
+    const offDownloaded = api.onUpdateDownloaded((info) => {
+      setUpdateState({ phase: 'installing', version: info.version })
+      void api.installUpdate()
+    })
+    const offError = api.onUpdateError((info) => {
+      setUpdateState({ phase: 'error', message: info.message })
+    })
+
+    return () => {
+      offAvailable()
+      offProgress()
+      offDownloaded()
+      offError()
+    }
+  }, [])
+
+  async function startUpdateDownload() {
+    if (!window.listeApi?.downloadUpdate || !updateState) return
+    if (updateState.phase !== 'available') return
+    setUpdateState({
+      phase: 'downloading',
+      version: updateState.version,
+      percent: 0,
+    })
+    try {
+      await window.listeApi.downloadUpdate()
+    } catch {
+      setUpdateState({
+        phase: 'error',
+        message: 'הורדת העדכון נכשלה',
+      })
+    }
+  }
 
   const presentCount = data?.people.filter(isPresent).length ?? 0
 
@@ -1954,6 +2013,84 @@ export default function App() {
       )}
 
       {toast && <div className="toast">{toast.message}</div>}
+
+      {updateState && (
+        <div className="update-overlay" role="dialog" aria-modal="true">
+          <div className="update-card">
+            {updateState.phase === 'available' && (
+              <>
+                <h3>עדכון זמין</h3>
+                <p>
+                  גרסה חדשה מוכנה להתקנה: <strong>v{updateState.version}</strong>
+                </p>
+                <p className="update-note">
+                  הנתונים שלך נשמרים. האפליקציה תיסגר ותיפתח מחדש אחרי העדכון.
+                </p>
+                <div className="update-actions">
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => setUpdateState(null)}
+                  >
+                    אחר כך
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => void startUpdateDownload()}
+                  >
+                    עדכן עכשיו
+                  </button>
+                </div>
+              </>
+            )}
+
+            {updateState.phase === 'downloading' && (
+              <>
+                <h3>מוריד עדכון…</h3>
+                <p>
+                  גרסה <strong>v{updateState.version}</strong>
+                </p>
+                <div className="update-progress-track" aria-hidden="true">
+                  <div
+                    className="update-progress-bar"
+                    style={{ width: `${updateState.percent}%` }}
+                  />
+                </div>
+                <p className="update-percent">{Math.round(updateState.percent)}%</p>
+                <div className="update-spinner" aria-hidden="true" />
+              </>
+            )}
+
+            {updateState.phase === 'installing' && (
+              <>
+                <h3>מתקין ומפעיל מחדש…</h3>
+                <p>
+                  גרסה <strong>v{updateState.version}</strong>
+                </p>
+                <div className="update-spinner" aria-hidden="true" />
+                <p className="update-note">אנא המתן, הנתונים נשמרים.</p>
+              </>
+            )}
+
+            {updateState.phase === 'error' && (
+              <>
+                <h3>שגיאה בעדכון</h3>
+                <p>{updateState.message}</p>
+                <div className="update-actions">
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => setUpdateState(null)}
+                  >
+                    סגירה
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       <div ref={shareRef} className="list-capture-share" aria-hidden="true">
         {renderPdfDocument()}

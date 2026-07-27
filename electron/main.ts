@@ -8,6 +8,7 @@ import {
 } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
+import { autoUpdater } from 'electron-updater'
 
 type EntryKind = 'named' | 'visitor'
 
@@ -176,6 +177,59 @@ function writeData(data: AppData) {
   fs.writeFileSync(dataPath(), JSON.stringify(data, null, 2), 'utf-8')
 }
 
+function sendToWindows(channel: string, payload?: unknown) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send(channel, payload)
+  }
+}
+
+function setupAutoUpdater() {
+  if (!app.isPackaged) return
+
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = false
+  autoUpdater.allowDowngrade = false
+
+  autoUpdater.on('update-available', (info) => {
+    sendToWindows('update:available', {
+      version: info.version,
+      currentVersion: app.getVersion(),
+    })
+  })
+
+  autoUpdater.on('update-not-available', () => {
+    sendToWindows('update:not-available')
+  })
+
+  autoUpdater.on('download-progress', (progress) => {
+    sendToWindows('update:progress', {
+      percent: progress.percent,
+      transferred: progress.transferred,
+      total: progress.total,
+    })
+  })
+
+  autoUpdater.on('update-downloaded', (info) => {
+    sendToWindows('update:downloaded', { version: info.version })
+  })
+
+  autoUpdater.on('error', (error) => {
+    sendToWindows('update:error', {
+      message: error?.message || 'Update failed',
+    })
+  })
+
+  const check = () => {
+    if (!app.isPackaged) return
+    void autoUpdater.checkForUpdates().catch(() => {
+      /* offline / no update feed */
+    })
+  }
+
+  setTimeout(check, 4000)
+  setInterval(check, 30 * 60 * 1000)
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
@@ -196,6 +250,8 @@ function createWindow() {
   } else {
     win.loadFile(path.join(__dirname, '../dist/index.html'))
   }
+
+  return win
 }
 
 app.whenReady().then(() => {
@@ -217,7 +273,21 @@ app.whenReady().then(() => {
     return true
   })
 
+  ipcMain.handle('update:download', async () => {
+    await autoUpdater.downloadUpdate()
+    return true
+  })
+
+  ipcMain.handle('update:install', () => {
+    // isSilent=false, isForceRunAfter=true → install then relaunch
+    setImmediate(() => autoUpdater.quitAndInstall(false, true))
+    return true
+  })
+
+  ipcMain.handle('app:getVersion', () => app.getVersion())
+
   createWindow()
+  setupAutoUpdater()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

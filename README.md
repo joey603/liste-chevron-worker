@@ -4,31 +4,21 @@ Application desktop (Windows) pour enregistrer les travailleurs et visiteurs sur
 
 ## Télécharger sur le PC du travail
 
-1. Ouvre la page **Releases** du dépôt GitHub  
-   (exemple : `https://github.com/TON-COMPTE/liste-chevron-worker/releases`)
-2. Clique sur la **dernière version** (ex. `v1.0.0`)
-3. Télécharge le fichier **`Liste-Chevron-Setup-….exe`**
-4. Lance le fichier et installe l’application
+1. Ouvre : https://github.com/joey603/liste-chevron-worker/releases
+2. Télécharge **`Liste-Chevron-Setup-….exe`**
+3. Installe l’application
 
-Les données restent **locales** sur le PC (`liste-data.json` dans le dossier AppData de l’app).
+## Mises à jour automatiques
 
-## Publier une nouvelle version (après une modification)
+Après chaque `git push` sur `main`, GitHub construit une nouvelle version.
 
-Sur ton Mac / PC de développement :
+Sur le PC (avec Internet) :
+1. Un message **עדכון זמין** apparaît
+2. Clique **עדכן עכשיו**
+3. Un chargement s’affiche pendant le téléchargement / l’installation
+4. L’app se ferme et redémarre avec la nouvelle version
 
-```bash
-# 1. Enregistre et pousse le code
-git add .
-git commit -m "description du changement"
-git push
-
-# 2. Monte la version dans package.json si besoin (ex: 1.0.1), puis :
-git tag v1.0.1
-git push origin v1.0.1
-```
-
-GitHub Actions construit automatiquement l’installateur Windows et l’ajoute à la page **Releases**.  
-Ensuite, sur le PC du travail : même lien Releases → télécharger le nouveau `.exe`.
+Le fichier de données local (`liste-data.json`) **n’est pas effacé**.
 
 ## Développement
 
@@ -37,6 +27,10 @@ npm install
 npm run dev
 ```
 
-## Données
+```bash
+git add .
+git commit -m "description"
+git push
+```
 
-Tout est stocké localement dans un fichier JSON sur le PC (aucun cloud).
+→ nouvelle Release automatique quelques minutes plus tard.

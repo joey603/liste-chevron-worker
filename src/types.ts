@@ -102,6 +102,17 @@ export type ListeApi = {
   saveData: (data: AppData) => Promise<boolean>
   copyImage: (dataUrl: string) => Promise<boolean>
   openWhatsApp: () => Promise<boolean>
+  getAppVersion: () => Promise<string>
+  downloadUpdate: () => Promise<boolean>
+  installUpdate: () => Promise<boolean>
+  onUpdateAvailable: (
+    cb: (info: { version: string; currentVersion: string }) => void,
+  ) => () => void
+  onUpdateProgress: (
+    cb: (info: { percent: number; transferred: number; total: number }) => void,
+  ) => () => void
+  onUpdateDownloaded: (cb: (info: { version: string }) => void) => () => void
+  onUpdateError: (cb: (info: { message: string }) => void) => () => void
 }
 
 declare global {
