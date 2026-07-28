@@ -147,6 +147,15 @@ export function displayName(p: PersonEntry): string {
   return `${p.firstName} ${p.lastName}`.trim()
 }
 
+export function comparePresentByName(a: PersonEntry, b: PersonEntry): number {
+  const aVisitor = a.kind === 'visitor' && a.visitorNumber != null
+  const bVisitor = b.kind === 'visitor' && b.visitorNumber != null
+  if (aVisitor && bVisitor) {
+    return a.visitorNumber! - b.visitorNumber!
+  }
+  return displayName(a).localeCompare(displayName(b), 'he')
+}
+
 export function formatTime(iso: string): string {
   try {
     return new Date(iso).toLocaleTimeString('he-IL', {

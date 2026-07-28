@@ -9,6 +9,7 @@ import {
   VisitorAccess,
   Worker,
   bannedDisplayName,
+  comparePresentByName,
   createId,
   displayName,
   endOfTodayMidnight,
@@ -474,9 +475,7 @@ export default function App() {
       list = list.filter((p) => displayName(p).toLowerCase().includes(query))
     }
     if (listSort === 'name') {
-      list.sort((a, b) =>
-        displayName(a).localeCompare(displayName(b), 'he'),
-      )
+      list.sort(comparePresentByName)
     } else if (listSort === 'time_desc') {
       list.sort(
         (a, b) =>
