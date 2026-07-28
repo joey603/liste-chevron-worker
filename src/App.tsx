@@ -876,7 +876,7 @@ export default function App() {
       }
       setToast({
         message:
-          'WhatsApp נפתח — התמונה אמורה להידבק אוטומטית (אחרת Ctrl+V)',
+          'בחרו איש קשר ב־WhatsApp — התמונה תודבק אוטומטית (או Ctrl+V)',
       })
     } catch {
       setToast({ message: 'שגיאה ביצירת התמונה' })

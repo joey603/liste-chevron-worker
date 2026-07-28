@@ -321,13 +321,15 @@ try {
 }
 
 async function openWhatsAppAndPaste() {
+  // Un "." ouvre l'écran "à qui envoyer" ; l'image reste dans le presse-papiers
+  const text = encodeURIComponent('.')
   try {
-    await shell.openExternal('whatsapp://')
+    await shell.openExternal(`whatsapp://send?text=${text}`)
   } catch {
-    await shell.openExternal('https://web.whatsapp.com/')
+    await shell.openExternal(`https://web.whatsapp.com/send?text=${text}`)
   }
-  // Plusieurs essais : WhatsApp Desktop / Web peut mettre un moment à s'ouvrir
-  scheduleWhatsAppPaste([2500, 5000, 8000])
+  // Collage auto après choix du contact / ouverture
+  scheduleWhatsAppPaste([3000, 5500, 8500])
 }
 
 function createWindow() {
