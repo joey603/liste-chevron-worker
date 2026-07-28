@@ -313,10 +313,22 @@ app.whenReady().then(() => {
     return true
   })
 
-  ipcMain.handle('whatsapp:open', async () => {
-    await shell.openExternal('https://web.whatsapp.com/')
-    return true
-  })
+  ipcMain.handle(
+    'whatsapp:open',
+    async (_event, payload?: { text?: string; phone?: string }) => {
+      const text = payload?.text?.trim() || ''
+      const phone = (payload?.phone || '').replace(/\D/g, '')
+      const encoded = encodeURIComponent(text)
+      let url = 'https://web.whatsapp.com/'
+      if (text && phone) {
+        url = `https://wa.me/${phone}?text=${encoded}`
+      } else if (text) {
+        url = `https://web.whatsapp.com/send?text=${encoded}`
+      }
+      await shell.openExternal(url)
+      return true
+    },
+  )
 
   ipcMain.handle('clipboard:writeImage', (_event, dataUrl: string) => {
     const image = nativeImage.createFromDataURL(dataUrl)

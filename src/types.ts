@@ -101,7 +101,10 @@ export type ListeApi = {
   getData: () => Promise<AppData>
   saveData: (data: AppData) => Promise<boolean>
   copyImage: (dataUrl: string) => Promise<boolean>
-  openWhatsApp: () => Promise<boolean>
+  openWhatsApp: (payload?: {
+    text?: string
+    phone?: string
+  }) => Promise<boolean>
   getAppVersion: () => Promise<string>
   checkForUpdates: () => Promise<{
     status: 'available' | 'up-to-date' | 'error'
@@ -197,8 +200,11 @@ export function isVisitorPresent(data: AppData, visitorNumber: number): boolean 
   )
 }
 
-export function buildWhatsAppMessage(data: AppData): string {
-  const present = data.people.filter(isPresent)
+export function buildWhatsAppMessage(
+  data: AppData,
+  people?: PersonEntry[],
+): string {
+  const present = people ?? data.people.filter(isPresent)
   const now = new Date().toLocaleString('he-IL', {
     day: '2-digit',
     month: '2-digit',

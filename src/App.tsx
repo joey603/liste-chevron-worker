@@ -9,6 +9,7 @@ import {
   VisitorAccess,
   Worker,
   bannedDisplayName,
+  buildWhatsAppMessage,
   createId,
   displayName,
   endOfTodayMidnight,
@@ -842,36 +843,72 @@ export default function App() {
   }
 
   async function shareListOnWhatsApp() {
-    if (!data || !shareRef.current) return
+    if (!data) return
     setBusy(true)
-    const el = shareRef.current
+    const message = buildWhatsAppMessage(data, filteredPresentPeople)
+    const phone = data.settings.directorPhone || ''
+
     try {
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-      })
-      const canvas = await html2canvas(el, {
-        backgroundColor: '#ffffff',
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        width: el.scrollWidth,
-        height: el.scrollHeight,
-        windowWidth: el.scrollWidth,
-        windowHeight: el.scrollHeight,
-      })
-      const dataUrl = canvas.toDataURL('image/png')
+      // Copie aussi l'image de la preview (si possible) pour collage Ctrl+V
+      if (shareRef.current) {
+        const el = shareRef.current
+        el.classList.add('is-capturing')
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+        })
+        try {
+          const canvas = await html2canvas(el, {
+            backgroundColor: '#ffffff',
+            scale: 2,
+            useCORS: true,
+            logging: false,
+            width: el.scrollWidth || 900,
+            height: Math.max(el.scrollHeight, 400),
+            windowWidth: el.scrollWidth || 900,
+            windowHeight: Math.max(el.scrollHeight, 400),
+          })
+          const dataUrl = canvas.toDataURL('image/png')
+          if (window.listeApi) {
+            await window.listeApi.copyImage(dataUrl)
+          } else {
+            const blob = await (await fetch(dataUrl)).blob()
+            await navigator.clipboard.write([
+              new ClipboardItem({ 'image/png': blob }),
+            ])
+          }
+        } finally {
+          el.classList.remove('is-capturing')
+        }
+      }
 
       if (window.listeApi) {
-        await window.listeApi.copyImage(dataUrl)
-        await window.listeApi.openWhatsApp()
+        await window.listeApi.openWhatsApp({ text: message, phone })
       } else {
-        const blob = await (await fetch(dataUrl)).blob()
-        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
-        window.open('https://web.whatsapp.com/', '_blank')
+        const encoded = encodeURIComponent(message)
+        const digits = phone.replace(/\D/g, '')
+        const url = digits
+          ? `https://wa.me/${digits}?text=${encoded}`
+          : `https://web.whatsapp.com/send?text=${encoded}`
+        window.open(url, '_blank')
       }
-      setToast({ message: 'תמונת הרשימה הועתקה — הדביקו ב־WhatsApp' })
+
+      setToast({
+        message: 'WhatsApp נפתח עם הרשימה — אפשר גם להדביק תמונה (Ctrl+V)',
+      })
     } catch {
-      setToast({ message: 'שגיאה ביצירת התמונה' })
+      try {
+        if (window.listeApi) {
+          await window.listeApi.openWhatsApp({ text: message, phone })
+        } else {
+          window.open(
+            `https://web.whatsapp.com/send?text=${encodeURIComponent(message)}`,
+            '_blank',
+          )
+        }
+        setToast({ message: 'WhatsApp נפתח עם הרשימה' })
+      } catch {
+        setToast({ message: 'שגיאה בפתיחת WhatsApp' })
+      }
     } finally {
       setBusy(false)
     }

@@ -53,7 +53,10 @@ const api = {
   saveData: (data: AppData): Promise<boolean> => ipcRenderer.invoke('data:save', data),
   copyImage: (dataUrl: string): Promise<boolean> =>
     ipcRenderer.invoke('clipboard:writeImage', dataUrl),
-  openWhatsApp: (): Promise<boolean> => ipcRenderer.invoke('whatsapp:open'),
+  openWhatsApp: (payload?: {
+    text?: string
+    phone?: string
+  }): Promise<boolean> => ipcRenderer.invoke('whatsapp:open', payload),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
   checkForUpdates: (): Promise<{
     status: 'available' | 'up-to-date' | 'error'
