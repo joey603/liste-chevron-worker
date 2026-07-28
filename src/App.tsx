@@ -569,8 +569,8 @@ export default function App() {
     if (!data) return
     const firstName = newWorker.firstName.trim()
     const lastName = newWorker.lastName.trim()
-    if (!firstName || !lastName) {
-      setToast({ message: 'שם פרטי ושם משפחה חובה' })
+    if (!firstName) {
+      setToast({ message: 'שם פרטי חובה' })
       return
     }
 
@@ -603,6 +603,7 @@ export default function App() {
       exitedAt: null,
     }
 
+    const display = `${firstName} ${lastName}`.trim()
     await persist(
       {
         ...data,
@@ -610,8 +611,8 @@ export default function App() {
         people: [entry, ...data.people],
       },
       temporary
-        ? `${firstName} ${lastName} נוסף (זמני עד חצות)`
-        : `${firstName} ${lastName} נוסף (קבוע)`,
+        ? `${display} נוסף (זמני עד חצות)`
+        : `${display} נוסף (קבוע)`,
     )
     setShowNewWorker(false)
     resetNewWorkerForm()
@@ -634,8 +635,8 @@ export default function App() {
     if (!data || !editingWorker) return
     const firstName = editingWorker.firstName.trim()
     const lastName = editingWorker.lastName.trim()
-    if (!firstName || !lastName) {
-      setToast({ message: 'שם פרטי ושם משפחה חובה' })
+    if (!firstName) {
+      setToast({ message: 'שם פרטי חובה' })
       return
     }
 
@@ -1606,7 +1607,7 @@ export default function App() {
                   />
                 </div>
                 <div className="field">
-                  <label htmlFor="newLast">שם משפחה</label>
+                  <label htmlFor="newLast">שם משפחה (אופציונלי)</label>
                   <input
                     id="newLast"
                     value={newWorker.lastName}
@@ -1689,7 +1690,7 @@ export default function App() {
                   />
                 </div>
                 <div className="field">
-                  <label htmlFor="editWorkerLast">שם משפחה</label>
+                  <label htmlFor="editWorkerLast">שם משפחה (אופציונלי)</label>
                   <input
                     id="editWorkerLast"
                     value={editingWorker.lastName}
