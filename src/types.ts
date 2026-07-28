@@ -147,6 +147,16 @@ export function formatTime(iso: string): string {
   }
 }
 
+/** Heure d'entrée après 07:00 (strictement). */
+export function isEnteredAfterSevenAm(iso: string): boolean {
+  try {
+    const d = new Date(iso)
+    return d.getHours() * 60 + d.getMinutes() > 7 * 60
+  } catch {
+    return false
+  }
+}
+
 export function formatDateTime(iso: string): string {
   try {
     return new Date(iso).toLocaleString('he-IL', {

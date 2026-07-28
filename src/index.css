@@ -2105,6 +2105,16 @@ button {
   font-size: 0.86rem;
 }
 
+.person-meta .time-late {
+  color: var(--chevron-red);
+  font-weight: 700;
+}
+
+.list-capture-document .person-meta .time-late {
+  color: var(--chevron-red);
+  font-weight: 700;
+}
+
 .badge {
   display: inline-flex;
   align-items: center;

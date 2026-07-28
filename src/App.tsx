@@ -14,6 +14,7 @@ import {
   endOfTodayMidnight,
   formatDateTime,
   formatTime,
+  isEnteredAfterSevenAm,
   getVisitorSlot,
   isPresent,
   isVisitorNumberOpen,
@@ -1024,6 +1025,7 @@ export default function App() {
         >
           {people.map((person, index) => {
             let accentClass = ''
+            let isFixedWorker = false
             if (person.kind === 'visitor' && person.visitorNumber != null && data) {
               const slot = getVisitorSlot(data, person.visitorNumber)
               const open = isVisitorNumberOpen(data, person.visitorNumber)
@@ -1034,8 +1036,17 @@ export default function App() {
               }
             } else if (person.kind === 'named' && person.workerId && data) {
               const worker = data.workers.find((w) => w.id === person.workerId)
-              if (worker?.temporary) accentClass = 'is-temporary'
+              if (worker?.temporary) {
+                accentClass = 'is-temporary'
+              } else if (worker) {
+                isFixedWorker = true
+              }
             }
+            const lateFixed =
+              isFixedWorker && isEnteredAfterSevenAm(person.enteredAt)
+            const timeText = isDocument
+              ? formatTime(person.enteredAt)
+              : formatDateTime(person.enteredAt)
 
             return (
             <article key={person.id} className={`person ${accentClass}`.trim()}>
@@ -1046,9 +1057,9 @@ export default function App() {
                 </div>
                 <div className="person-meta">
                   כניסה{' '}
-                  {isDocument
-                    ? formatTime(person.enteredAt)
-                    : formatDateTime(person.enteredAt)}
+                  <span className={lateFixed ? 'time-late' : undefined}>
+                    {timeText}
+                  </span>
                   {accentClass === 'is-temporary' ? ' · זמני' : ''}
                   {accentClass === 'is-visitor-temp' ? ' · הרשאה זמנית' : ''}
                   {accentClass === 'is-visitor-open' ? ' · הרשאה קבועה' : ''}
