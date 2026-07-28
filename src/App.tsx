@@ -848,17 +848,28 @@ export default function App() {
     try {
       el.classList.add('is-capturing')
       await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+        window.setTimeout(resolve, 80)
       })
-      const canvas = await html2canvas(el, {
+      const target =
+        (el.querySelector('.preview-pdf-page') as HTMLElement | null) || el
+      const canvas = await html2canvas(target, {
         backgroundColor: '#ffffff',
         scale: 2,
         useCORS: true,
         logging: false,
-        width: el.scrollWidth || 900,
-        height: Math.max(el.scrollHeight, 400),
-        windowWidth: el.scrollWidth || 900,
-        windowHeight: Math.max(el.scrollHeight, 400),
+        width: target.scrollWidth || 900,
+        height: Math.max(target.scrollHeight, 400),
+        windowWidth: target.scrollWidth || 900,
+        windowHeight: Math.max(target.scrollHeight, 400),
+        onclone: (_doc, cloned) => {
+          cloned.style.opacity = '1'
+          cloned.style.background = '#ffffff'
+          cloned.style.filter = 'none'
+          cloned.querySelectorAll<HTMLElement>('*').forEach((node) => {
+            node.style.opacity = '1'
+            node.style.filter = 'none'
+          })
+        },
       })
       const dataUrl = canvas.toDataURL('image/png')
 

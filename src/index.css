@@ -764,22 +764,27 @@ button {
 .list-capture-share {
   position: fixed;
   top: 0;
-  left: 0;
+  left: -12000px;
   width: 900px;
-  opacity: 0;
+  opacity: 1;
   pointer-events: none;
   z-index: -1;
-  overflow: hidden;
+  overflow: visible;
+  background: #ffffff;
 }
 
 .list-capture-share.is-capturing {
+  /* Reste hors écran mais pleinement opaque pour html2canvas */
+  left: -12000px;
   opacity: 1;
-  z-index: 0;
+  background: #ffffff;
 }
 
 .list-capture-share .preview-pdf-page {
   box-shadow: none;
   border: none;
+  background: #ffffff;
+  opacity: 1;
 }
 
 .btn-preview-close {
