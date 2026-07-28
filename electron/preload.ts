@@ -54,6 +54,8 @@ const api = {
   copyImage: (dataUrl: string): Promise<boolean> =>
     ipcRenderer.invoke('clipboard:writeImage', dataUrl),
   openWhatsApp: (): Promise<boolean> => ipcRenderer.invoke('whatsapp:open'),
+  shareImageToWhatsApp: (dataUrl: string): Promise<boolean> =>
+    ipcRenderer.invoke('whatsapp:shareImage', dataUrl),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
   checkForUpdates: (): Promise<{
     status: 'available' | 'up-to-date' | 'error'

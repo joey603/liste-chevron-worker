@@ -862,7 +862,9 @@ export default function App() {
       })
       const dataUrl = canvas.toDataURL('image/png')
 
-      if (window.listeApi) {
+      if (window.listeApi?.shareImageToWhatsApp) {
+        await window.listeApi.shareImageToWhatsApp(dataUrl)
+      } else if (window.listeApi) {
         await window.listeApi.copyImage(dataUrl)
         await window.listeApi.openWhatsApp()
       } else {
@@ -872,7 +874,10 @@ export default function App() {
         ])
         window.open('https://web.whatsapp.com/', '_blank')
       }
-      setToast({ message: 'התמונה הועתקה — הדביקו ב־WhatsApp (Ctrl+V)' })
+      setToast({
+        message:
+          'WhatsApp נפתח — התמונה אמורה להידבק אוטומטית (אחרת Ctrl+V)',
+      })
     } catch {
       setToast({ message: 'שגיאה ביצירת התמונה' })
     } finally {

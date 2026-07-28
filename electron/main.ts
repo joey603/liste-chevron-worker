@@ -8,6 +8,7 @@ import {
 } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
+import { execFile } from 'node:child_process'
 import { autoUpdater } from 'electron-updater'
 
 type EntryKind = 'named' | 'visitor'
@@ -281,6 +282,54 @@ function setupAutoUpdater(getMainWindow: () => BrowserWindow | null) {
   setInterval(() => void check(), 15 * 60 * 1000)
 }
 
+function scheduleWhatsAppPaste(delaysMs: number[]) {
+  if (process.platform === 'win32') {
+    const activations = delaysMs
+      .map(
+        (ms) => `
+Start-Sleep -Milliseconds ${ms}
+try {
+  $wshell = New-Object -ComObject wscript.shell
+  $null = $wshell.AppActivate('WhatsApp')
+  Start-Sleep -Milliseconds 250
+  Add-Type -AssemblyName System.Windows.Forms
+  [System.Windows.Forms.SendKeys]::SendWait('^v')
+} catch {}
+`,
+      )
+      .join('\n')
+    execFile(
+      'powershell.exe',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', activations],
+      { windowsHide: true },
+      () => undefined,
+    )
+    return
+  }
+
+  if (process.platform === 'darwin') {
+    for (const ms of delaysMs) {
+      const script = `
+        delay ${Math.max(0.2, ms / 1000)}
+        tell application "System Events"
+          keystroke "v" using command down
+        end tell
+      `
+      execFile('osascript', ['-e', script], () => undefined)
+    }
+  }
+}
+
+async function openWhatsAppAndPaste() {
+  try {
+    await shell.openExternal('whatsapp://')
+  } catch {
+    await shell.openExternal('https://web.whatsapp.com/')
+  }
+  // Plusieurs essais : WhatsApp Desktop / Web peut mettre un moment à s'ouvrir
+  scheduleWhatsAppPaste([2500, 5000, 8000])
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
@@ -314,7 +363,7 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('whatsapp:open', async () => {
-    await shell.openExternal('https://web.whatsapp.com/')
+    await openWhatsAppAndPaste()
     return true
   })
 
@@ -323,6 +372,17 @@ app.whenReady().then(() => {
     clipboard.writeImage(image)
     return true
   })
+
+  ipcMain.handle(
+    'whatsapp:shareImage',
+    async (_event, dataUrl: string) => {
+      const image = nativeImage.createFromDataURL(dataUrl)
+      if (image.isEmpty()) return false
+      clipboard.writeImage(image)
+      await openWhatsAppAndPaste()
+      return true
+    },
+  )
 
   let mainWindow: BrowserWindow | null = null
 

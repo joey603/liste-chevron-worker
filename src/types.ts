@@ -102,6 +102,7 @@ export type ListeApi = {
   saveData: (data: AppData) => Promise<boolean>
   copyImage: (dataUrl: string) => Promise<boolean>
   openWhatsApp: () => Promise<boolean>
+  shareImageToWhatsApp: (dataUrl: string) => Promise<boolean>
   getAppVersion: () => Promise<string>
   checkForUpdates: () => Promise<{
     status: 'available' | 'up-to-date' | 'error'
