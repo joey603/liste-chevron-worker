@@ -299,6 +299,8 @@ export default function App() {
     return Math.min(COLUMN_CHOICE_MAX, Math.max(1, choice))
   }
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [workersExpanded, setWorkersExpanded] = useState(false)
+  const [workerSearch, setWorkerSearch] = useState('')
   const [showVisitorManage, setShowVisitorManage] = useState(false)
   const [visitorManageMode, setVisitorManageMode] =
     useState<VisitorAccess>('closed')
@@ -424,6 +426,14 @@ export default function App() {
       workerDisplayName(a).localeCompare(workerDisplayName(b), 'he'),
     )
   }, [data])
+
+  const filteredWorkers = useMemo(() => {
+    const query = workerSearch.trim().toLowerCase()
+    if (!query) return sortedWorkers
+    return sortedWorkers.filter((w) =>
+      workerDisplayName(w).toLowerCase().includes(query),
+    )
+  }, [sortedWorkers, workerSearch])
 
   useEffect(() => {
     if (sortedWorkers.length === 0 && manageMode !== 'none') {
@@ -1256,16 +1266,30 @@ export default function App() {
           }`}
         >
           <h3 className="roster-title">עובדים</h3>
+          {sortedWorkers.length > 0 && (
+            <input
+              type="search"
+              className="workers-search"
+              value={workerSearch}
+              onChange={(e) => setWorkerSearch(e.target.value)}
+              placeholder="חיפוש לפי שם…"
+              aria-label="חיפוש עובדים לפי שם"
+            />
+          )}
           {sortedWorkers.length === 0 ? (
             <div className="roster-scroll sidebar-workers-scroll roster-empty">
               אין עובדים ברשימה.
               <br />
               לחצו על «עובד חדש» כדי ליצור.
             </div>
+          ) : filteredWorkers.length === 0 ? (
+            <div className="roster-scroll sidebar-workers-scroll roster-empty">
+              לא נמצאו עובדים לחיפוש.
+            </div>
           ) : (
             <div className="roster-scroll sidebar-workers-scroll">
               <div className="pick-grid workers">
-                {sortedWorkers.map((worker) => {
+                {filteredWorkers.map((worker) => {
                   const present = isWorkerPresent(data, worker.id)
                   const managing = manageMode !== 'none'
                   return (
@@ -1306,7 +1330,45 @@ export default function App() {
           )}
         </div>
 
-        <div className="roster-block visitors-block">
+        <button
+          type="button"
+          className={`workers-expand-toggle ${workersExpanded ? 'is-expanded' : ''}`}
+          onClick={() => setWorkersExpanded((v) => !v)}
+          title={
+            workersExpanded
+              ? 'הצג יותר ויזיטורים'
+              : 'הרחב עובדים · ויזיטורים בשתי שורות'
+          }
+          aria-label={
+            workersExpanded
+              ? 'הצג יותר ויזיטורים'
+              : 'הרחב עובדים · ויזיטורים בשתי שורות'
+          }
+          aria-expanded={workersExpanded}
+        >
+          <svg
+            viewBox="0 0 20 20"
+            width="16"
+            height="16"
+            aria-hidden="true"
+            className="workers-expand-icon"
+          >
+            <path
+              d="M4.5 7.5 L10 13 L15.5 7.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+
+        <div
+          className={`roster-block visitors-block ${
+            workersExpanded ? 'visitors-compact' : ''
+          }`}
+        >
           <div className="roster-title-row">
             <h3 className="roster-title">ויזיטורים 1–30</h3>
             <button
