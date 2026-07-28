@@ -28,7 +28,7 @@ import chevronLogo from './assets/chevron-logo.png'
 
 type Toast = { message: string } | null
 type AppTab = 'presence' | 'banned'
-type ListSort = 'time' | 'name'
+type ListSort = 'time_asc' | 'time_desc' | 'name'
 type ListLayout = 'rows' | 'columns'
 type ListKindFilter = 'all' | 'visitors' | 'workers_constant' | 'workers_temporary'
 type ColumnChoice = number | 'max'
@@ -263,7 +263,7 @@ export default function App() {
     | { phase: 'error'; message: string }
   >(null)
   const [listSearch, setListSearch] = useState('')
-  const [listSort, setListSort] = useState<ListSort>('time')
+  const [listSort, setListSort] = useState<ListSort>('time_asc')
   const [listLayout, setListLayout] = useState<ListLayout>('rows')
   const [previewLayout, setPreviewLayout] = useState<ListLayout>('columns')
   const [listColumnChoice, setListColumnChoice] = useState<ColumnChoice>('max')
@@ -476,6 +476,11 @@ export default function App() {
     if (listSort === 'name') {
       list.sort((a, b) =>
         displayName(a).localeCompare(displayName(b), 'he'),
+      )
+    } else if (listSort === 'time_desc') {
+      list.sort(
+        (a, b) =>
+          new Date(b.enteredAt).getTime() - new Date(a.enteredAt).getTime(),
       )
     } else {
       list.sort(
@@ -972,7 +977,8 @@ export default function App() {
               ariaLabel="מיון הרשימה"
               value={listSort}
               options={[
-                { value: 'time', label: 'לפי שעת כניסה' },
+                { value: 'time_asc', label: 'שעה · מוקדם תחילה' },
+                { value: 'time_desc', label: 'שעה · מאוחר תחילה' },
                 { value: 'name', label: 'סדר אלפביתי' },
               ]}
               onChange={(v) => setListSort(v as ListSort)}
@@ -1585,7 +1591,8 @@ export default function App() {
                   ariaLabel="מיון הרשימה"
                   value={listSort}
                   options={[
-                    { value: 'time', label: 'לפי שעת כניסה' },
+                    { value: 'time_asc', label: 'שעה · מוקדם תחילה' },
+                    { value: 'time_desc', label: 'שעה · מאוחר תחילה' },
                     { value: 'name', label: 'סדר אלפביתי' },
                   ]}
                   onChange={(v) => setListSort(v as ListSort)}
