@@ -103,6 +103,16 @@ export type ListeApi = {
   copyImage: (dataUrl: string) => Promise<boolean>
   openWhatsApp: () => Promise<boolean>
   getAppVersion: () => Promise<string>
+  checkForUpdates: () => Promise<{
+    status: 'available' | 'up-to-date' | 'error'
+    version?: string
+    currentVersion?: string
+    message?: string
+  }>
+  getPendingUpdate: () => Promise<{
+    version: string
+    currentVersion: string
+  } | null>
   downloadUpdate: () => Promise<boolean>
   installUpdate: () => Promise<boolean>
   onUpdateAvailable: (

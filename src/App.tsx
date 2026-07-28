@@ -378,6 +378,18 @@ export default function App() {
       setUpdateState({ phase: 'error', message: info.message })
     })
 
+    void (async () => {
+      const pending = await api.getPendingUpdate?.()
+      if (pending?.version) {
+        setUpdateState({ phase: 'available', version: pending.version })
+        return
+      }
+      const result = await api.checkForUpdates?.()
+      if (result?.status === 'available' && result.version) {
+        setUpdateState({ phase: 'available', version: result.version })
+      }
+    })()
+
     return () => {
       offAvailable()
       offProgress()

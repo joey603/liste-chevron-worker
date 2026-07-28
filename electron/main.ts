@@ -183,21 +183,73 @@ function sendToWindows(channel: string, payload?: unknown) {
   }
 }
 
-function setupAutoUpdater() {
+type PendingUpdate = { version: string; currentVersion: string }
+
+let pendingUpdate: PendingUpdate | null = null
+let lastUpdateError: string | null = null
+
+function setupAutoUpdater(getMainWindow: () => BrowserWindow | null) {
+  const check = async () => {
+    if (!app.isPackaged) return null
+    try {
+      const result = await autoUpdater.checkForUpdates()
+      return result
+    } catch (error) {
+      lastUpdateError =
+        error instanceof Error ? error.message : 'Update check failed'
+      sendToWindows('update:error', { message: lastUpdateError })
+      return null
+    }
+  }
+
+  ipcMain.handle('update:check', async () => {
+    if (!app.isPackaged) {
+      return { status: 'up-to-date' as const, version: app.getVersion() }
+    }
+    if (pendingUpdate) {
+      sendToWindows('update:available', pendingUpdate)
+      return { status: 'available' as const, ...pendingUpdate }
+    }
+    lastUpdateError = null
+    await check()
+    if (pendingUpdate) {
+      return { status: 'available' as const, ...pendingUpdate }
+    }
+    if (lastUpdateError) {
+      return { status: 'error' as const, message: lastUpdateError }
+    }
+    return { status: 'up-to-date' as const, version: app.getVersion() }
+  })
+
+  ipcMain.handle('update:getPending', () => pendingUpdate)
+
   if (!app.isPackaged) return
 
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
   autoUpdater.allowDowngrade = false
 
+  try {
+    autoUpdater.setFeedURL({
+      provider: 'github',
+      owner: 'joey603',
+      repo: 'liste-chevron-worker',
+    })
+  } catch {
+    /* keep defaults from app-update.yml */
+  }
+
   autoUpdater.on('update-available', (info) => {
-    sendToWindows('update:available', {
+    pendingUpdate = {
       version: info.version,
       currentVersion: app.getVersion(),
-    })
+    }
+    lastUpdateError = null
+    sendToWindows('update:available', pendingUpdate)
   })
 
   autoUpdater.on('update-not-available', () => {
+    pendingUpdate = null
     sendToWindows('update:not-available')
   })
 
@@ -214,20 +266,19 @@ function setupAutoUpdater() {
   })
 
   autoUpdater.on('error', (error) => {
-    sendToWindows('update:error', {
-      message: error?.message || 'Update failed',
-    })
+    lastUpdateError = error?.message || 'Update failed'
+    sendToWindows('update:error', { message: lastUpdateError })
   })
 
-  const check = () => {
-    if (!app.isPackaged) return
-    void autoUpdater.checkForUpdates().catch(() => {
-      /* offline / no update feed */
+  const win = getMainWindow()
+  if (win) {
+    win.webContents.once('did-finish-load', () => {
+      void check()
     })
+  } else {
+    setTimeout(() => void check(), 2500)
   }
-
-  setTimeout(check, 4000)
-  setInterval(check, 30 * 60 * 1000)
+  setInterval(() => void check(), 15 * 60 * 1000)
 }
 
 function createWindow() {
@@ -273,24 +324,27 @@ app.whenReady().then(() => {
     return true
   })
 
+  let mainWindow: BrowserWindow | null = null
+
   ipcMain.handle('update:download', async () => {
     await autoUpdater.downloadUpdate()
     return true
   })
 
   ipcMain.handle('update:install', () => {
-    // isSilent=false, isForceRunAfter=true → install then relaunch
     setImmediate(() => autoUpdater.quitAndInstall(false, true))
     return true
   })
 
   ipcMain.handle('app:getVersion', () => app.getVersion())
 
-  createWindow()
-  setupAutoUpdater()
+  mainWindow = createWindow()
+  setupAutoUpdater(() => mainWindow)
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) {
+      mainWindow = createWindow()
+    }
   })
 })
 

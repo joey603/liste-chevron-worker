@@ -55,6 +55,16 @@ const api = {
     ipcRenderer.invoke('clipboard:writeImage', dataUrl),
   openWhatsApp: (): Promise<boolean> => ipcRenderer.invoke('whatsapp:open'),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
+  checkForUpdates: (): Promise<{
+    status: 'available' | 'up-to-date' | 'error'
+    version?: string
+    currentVersion?: string
+    message?: string
+  }> => ipcRenderer.invoke('update:check'),
+  getPendingUpdate: (): Promise<{
+    version: string
+    currentVersion: string
+  } | null> => ipcRenderer.invoke('update:getPending'),
   downloadUpdate: (): Promise<boolean> => ipcRenderer.invoke('update:download'),
   installUpdate: (): Promise<boolean> => ipcRenderer.invoke('update:install'),
   onUpdateAvailable: (cb: (info: UpdateAvailableInfo) => void) => {
