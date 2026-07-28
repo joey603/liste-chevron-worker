@@ -11,6 +11,7 @@ const pkg = JSON.parse(
 ) as { version: string }
 
 export default defineConfig({
+  base: './',
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },

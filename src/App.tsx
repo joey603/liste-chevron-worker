@@ -23,6 +23,7 @@ import {
   purgeExpiredWorkers,
   workerDisplayName,
 } from './types'
+import chevronLogo from './assets/chevron-logo.png'
 
 type Toast = { message: string } | null
 type AppTab = 'presence' | 'banned'
@@ -1089,7 +1090,7 @@ export default function App() {
     <div className="preview-pdf-page">
       <div className="preview-pdf-brand" dir="ltr">
         <img
-          src="/chevron-logo.png"
+          src={chevronLogo}
           alt="Chevron"
           className="preview-pdf-logo"
         />
@@ -1116,7 +1117,7 @@ export default function App() {
     <div className="app-root">
       <header className="top-brand" dir="ltr">
         <img
-          src="/chevron-logo.png"
+          src={chevronLogo}
           alt="Chevron"
           className="brand-logo"
         />
