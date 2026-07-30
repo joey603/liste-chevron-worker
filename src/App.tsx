@@ -1,6 +1,6 @@
 import { CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import html2canvas from 'html2canvas'
+import { domToPng } from 'modern-screenshot'
 import {
   AppData,
   BannedPerson,
@@ -856,36 +856,87 @@ export default function App() {
   }
 
   async function shareListOnWhatsApp() {
-    if (!data || !shareRef.current) return
+    if (!data) return
     setBusy(true)
-    const el = shareRef.current
-    try {
-      el.classList.add('is-capturing')
-      await new Promise<void>((resolve) => {
-        window.setTimeout(resolve, 80)
+
+    const visiblePage = document.querySelector(
+      '.preview-share-wrap .preview-pdf-page',
+    ) as HTMLElement | null
+    const fallbackRoot = shareRef.current
+    const source =
+      visiblePage ||
+      (fallbackRoot?.querySelector('.preview-pdf-page') as HTMLElement | null) ||
+      fallbackRoot
+
+    if (!source) {
+      setBusy(false)
+      return
+    }
+
+    // Isoler hors du modal (backdrop / stacking) pour une capture nette.
+    const host = document.createElement('div')
+    host.setAttribute('data-capture-host', '1')
+    host.style.cssText = [
+      'position:fixed',
+      'left:0',
+      'top:0',
+      'z-index:2147483647',
+      'background:#ffffff',
+      'padding:0',
+      'margin:0',
+      'opacity:1',
+      'filter:none',
+      'pointer-events:none',
+      'transform:none',
+    ].join(';')
+
+    const clone = source.cloneNode(true) as HTMLElement
+    clone.style.width = `${Math.max(source.scrollWidth, source.clientWidth, 900)}px`
+    clone.style.maxWidth = 'none'
+    clone.style.height = 'auto'
+    clone.style.maxHeight = 'none'
+    clone.style.overflow = 'visible'
+    clone.style.opacity = '1'
+    clone.style.filter = 'none'
+    clone.style.background = '#ffffff'
+    clone.style.boxShadow = 'none'
+    clone.style.border = 'none'
+    clone.style.transform = 'none'
+
+    clone
+      .querySelectorAll<HTMLElement>('.people.doc-scroll-list, .list-capture, .people')
+      .forEach((node) => {
+        node.style.overflow = 'visible'
+        node.style.maxHeight = 'none'
+        node.style.height = 'auto'
+        node.style.opacity = '1'
+        node.style.filter = 'none'
       })
-      const target =
-        (el.querySelector('.preview-pdf-page') as HTMLElement | null) || el
-      const canvas = await html2canvas(target, {
+
+    // Couper les animations (rise) qui peuvent laisser un rendu semi-transparent.
+    clone.querySelectorAll<HTMLElement>('*').forEach((node) => {
+      node.style.animation = 'none'
+      node.style.transition = 'none'
+    })
+
+    host.appendChild(clone)
+    document.body.appendChild(host)
+
+    try {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      })
+
+      const dataUrl = await domToPng(clone, {
         backgroundColor: '#ffffff',
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        width: target.scrollWidth || 900,
-        height: Math.max(target.scrollHeight, 400),
-        windowWidth: target.scrollWidth || 900,
-        windowHeight: Math.max(target.scrollHeight, 400),
-        onclone: (_doc, cloned) => {
-          cloned.style.opacity = '1'
-          cloned.style.background = '#ffffff'
-          cloned.style.filter = 'none'
-          cloned.querySelectorAll<HTMLElement>('*').forEach((node) => {
-            node.style.opacity = '1'
-            node.style.filter = 'none'
-          })
+        scale: Math.min(2, window.devicePixelRatio || 2),
+        quality: 1,
+        style: {
+          opacity: '1',
+          filter: 'none',
+          transform: 'none',
         },
       })
-      const dataUrl = canvas.toDataURL('image/png')
 
       if (window.listeApi?.shareImageToWhatsApp) {
         await window.listeApi.shareImageToWhatsApp(dataUrl)
@@ -906,7 +957,7 @@ export default function App() {
     } catch {
       setToast({ message: 'שגיאה ביצירת התמונה' })
     } finally {
-      shareRef.current?.classList.remove('is-capturing')
+      host.remove()
       setBusy(false)
     }
   }

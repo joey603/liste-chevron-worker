@@ -803,25 +803,23 @@ button {
   top: 0;
   left: -12000px;
   width: 900px;
-  opacity: 1;
   pointer-events: none;
-  z-index: -1;
+  z-index: 0;
   overflow: visible;
   background: #ffffff;
 }
 
+/* Pendant la capture de secours : ramener dans le viewport (sans voile opacity/visibility). */
 .list-capture-share.is-capturing {
-  /* Reste hors écran mais pleinement opaque pour html2canvas */
-  left: -12000px;
-  opacity: 1;
-  background: #ffffff;
+  left: 0;
+  top: 0;
+  z-index: -1;
 }
 
 .list-capture-share .preview-pdf-page {
   box-shadow: none;
   border: none;
   background: #ffffff;
-  opacity: 1;
 }
 
 .btn-preview-close {
