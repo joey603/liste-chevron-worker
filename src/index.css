@@ -1392,6 +1392,86 @@ button {
   box-shadow: 0 0 0 3px rgba(0, 87, 168, 0.12);
 }
 
+.workers-list-with-alpha {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.workers-list-with-alpha .roster-scroll.sidebar-workers-scroll {
+  flex: 1;
+  min-width: 0;
+}
+
+.workers-alpha-rail {
+  flex: 0 0 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-height: 0;
+  padding: 2px 0;
+  user-select: none;
+}
+
+.workers-alpha-indicator {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--chevron-blue);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 800;
+  font-family: var(--display);
+  box-shadow: 0 2px 8px rgba(0, 87, 168, 0.28);
+}
+
+.workers-alpha-letters {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  overflow: hidden;
+}
+
+.workers-alpha-letter {
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--chevron-blue-dark);
+  font-size: clamp(0.52rem, 1.15vh, 0.72rem);
+  font-weight: 700;
+  line-height: 1;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.workers-alpha-letter.is-empty {
+  opacity: 0.28;
+  cursor: default;
+}
+
+.workers-alpha-letter.is-available:hover {
+  background: rgba(0, 87, 168, 0.1);
+}
+
+.workers-alpha-letter.is-active {
+  background: rgba(0, 87, 168, 0.18);
+  color: var(--chevron-blue);
+  font-weight: 800;
+}
+
 .roster-title-row {
   display: flex;
   align-items: center;

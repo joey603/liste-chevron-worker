@@ -29,6 +29,45 @@ import {
 } from './types'
 import chevronLogo from './assets/chevron-logo.png'
 
+const HEBREW_ALPHABET = [
+  'א',
+  'ב',
+  'ג',
+  'ד',
+  'ה',
+  'ו',
+  'ז',
+  'ח',
+  'ט',
+  'י',
+  'כ',
+  'ל',
+  'מ',
+  'נ',
+  'ס',
+  'ע',
+  'פ',
+  'צ',
+  'ק',
+  'ר',
+  'ש',
+  'ת',
+] as const
+
+const HEBREW_FINAL_TO_REGULAR: Record<string, string> = {
+  ך: 'כ',
+  ם: 'מ',
+  ן: 'נ',
+  ף: 'פ',
+  ץ: 'צ',
+}
+
+function workerAlphaLetter(worker: Worker): string {
+  const raw = workerDisplayName(worker).trim().charAt(0)
+  const letter = HEBREW_FINAL_TO_REGULAR[raw] ?? raw
+  return (HEBREW_ALPHABET as readonly string[]).includes(letter) ? letter : '#'
+}
+
 type Toast = { message: string } | null
 type AppTab = 'presence' | 'banned'
 type ListSort = 'time_asc' | 'time_desc' | 'name'
@@ -304,6 +343,7 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [workersExpanded, setWorkersExpanded] = useState(false)
   const [workerSearch, setWorkerSearch] = useState('')
+  const [activeWorkerLetter, setActiveWorkerLetter] = useState<string>('א')
   const [showVisitorManage, setShowVisitorManage] = useState(false)
   const [showEmergencyPhones, setShowEmergencyPhones] = useState(false)
   const [emergencyPhoneDraft, setEmergencyPhoneDraft] = useState('')
@@ -311,6 +351,7 @@ export default function App() {
     useState<VisitorAccess>('closed')
   const listRef = useRef<HTMLDivElement>(null)
   const shareRef = useRef<HTMLDivElement>(null)
+  const workersScrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     loadData().then((loaded) => setData(normalizeData(loaded)))
@@ -440,12 +481,61 @@ export default function App() {
     )
   }, [sortedWorkers, workerSearch])
 
+  const workerLettersPresent = useMemo(() => {
+    const set = new Set<string>()
+    for (const worker of filteredWorkers) {
+      set.add(workerAlphaLetter(worker))
+    }
+    return set
+  }, [filteredWorkers])
+
   useEffect(() => {
     if (sortedWorkers.length === 0 && manageMode !== 'none') {
       setManageMode('none')
       setEditingWorker(null)
     }
   }, [sortedWorkers.length, manageMode])
+
+  useEffect(() => {
+    const root = workersScrollRef.current
+    if (!root || filteredWorkers.length === 0) return
+
+    const updateActiveLetter = () => {
+      const wraps = root.querySelectorAll<HTMLElement>('[data-alpha-letter]')
+      if (wraps.length === 0) return
+      const rootTop = root.getBoundingClientRect().top
+      let current = wraps[0].dataset.alphaLetter || 'א'
+      for (const wrap of wraps) {
+        const top = wrap.getBoundingClientRect().top - rootTop
+        if (top <= 12) {
+          current = wrap.dataset.alphaLetter || current
+        } else {
+          break
+        }
+      }
+      setActiveWorkerLetter(current)
+    }
+
+    updateActiveLetter()
+    root.addEventListener('scroll', updateActiveLetter, { passive: true })
+    return () => root.removeEventListener('scroll', updateActiveLetter)
+  }, [filteredWorkers])
+
+  function scrollWorkersToLetter(letter: string) {
+    const root = workersScrollRef.current
+    if (!root) return
+    const target = root.querySelector<HTMLElement>(
+      `[data-alpha-letter="${letter}"]`,
+    )
+    if (!target) return
+    const rootRect = root.getBoundingClientRect()
+    const targetRect = target.getBoundingClientRect()
+    root.scrollTo({
+      top: Math.max(0, root.scrollTop + (targetRect.top - rootRect.top) - 8),
+      behavior: 'smooth',
+    })
+    setActiveWorkerLetter(letter)
+  }
 
   const presentPeople = useMemo(() => {
     if (!data) return []
@@ -1437,45 +1527,86 @@ export default function App() {
               לא נמצאו עובדים לחיפוש.
             </div>
           ) : (
-            <div className="roster-scroll sidebar-workers-scroll">
-              <div className="pick-grid workers">
-                {filteredWorkers.map((worker) => {
-                  const present = isWorkerPresent(data, worker.id)
-                  const managing = manageMode !== 'none'
-                  return (
-                    <div key={worker.id} className={`pick-wrap ${present && !managing ? 'is-present' : ''}`}>
-                      <button
-                        type="button"
-                        className={`pick-btn worker ${present && !managing ? 'present' : ''} ${worker.temporary ? 'temporary' : ''} ${manageMode === 'edit' ? 'mode-edit' : ''} ${manageMode === 'delete' ? 'mode-delete' : ''}`}
-                        onClick={() => void onWorkerCardClick(worker)}
-                        disabled={!managing && present}
-                        title={
-                          manageMode === 'edit'
-                            ? 'עריכת עובד'
-                            : manageMode === 'delete'
-                              ? 'מחיקת עובד'
-                              : present
-                                ? 'כבר באתר'
-                                : 'הוסף לרשימה'
-                        }
+            <div className="workers-list-with-alpha">
+              <div
+                ref={workersScrollRef}
+                className="roster-scroll sidebar-workers-scroll"
+              >
+                <div className="pick-grid workers">
+                  {filteredWorkers.map((worker) => {
+                    const present = isWorkerPresent(data, worker.id)
+                    const managing = manageMode !== 'none'
+                    const letter = workerAlphaLetter(worker)
+                    return (
+                      <div
+                        key={worker.id}
+                        className={`pick-wrap ${present && !managing ? 'is-present' : ''}`}
+                        data-alpha-letter={letter}
                       >
-                        <span className="pick-label">{workerDisplayName(worker)}</span>
-                        <span className="pick-hint">
-                          {manageMode === 'edit'
-                            ? 'עריכה'
-                            : manageMode === 'delete'
-                              ? 'מחיקה'
-                              : present
-                                ? 'באתר'
-                                : worker.temporary
-                                  ? 'זמני · עד חצות'
-                                  : 'לחצו'}
-                        </span>
-                      </button>
-                    </div>
-                  )
-                })}
+                        <button
+                          type="button"
+                          className={`pick-btn worker ${present && !managing ? 'present' : ''} ${worker.temporary ? 'temporary' : ''} ${manageMode === 'edit' ? 'mode-edit' : ''} ${manageMode === 'delete' ? 'mode-delete' : ''}`}
+                          onClick={() => void onWorkerCardClick(worker)}
+                          disabled={!managing && present}
+                          title={
+                            manageMode === 'edit'
+                              ? 'עריכת עובד'
+                              : manageMode === 'delete'
+                                ? 'מחיקת עובד'
+                                : present
+                                  ? 'כבר באתר'
+                                  : 'הוסף לרשימה'
+                          }
+                        >
+                          <span className="pick-label">{workerDisplayName(worker)}</span>
+                          <span className="pick-hint">
+                            {manageMode === 'edit'
+                              ? 'עריכה'
+                              : manageMode === 'delete'
+                                ? 'מחיקה'
+                                : present
+                                  ? 'באתר'
+                                  : worker.temporary
+                                    ? 'זמני · עד חצות'
+                                    : 'לחצו'}
+                          </span>
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
+              <nav
+                className="workers-alpha-rail"
+                aria-label="ניווט אלפביתי לעובדים"
+              >
+                <div
+                  className="workers-alpha-indicator"
+                  aria-live="polite"
+                  title={`מיקום נוכחי: ${activeWorkerLetter}`}
+                >
+                  {activeWorkerLetter === '#' ? '•' : activeWorkerLetter}
+                </div>
+                <div className="workers-alpha-letters">
+                  {HEBREW_ALPHABET.map((letter) => {
+                    const available = workerLettersPresent.has(letter)
+                    const active = activeWorkerLetter === letter
+                    return (
+                      <button
+                        key={letter}
+                        type="button"
+                        className={`workers-alpha-letter ${active ? 'is-active' : ''} ${available ? 'is-available' : 'is-empty'}`}
+                        disabled={!available}
+                        onClick={() => scrollWorkersToLetter(letter)}
+                        aria-label={`עבור ל־${letter}`}
+                        aria-current={active ? 'true' : undefined}
+                      >
+                        {letter}
+                      </button>
+                    )
+                  })}
+                </div>
+              </nav>
             </div>
           )}
         </div>
