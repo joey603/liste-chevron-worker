@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 export type AppData = {
   settings: {
     directorPhone: string
+    emergencyPhones: string[]
     siteName: string
     visitorSlots: Record<
       string,
@@ -56,6 +57,8 @@ const api = {
   openWhatsApp: (): Promise<boolean> => ipcRenderer.invoke('whatsapp:open'),
   shareImageToWhatsApp: (dataUrl: string): Promise<boolean> =>
     ipcRenderer.invoke('whatsapp:shareImage', dataUrl),
+  sendWhatsAppText: (phone: string | string[], text: string): Promise<boolean> =>
+    ipcRenderer.invoke('whatsapp:sendText', phone, text),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
   checkForUpdates: (): Promise<{
     status: 'available' | 'up-to-date' | 'error'

@@ -9,6 +9,7 @@ import {
   VisitorAccess,
   Worker,
   bannedDisplayName,
+  buildEmergencyMessage,
   comparePresentByName,
   createId,
   displayName,
@@ -22,6 +23,7 @@ import {
   isVisitorPresent,
   isWorkerPresent,
   normalizeData,
+  normalizeWhatsAppPhone,
   purgeExpiredWorkers,
   workerDisplayName,
 } from './types'
@@ -303,6 +305,8 @@ export default function App() {
   const [workersExpanded, setWorkersExpanded] = useState(false)
   const [workerSearch, setWorkerSearch] = useState('')
   const [showVisitorManage, setShowVisitorManage] = useState(false)
+  const [showEmergencyPhones, setShowEmergencyPhones] = useState(false)
+  const [emergencyPhoneDraft, setEmergencyPhoneDraft] = useState('')
   const [visitorManageMode, setVisitorManageMode] =
     useState<VisitorAccess>('closed')
   const listRef = useRef<HTMLDivElement>(null)
@@ -852,6 +856,96 @@ export default function App() {
     await persist(
       { ...data, banned: data.banned.filter((b) => b.id !== person.id) },
       'הרשומה הוסרה',
+    )
+  }
+
+  async function sendEmergencyList() {
+    if (!data) return
+    const phones = data.settings.emergencyPhones ?? []
+    if (phones.length === 0) {
+      setToast({ message: 'הוסיפו לפחות מספר אחד ב«מספרים»' })
+      setShowEmergencyPhones(true)
+      return
+    }
+
+    setBusy(true)
+    try {
+      const present = data.people.filter(isPresent)
+      const text = buildEmergencyMessage(data, present)
+      if (window.listeApi?.sendWhatsAppText) {
+        const ok = await window.listeApi.sendWhatsAppText(phones, text)
+        if (!ok) {
+          setToast({ message: 'שליחת החירום נכשלה' })
+          return
+        }
+      } else {
+        for (const phone of phones) {
+          const phoneNorm = normalizeWhatsAppPhone(phone)
+          if (!phoneNorm) continue
+          window.open(
+            `https://wa.me/${phoneNorm}?text=${encodeURIComponent(text)}`,
+            '_blank',
+          )
+        }
+      }
+      setToast({
+        message:
+          phones.length === 1
+            ? 'הודעת חירום נשלחת ב־WhatsApp…'
+            : `הודעת חירום נשלחת ל־${phones.length} מספרים…`,
+      })
+    } catch {
+      setToast({ message: 'שגיאה בשליחת הודעת החירום' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function addEmergencyPhone(e: FormEvent) {
+    e.preventDefault()
+    if (!data) return
+    const phone = emergencyPhoneDraft.trim()
+    if (!normalizeWhatsAppPhone(phone)) {
+      setToast({ message: 'נא להזין מספר טלפון תקין' })
+      return
+    }
+    const key = normalizeWhatsAppPhone(phone)
+    const current = data.settings.emergencyPhones ?? []
+    if (current.some((p) => normalizeWhatsAppPhone(p) === key)) {
+      setToast({ message: 'המספר כבר ברשימה' })
+      return
+    }
+    const emergencyPhones = [...current, phone]
+    setEmergencyPhoneDraft('')
+    await persist(
+      {
+        ...data,
+        settings: {
+          ...data.settings,
+          emergencyPhones,
+          directorPhone: emergencyPhones[0] ?? '',
+        },
+      },
+      'המספר נוסף',
+    )
+  }
+
+  async function removeEmergencyPhone(phone: string) {
+    if (!data) return
+    const key = normalizeWhatsAppPhone(phone)
+    const emergencyPhones = (data.settings.emergencyPhones ?? []).filter(
+      (p) => normalizeWhatsAppPhone(p) !== key,
+    )
+    await persist(
+      {
+        ...data,
+        settings: {
+          ...data.settings,
+          emergencyPhones,
+          directorPhone: emergencyPhones[0] ?? '',
+        },
+      },
+      'המספר הוסר',
     )
   }
 
@@ -1527,6 +1621,29 @@ export default function App() {
         <div className="whatsapp-bar">
           <button
             type="button"
+            className="btn btn-emergency"
+            disabled={busy}
+            onClick={() => void sendEmergencyList()}
+            title="שליחת רשימת נוכחים למספרי החירום"
+          >
+            חירום
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-emergency-phones"
+            onClick={() => {
+              setEmergencyPhoneDraft('')
+              setShowEmergencyPhones(true)
+            }}
+            title="ניהול מספרי חירום"
+          >
+            מספרים
+            {(data.settings.emergencyPhones?.length ?? 0) > 0
+              ? ` (${data.settings.emergencyPhones.length})`
+              : ''}
+          </button>
+          <button
+            type="button"
             className="btn btn-ghost btn-preview"
             onClick={() => setShowListPreview(true)}
           >
@@ -1728,6 +1845,75 @@ export default function App() {
                 שיתוף הרשימה ב־WhatsApp
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showEmergencyPhones && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setShowEmergencyPhones(false)}
+        >
+          <div
+            className="modal modal-emergency-phones"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3>מספרי חירום</h3>
+            <p className="settings-note" style={{ marginBottom: 12 }}>
+              המספרים שאליהם תישלח הרשימה בלחיצה על «חירום».
+            </p>
+
+            {(data.settings.emergencyPhones?.length ?? 0) === 0 ? (
+              <p className="settings-note">אין מספרים עדיין.</p>
+            ) : (
+              <ul className="emergency-phone-list">
+                {data.settings.emergencyPhones.map((phone) => (
+                  <li key={normalizeWhatsAppPhone(phone)}>
+                    <span dir="ltr">{phone}</span>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() => void removeEmergencyPhone(phone)}
+                    >
+                      הסרה
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <form onSubmit={(e) => void addEmergencyPhone(e)}>
+              <div className="field">
+                <label htmlFor="emergencyPhone">הוספת מספר</label>
+                <input
+                  id="emergencyPhone"
+                  type="tel"
+                  inputMode="tel"
+                  value={emergencyPhoneDraft}
+                  onChange={(e) => setEmergencyPhoneDraft(e.target.value)}
+                  placeholder="0501234567"
+                  autoFocus
+                  autoComplete="tel"
+                  dir="ltr"
+                />
+              </div>
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => setShowEmergencyPhones(false)}
+                >
+                  סגירה
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={{ width: 'auto' }}
+                >
+                  הוספה
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

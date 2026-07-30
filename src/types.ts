@@ -30,6 +30,8 @@ export type VisitorSlot = {
 
 export type AppSettings = {
   directorPhone: string
+  /** מספרי חירום לשליחת WhatsApp */
+  emergencyPhones: string[]
   siteName: string
   /** מצב לכל ויזיטור 1–30 */
   visitorSlots: Record<string, VisitorSlot>
@@ -103,6 +105,7 @@ export type ListeApi = {
   copyImage: (dataUrl: string) => Promise<boolean>
   openWhatsApp: () => Promise<boolean>
   shareImageToWhatsApp: (dataUrl: string) => Promise<boolean>
+  sendWhatsAppText: (phone: string | string[], text: string) => Promise<boolean>
   getAppVersion: () => Promise<string>
   checkForUpdates: () => Promise<{
     status: 'available' | 'up-to-date' | 'error'
@@ -242,6 +245,66 @@ export function buildWhatsAppMessage(
   return lines.join('\n')
 }
 
+/** Message urgence : noms seulement + total. */
+export function buildEmergencyMessage(
+  data: AppData,
+  people?: PersonEntry[],
+): string {
+  const present = [...(people ?? data.people.filter(isPresent))].sort(
+    comparePresentByName,
+  )
+  const lines: string[] = ['🚨 חירום — רשימת נוכחים', '']
+
+  if (present.length === 0) {
+    lines.push('— אין אנשים באתר —')
+  } else {
+    present.forEach((p, i) => {
+      lines.push(`${i + 1}. ${displayName(p)}`)
+    })
+  }
+
+  lines.push('', `סה״כ: ${present.length}`)
+  return lines.join('\n')
+}
+
+/** Normalise un numéro IL vers format international (chiffres seuls). */
+export function normalizeWhatsAppPhone(phone: string): string {
+  let digits = phone.replace(/\D/g, '')
+  if (!digits) return ''
+  if (digits.startsWith('00')) digits = digits.slice(2)
+  if (digits.startsWith('0')) digits = `972${digits.slice(1)}`
+  return digits
+}
+
+export function normalizeEmergencyPhones(
+  raw: unknown,
+  directorPhone = '',
+): string[] {
+  const list: string[] = []
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (typeof item !== 'string') continue
+      const trimmed = item.trim()
+      if (!trimmed || !normalizeWhatsAppPhone(trimmed)) continue
+      list.push(trimmed)
+    }
+  } else {
+    const legacy = directorPhone.trim()
+    if (legacy && normalizeWhatsAppPhone(legacy)) {
+      list.push(legacy)
+    }
+  }
+  const seen = new Set<string>()
+  const unique: string[] = []
+  for (const phone of list) {
+    const key = normalizeWhatsAppPhone(phone)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    unique.push(phone)
+  }
+  return unique
+}
+
 export function createId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
 }
@@ -274,6 +337,10 @@ export function purgeExpiredWorkers(data: AppData, now = new Date()): AppData {
     workers,
     settings: {
       directorPhone: data.settings?.directorPhone ?? '',
+      emergencyPhones: normalizeEmergencyPhones(
+        data.settings?.emergencyPhones,
+        data.settings?.directorPhone ?? '',
+      ),
       siteName: data.settings?.siteName ?? 'אתר Chevron',
       visitorSlots,
     },
@@ -304,10 +371,15 @@ export function isVisitorNumberOpen(
 export function normalizeData(raw: Partial<AppData> | null | undefined): AppData {
   const rawSettings = raw?.settings
   const settings: AppSettings = {
-    directorPhone: rawSettings?.directorPhone ?? '',
+    directorPhone: '',
+    emergencyPhones: normalizeEmergencyPhones(
+      rawSettings?.emergencyPhones,
+      rawSettings?.directorPhone ?? '',
+    ),
     siteName: rawSettings?.siteName ?? 'אתר Chevron',
     visitorSlots: normalizeVisitorSlots(rawSettings?.visitorSlots),
   }
+  settings.directorPhone = settings.emergencyPhones[0] ?? ''
   const workers = (Array.isArray(raw?.workers) ? raw.workers : []).map((w) => ({
     id: w.id,
     firstName: w.firstName,
