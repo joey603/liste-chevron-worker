@@ -150,6 +150,10 @@ export function displayName(p: PersonEntry): string {
 export function comparePresentByName(a: PersonEntry, b: PersonEntry): number {
   const aVisitor = a.kind === 'visitor' && a.visitorNumber != null
   const bVisitor = b.kind === 'visitor' && b.visitorNumber != null
+  // Employés d'abord (alpha), visiteurs à la fin (ordre numérique croissant).
+  if (aVisitor !== bVisitor) {
+    return aVisitor ? 1 : -1
+  }
   if (aVisitor && bVisitor) {
     return a.visitorNumber! - b.visitorNumber!
   }
