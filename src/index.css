@@ -1713,11 +1713,40 @@ button {
 }
 
 .visitors-compact .roster-scroll.sidebar-visitors-scroll {
-  max-height: calc(
-    2 * clamp(32px, 4.2vh, 46px) + clamp(4px, 0.7vh, 8px)
-  );
+  --visitor-row-h: clamp(32px, 4.2vh, 46px);
+  --visitor-gap: clamp(4px, 0.7vh, 8px);
+  max-height: calc(var(--visitor-row-h) + 16px);
+  padding-block: 8px;
   overflow-x: hidden;
   overflow-y: auto;
+  scroll-snap-type: y mandatory;
+  scroll-padding-block: 8px;
+  overscroll-behavior-y: contain;
+}
+
+.visitors-compact .roster-scroll.sidebar-visitors-scroll.is-row-snap {
+  scrollbar-width: thin;
+}
+
+.visitors-snap-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--visitor-gap, clamp(4px, 0.7vh, 8px));
+  direction: ltr;
+}
+
+.visitors-snap-row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--visitor-gap, clamp(4px, 0.7vh, 8px));
+  height: var(--visitor-row-h, clamp(32px, 4.2vh, 46px));
+  flex-shrink: 0;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+
+.visitors-snap-row .pick-btn.visitor {
+  width: 100%;
 }
 
 .roster-scroll.visitors-scroll {

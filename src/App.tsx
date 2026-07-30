@@ -76,6 +76,16 @@ type ListKindFilter = 'all' | 'visitors' | 'workers_constant' | 'workers_tempora
 type ColumnChoice = number | 'max'
 
 const COLUMN_CHOICE_MAX = 10
+const VISITOR_COLS = 5
+
+const VISITOR_ROWS: number[][] = (() => {
+  const rows: number[][] = []
+  const nums = Array.from({ length: VISITOR_COUNT }, (_, i) => i + 1)
+  for (let i = 0; i < nums.length; i += VISITOR_COLS) {
+    rows.push(nums.slice(i, i + VISITOR_COLS))
+  }
+  return rows
+})()
 
 type FancySelectOption = { value: string; label: string }
 
@@ -1688,43 +1698,93 @@ export default function App() {
               ניהול
             </button>
           </div>
-          <div className="roster-scroll visitors-scroll sidebar-visitors-scroll">
-            <div className="pick-grid visitors">
-              {Array.from({ length: VISITOR_COUNT }, (_, i) => i + 1).map((n) => {
-                const present = isVisitorPresent(data, n)
-                const open = isVisitorNumberOpen(data, n)
-                const slot = getVisitorSlot(data, n)
-                const modeClass =
-                  open && slot.access === 'open_constant'
-                    ? 'visitor-open'
-                    : open && slot.access === 'open_temp'
-                      ? 'visitor-open-temp'
-                      : ''
-                return (
-                  <button
-                    key={n}
-                    type="button"
-                    className={`pick-btn visitor ${present ? 'present' : ''} ${modeClass}`}
-                    onClick={() => {
-                      clearManageMode()
-                      void addVisitorToSite(n)
-                    }}
-                    disabled={present}
-                    title={
-                      present
-                        ? 'כבר באתר'
-                        : open && slot.access === 'open_temp'
-                          ? `ויזיטור ${n} · פתוח עד חצות`
-                          : open
-                            ? `הוסף ויזיטור ${n}`
-                            : `ויזיטור ${n} · אין הרשאה`
-                    }
+          <div
+            className={`roster-scroll visitors-scroll sidebar-visitors-scroll ${
+              workersExpanded ? 'is-row-snap' : ''
+            }`}
+          >
+            {workersExpanded ? (
+              <div className="visitors-snap-rows">
+                {VISITOR_ROWS.map((row) => (
+                  <div
+                    className="visitors-snap-row"
+                    key={`vrow-${row[0]}`}
                   >
-                    <span className="pick-label">{n}</span>
-                  </button>
-                )
-              })}
-            </div>
+                    {row.map((n) => {
+                      const present = isVisitorPresent(data, n)
+                      const open = isVisitorNumberOpen(data, n)
+                      const slot = getVisitorSlot(data, n)
+                      const modeClass =
+                        open && slot.access === 'open_constant'
+                          ? 'visitor-open'
+                          : open && slot.access === 'open_temp'
+                            ? 'visitor-open-temp'
+                            : ''
+                      return (
+                        <button
+                          key={n}
+                          type="button"
+                          className={`pick-btn visitor ${present ? 'present' : ''} ${modeClass}`}
+                          onClick={() => {
+                            clearManageMode()
+                            void addVisitorToSite(n)
+                          }}
+                          disabled={present}
+                          title={
+                            present
+                              ? 'כבר באתר'
+                              : open && slot.access === 'open_temp'
+                                ? `ויזיטור ${n} · פתוח עד חצות`
+                                : open
+                                  ? `הוסף ויזיטור ${n}`
+                                  : `ויזיטור ${n} · אין הרשאה`
+                          }
+                        >
+                          <span className="pick-label">{n}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="pick-grid visitors">
+                {Array.from({ length: VISITOR_COUNT }, (_, i) => i + 1).map((n) => {
+                  const present = isVisitorPresent(data, n)
+                  const open = isVisitorNumberOpen(data, n)
+                  const slot = getVisitorSlot(data, n)
+                  const modeClass =
+                    open && slot.access === 'open_constant'
+                      ? 'visitor-open'
+                      : open && slot.access === 'open_temp'
+                        ? 'visitor-open-temp'
+                        : ''
+                  return (
+                    <button
+                      key={n}
+                      type="button"
+                      className={`pick-btn visitor ${present ? 'present' : ''} ${modeClass}`}
+                      onClick={() => {
+                        clearManageMode()
+                        void addVisitorToSite(n)
+                      }}
+                      disabled={present}
+                      title={
+                        present
+                          ? 'כבר באתר'
+                          : open && slot.access === 'open_temp'
+                            ? `ויזיטור ${n} · פתוח עד חצות`
+                            : open
+                              ? `הוסף ויזיטור ${n}`
+                              : `ויזיטור ${n} · אין הרשאה`
+                      }
+                    >
+                      <span className="pick-label">{n}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </div>
       </aside>
