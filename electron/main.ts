@@ -492,7 +492,21 @@ async function openWhatsAppSendTextMany(phones: string[], text: string) {
   return true
 }
 
+function resolveAppIcon(): string | undefined {
+  const candidates = [
+    path.join(__dirname, '../build/icon.ico'),
+    path.join(__dirname, '../build/icon.png'),
+    path.join(process.resourcesPath, 'build/icon.ico'),
+    path.join(process.resourcesPath, 'icon.ico'),
+  ]
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate
+  }
+  return undefined
+}
+
 function createWindow() {
+  const icon = resolveAppIcon()
   const win = new BrowserWindow({
     width: 1280,
     height: 860,
@@ -500,6 +514,7 @@ function createWindow() {
     minHeight: 700,
     title: 'רשימת Chevron',
     backgroundColor: '#eef3f8',
+    ...(icon ? { icon } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -517,6 +532,9 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  if (process.platform === 'win32') {
+    app.setAppUserModelId('com.chevron.liste-travailleurs')
+  }
   ipcMain.handle('data:get', () => readData())
 
   ipcMain.handle('data:save', (_event, data: AppData) => {

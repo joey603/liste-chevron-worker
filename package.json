@@ -14,14 +14,17 @@
   "build": {
     "appId": "com.chevron.liste-travailleurs",
     "productName": "Liste Chevron",
+    "icon": "build/icon.png",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "files": [
       "dist/**/*",
       "dist-electron/**/*"
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         "nsis"
       ],
@@ -32,6 +35,9 @@
       "allowToChangeInstallationDirectory": false,
       "createDesktopShortcut": true,
       "shortcutName": "Liste Chevron",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
       "deleteAppDataOnUninstall": false,
       "runAfterFinish": true
     },
