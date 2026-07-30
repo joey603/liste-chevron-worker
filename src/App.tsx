@@ -352,6 +352,7 @@ export default function App() {
   const listRef = useRef<HTMLDivElement>(null)
   const shareRef = useRef<HTMLDivElement>(null)
   const workersScrollRef = useRef<HTMLDivElement>(null)
+  const workersAlphaLettersRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     loadData().then((loaded) => setData(normalizeData(loaded)))
@@ -489,6 +490,14 @@ export default function App() {
     return set
   }, [filteredWorkers])
 
+  const workerAlphaLetters = useMemo(() => {
+    // Mode petit (visiteurs pleins) : seulement les lettres présentes, plus lisible.
+    if (!workersExpanded) {
+      return HEBREW_ALPHABET.filter((letter) => workerLettersPresent.has(letter))
+    }
+    return [...HEBREW_ALPHABET]
+  }, [workersExpanded, workerLettersPresent])
+
   useEffect(() => {
     if (sortedWorkers.length === 0 && manageMode !== 'none') {
       setManageMode('none')
@@ -519,7 +528,17 @@ export default function App() {
     updateActiveLetter()
     root.addEventListener('scroll', updateActiveLetter, { passive: true })
     return () => root.removeEventListener('scroll', updateActiveLetter)
-  }, [filteredWorkers])
+  }, [filteredWorkers, workersExpanded])
+
+  useEffect(() => {
+    const rail = workersAlphaLettersRef.current
+    if (!rail || workersExpanded) return
+    const activeBtn = rail.querySelector<HTMLElement>(
+      '.workers-alpha-letter.is-active',
+    )
+    if (!activeBtn) return
+    activeBtn.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [activeWorkerLetter, workersExpanded, workerAlphaLetters])
 
   function scrollWorkersToLetter(letter: string) {
     const root = workersScrollRef.current
@@ -1577,7 +1596,9 @@ export default function App() {
                 </div>
               </div>
               <nav
-                className="workers-alpha-rail"
+                className={`workers-alpha-rail ${
+                  workersExpanded ? 'is-expanded' : 'is-compact'
+                }`}
                 aria-label="ניווט אלפביתי לעובדים"
               >
                 <div
@@ -1587,8 +1608,11 @@ export default function App() {
                 >
                   {activeWorkerLetter === '#' ? '•' : activeWorkerLetter}
                 </div>
-                <div className="workers-alpha-letters">
-                  {HEBREW_ALPHABET.map((letter) => {
+                <div
+                  ref={workersAlphaLettersRef}
+                  className="workers-alpha-letters"
+                >
+                  {workerAlphaLetters.map((letter) => {
                     const available = workerLettersPresent.has(letter)
                     const active = activeWorkerLetter === letter
                     return (

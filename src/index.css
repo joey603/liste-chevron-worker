@@ -1472,6 +1472,44 @@ button {
   font-weight: 800;
 }
 
+/* Mode petit : seulement les lettres présentes, plus lisibles + scroll si besoin */
+.workers-alpha-rail.is-compact {
+  flex-basis: 24px;
+  gap: 3px;
+}
+
+.workers-alpha-rail.is-compact .workers-alpha-indicator {
+  width: 24px;
+  height: 24px;
+  font-size: 0.84rem;
+}
+
+.workers-alpha-rail.is-compact .workers-alpha-letters {
+  justify-content: flex-start;
+  gap: 1px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+}
+
+.workers-alpha-rail.is-compact .workers-alpha-letters::-webkit-scrollbar {
+  display: none;
+}
+
+.workers-alpha-rail.is-compact .workers-alpha-letter {
+  flex: 0 0 auto;
+  min-height: 14px;
+  height: 14px;
+  font-size: 0.7rem;
+}
+
+.workers-alpha-rail.is-compact .workers-alpha-letter.is-active {
+  min-height: 18px;
+  height: 18px;
+  font-size: 0.78rem;
+  border-radius: 5px;
+}
+
 .roster-title-row {
   display: flex;
   align-items: center;
