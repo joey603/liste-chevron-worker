@@ -1,4 +1,4 @@
-import { CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { CSSProperties, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { domToPng } from 'modern-screenshot'
 import {
@@ -66,6 +66,143 @@ function workerAlphaLetter(worker: Worker): string {
   const raw = workerDisplayName(worker).trim().charAt(0)
   const letter = HEBREW_FINAL_TO_REGULAR[raw] ?? raw
   return (HEBREW_ALPHABET as readonly string[]).includes(letter) ? letter : '#'
+}
+
+function Icon({
+  children,
+  className = '',
+  size = 16,
+}: {
+  children: ReactNode
+  className?: string
+  size?: number
+}) {
+  return (
+    <svg
+      className={`ui-icon ${className}`.trim()}
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  )
+}
+
+function IconSearch({ size = 16 }: { size?: number }) {
+  return (
+    <Icon size={size} className="icon-search">
+      <circle
+        cx="11"
+        cy="11"
+        r="6.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.9"
+      />
+      <path
+        d="M16.2 16.2 L20 20"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+      />
+    </Icon>
+  )
+}
+
+function IconEdit({ size = 16 }: { size?: number }) {
+  return (
+    <Icon size={size} className="icon-edit">
+      <path
+        d="M4 20 L8.2 18.9 L19.2 7.9 C19.9 7.2 19.9 6.1 19.2 5.4 L18.1 4.3 C17.4 3.6 16.3 3.6 15.6 4.3 L4.6 15.3 L3.5 19.5 Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M14.8 5.2 L18.3 8.7"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </Icon>
+  )
+}
+
+function IconTrash({ size = 16 }: { size?: number }) {
+  return (
+    <Icon size={size} className="icon-trash">
+      <path
+        d="M5 7.5 H19"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="M9 7.5 V5.8 C9 5.2 9.5 4.8 10.1 4.8 H13.9 C14.5 4.8 15 5.2 15 5.8 V7.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="M7.2 7.5 L8 19 C8.1 19.6 8.5 20 9.1 20 H14.9 C15.5 20 15.9 19.6 16 19 L16.8 7.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M10.2 11 V16.5 M13.8 11 V16.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </Icon>
+  )
+}
+
+function IconAlert({ size = 16 }: { size?: number }) {
+  return (
+    <Icon size={size} className="icon-alert">
+      <path
+        d="M12 3.5 L21 19.5 H3 Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 9.5 V13.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+      />
+      <circle cx="12" cy="16.4" r="1.05" fill="currentColor" />
+    </Icon>
+  )
+}
+
+function IconPhone({ size = 16 }: { size?: number }) {
+  return (
+    <Icon size={size} className="icon-phone">
+      <path
+        d="M7.2 3.8 H10 L11.2 7.2 L9.3 8.4 C10.1 10.1 11.4 11.6 13.1 12.8 L14.4 11 L17.8 12.2 V15 C17.8 15.8 17.1 16.5 16.3 16.5 C10.2 16.5 5.3 11.6 5.3 5.5 C5.3 4.7 6 4 6.8 4 Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+        transform="translate(1 1.2)"
+      />
+    </Icon>
+  )
 }
 
 type Toast = { message: string } | null
@@ -648,18 +785,12 @@ export default function App() {
   }
 
   function onEditModeClick() {
-    setManageMode((m) => {
-      if (m === 'edit' || m === 'delete') return 'none'
-      return 'edit'
-    })
+    setManageMode((m) => (m === 'edit' ? 'none' : 'edit'))
     setEditingWorker(null)
   }
 
   function onDeleteModeClick() {
-    setManageMode((m) => {
-      if (m === 'delete' || m === 'edit') return 'none'
-      return 'delete'
-    })
+    setManageMode((m) => (m === 'delete' ? 'none' : 'delete'))
     setEditingWorker(null)
   }
 
@@ -1226,14 +1357,17 @@ export default function App() {
         <h2>רשימת נוכחים</h2>
         {showFilters && (
           <div className="list-toolbar">
-            <input
-              type="search"
-              className="list-search"
-              value={listSearch}
-              onChange={(e) => setListSearch(e.target.value)}
-              placeholder="חיפוש לפי שם…"
-              aria-label="חיפוש לפי שם"
-            />
+            <div className="search-field list-search-field">
+              <IconSearch />
+              <input
+                type="search"
+                className="list-search"
+                value={listSearch}
+                onChange={(e) => setListSearch(e.target.value)}
+                placeholder="חיפוש לפי שם…"
+                aria-label="חיפוש לפי שם"
+              />
+            </div>
             <FancySelect
               className="list-sort-picker"
               triggerClassName="list-sort-trigger"
@@ -1500,7 +1634,8 @@ export default function App() {
               onClick={onEditModeClick}
               disabled={sortedWorkers.length === 0}
             >
-              עריכה
+              <IconEdit />
+              <span>עריכה</span>
             </button>
             <button
               type="button"
@@ -1508,7 +1643,8 @@ export default function App() {
               onClick={onDeleteModeClick}
               disabled={sortedWorkers.length === 0}
             >
-              מחיקה
+              <IconTrash />
+              <span>מחיקה</span>
             </button>
           </div>
         </div>
@@ -1536,14 +1672,17 @@ export default function App() {
         >
           <h3 className="roster-title">עובדים</h3>
           {sortedWorkers.length > 0 && (
-            <input
-              type="search"
-              className="workers-search"
-              value={workerSearch}
-              onChange={(e) => setWorkerSearch(e.target.value)}
-              placeholder="חיפוש לפי שם…"
-              aria-label="חיפוש עובדים לפי שם"
-            />
+            <div className="search-field workers-search-field">
+              <IconSearch />
+              <input
+                type="search"
+                className="workers-search"
+                value={workerSearch}
+                onChange={(e) => setWorkerSearch(e.target.value)}
+                placeholder="חיפוש לפי שם…"
+                aria-label="חיפוש עובדים לפי שם"
+              />
+            </div>
           )}
           {sortedWorkers.length === 0 ? (
             <div className="roster-scroll sidebar-workers-scroll roster-empty">
@@ -1841,7 +1980,8 @@ export default function App() {
             onClick={() => void sendEmergencyList()}
             title="שליחת רשימת נוכחים למספרי החירום"
           >
-            חירום
+            <IconAlert />
+            <span>חירום</span>
           </button>
           <button
             type="button"
@@ -1852,17 +1992,43 @@ export default function App() {
             }}
             title="ניהול מספרי חירום"
           >
-            מספרים
-            {(data.settings.emergencyPhones?.length ?? 0) > 0
-              ? ` (${data.settings.emergencyPhones.length})`
-              : ''}
+            <IconPhone />
+            <span>
+              מספרים
+              {(data.settings.emergencyPhones?.length ?? 0) > 0
+                ? ` (${data.settings.emergencyPhones.length})`
+                : ''}
+            </span>
           </button>
           <button
             type="button"
-            className="btn btn-ghost btn-preview"
+            className="btn btn-preview"
             onClick={() => setShowListPreview(true)}
           >
-            תצוגה מקדימה
+            <svg
+              className="btn-preview-icon"
+              viewBox="0 0 24 24"
+              width="18"
+              height="18"
+              aria-hidden="true"
+            >
+              <path
+                d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinejoin="round"
+              />
+              <circle
+                cx="12"
+                cy="12"
+                r="2.6"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+              />
+            </svg>
+            <span>תצוגה מקדימה</span>
           </button>
         </div>
       </main>
@@ -1959,14 +2125,17 @@ export default function App() {
             <div className="preview-layout-bar">
               <span className="preview-layout-label">תצוגת מסמך</span>
               <div className="preview-layout-controls">
-                <input
-                  type="search"
-                  className="list-search preview-list-search"
-                  value={listSearch}
-                  onChange={(e) => setListSearch(e.target.value)}
-                  placeholder="חיפוש לפי שם…"
-                  aria-label="חיפוש לפי שם"
-                />
+                <div className="search-field list-search-field preview-search-field">
+                  <IconSearch />
+                  <input
+                    type="search"
+                    className="list-search preview-list-search"
+                    value={listSearch}
+                    onChange={(e) => setListSearch(e.target.value)}
+                    placeholder="חיפוש לפי שם…"
+                    aria-label="חיפוש לפי שם"
+                  />
+                </div>
                 <FancySelect
                   className="list-sort-picker"
                   triggerClassName="list-sort-trigger"
