@@ -400,21 +400,21 @@ if ($null -eq $proc) { exit 0 }
 [void][WaKeys]::SetForegroundWindow($proc.MainWindowHandle)
 $wshell = New-Object -ComObject wscript.shell
 [void]$wshell.AppActivate($proc.Id)
-Start-Sleep -Milliseconds 700
+Start-Sleep -Milliseconds 350
 if ($Mode -eq 'paste' -or $Mode -eq 'paste-enter') {
   [WaKeys]::Paste()
-  Start-Sleep -Milliseconds 250
+  Start-Sleep -Milliseconds 120
   [System.Windows.Forms.SendKeys]::SendWait('^v')
-  Start-Sleep -Milliseconds 900
+  Start-Sleep -Milliseconds 280
 }
 if ($Mode -eq 'enter' -or $Mode -eq 'paste-enter') {
   # WhatsApp Web: Enter envoie souvent ; Ctrl+Enter en secours
   [WaKeys]::Enter()
-  Start-Sleep -Milliseconds 220
+  Start-Sleep -Milliseconds 120
   [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-  Start-Sleep -Milliseconds 280
+  Start-Sleep -Milliseconds 140
   [WaKeys]::CtrlEnter()
-  Start-Sleep -Milliseconds 220
+  Start-Sleep -Milliseconds 120
   [System.Windows.Forms.SendKeys]::SendWait('^{ENTER}')
 }
 `
@@ -431,11 +431,11 @@ if ($Mode -eq 'enter' -or $Mode -eq 'paste-enter') {
           delay 0.2
           keystroke return`
             : `keystroke "v" using command down
-          delay 0.7
+          delay 0.25
           keystroke return using control down
-          delay 0.25
+          delay 0.12
           keystroke return
-          delay 0.25
+          delay 0.12
           keystroke return using control down`
       const script = `
         try
@@ -445,7 +445,7 @@ if ($Mode -eq 'enter' -or $Mode -eq 'paste-enter') {
             tell application "WhatsApp" to activate
           end try
         end try
-        delay 0.45
+        delay 0.25
         tell application "System Events"
           ${action}
         end tell
@@ -725,8 +725,8 @@ async function sendViaEmbeddedWhatsAppWeb(
     : `https://web.whatsapp.com/send?phone=${phoneNorm}`
 
   await win.loadURL(url, { userAgent: WHATSAPP_WEB_USER_AGENT })
-  await waitForWebContentsIdle(win, 20000)
-  await wait(1500)
+  await waitForWebContentsIdle(win, 15000)
+  await wait(500)
 
   // Accepter les popups "Continue" / attendre la zone de saisie, coller si besoin, envoyer
   const prepared = await win.webContents.executeJavaScript(
@@ -750,7 +750,7 @@ async function sendViaEmbeddedWhatsAppWeb(
           resolve(false)
           return
         }
-        setTimeout(tick, 250)
+        setTimeout(tick, 120)
       }
       tick()
     }))()`,
@@ -763,7 +763,10 @@ async function sendViaEmbeddedWhatsAppWeb(
 
   if (!encoded) {
     win.webContents.paste()
-    await wait(700)
+    await wait(180)
+  } else {
+    // Texte déjà dans le champ via l'URL — court délai avant Envoyer
+    await wait(120)
   }
 
   const pressEnter = () => {
@@ -771,9 +774,9 @@ async function sendViaEmbeddedWhatsAppWeb(
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
   }
   pressEnter()
-  await wait(500)
+  await wait(160)
   pressEnter()
-  await wait(800)
+  await wait(250)
   return { ok: true }
 }
 
@@ -891,9 +894,9 @@ async function openWhatsAppAndPaste() {
     await win.loadURL(`https://web.whatsapp.com/send?text=${text}`, {
       userAgent: WHATSAPP_WEB_USER_AGENT,
     })
-    await wait(3500)
+    await wait(1800)
     win.webContents.paste()
-    await wait(600)
+    await wait(180)
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
     return
@@ -904,7 +907,7 @@ async function openWhatsAppAndPaste() {
     await shell.openExternal(`https://web.whatsapp.com/send?text=${text}`)
   }
   // Collage + envoi auto après choix du contact / ouverture
-  scheduleWhatsAppPasteAndSend([3000, 5500, 8500])
+  scheduleWhatsAppPasteAndSend([2000, 3800, 5500])
 }
 
 async function openWhatsAppSendText(
@@ -958,15 +961,15 @@ async function openWhatsAppSendText(
     return { ok: false, error: 'whatsapp_unavailable' }
   }
 
-  await wait(status.channel === 'web' ? 5500 : 4200)
+  await wait(status.channel === 'web' ? 3200 : 2600)
   if (encoded) {
     await runWhatsAppKeys('enter')
   } else {
     await runWhatsAppKeys('paste-enter')
   }
-  await wait(900)
+  await wait(350)
   await runWhatsAppKeys('enter')
-  await wait(800)
+  await wait(250)
   return { ok: true }
 }
 
