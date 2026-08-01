@@ -354,8 +354,7 @@ function runWindowsPs1(script: string): Promise<string> {
 function runWhatsAppKeys(keys: 'paste' | 'enter' | 'paste-enter'): Promise<void> {
   return new Promise((resolve) => {
     if (process.platform === 'win32') {
-      // Windows: pas de clics aléatoires (comportement bizarre sur Beta).
-      // Collage + Ctrl+Entrée uniquement (Entrée = souvent nouvelle ligne).
+      // Windows: uniquement WhatsApp Web (navigateur) — jamais l'app Desktop/Beta.
       const mode =
         keys === 'paste' ? 'paste' : keys === 'enter' ? 'enter' : 'paste-enter'
       const script = `
@@ -381,35 +380,41 @@ public static class WaKeys {
   }
   public static void Paste() { Chord(VK_CONTROL, VK_V); }
   public static void CtrlEnter() { Chord(VK_CONTROL, VK_RETURN); }
+  public static void Enter() {
+    keybd_event(VK_RETURN, 0, 0, UIntPtr.Zero);
+    keybd_event(VK_RETURN, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+  }
 }
 "@
-$proc = Get-Process |
-  Where-Object { $_.ProcessName -match 'WhatsApp' -and $_.MainWindowHandle -ne 0 } |
-  Sort-Object {
-    if ($_.MainWindowTitle -match 'Beta') { 0 }
-    elseif ($_.ProcessName -match 'Beta') { 1 }
-    else { 2 }
-  } |
-  Select-Object -First 1
+$browsers = @('chrome','msedge','brave','firefox','opera','vivaldi','msedgewebview2')
+$proc = $null
+foreach ($b in $browsers) {
+  $hit = Get-Process -Name $b -ErrorAction SilentlyContinue |
+    Where-Object { $_.MainWindowTitle -match 'WhatsApp' -and $_.MainWindowHandle -ne 0 } |
+    Select-Object -First 1
+  if ($null -ne $hit) { $proc = $hit; break }
+}
 if ($null -eq $proc) { exit 0 }
 [void][WaKeys]::ShowWindowAsync($proc.MainWindowHandle, 9)
 [void][WaKeys]::SetForegroundWindow($proc.MainWindowHandle)
 $wshell = New-Object -ComObject wscript.shell
 [void]$wshell.AppActivate($proc.Id)
-Start-Sleep -Milliseconds 600
+Start-Sleep -Milliseconds 700
 if ($Mode -eq 'paste' -or $Mode -eq 'paste-enter') {
   [WaKeys]::Paste()
   Start-Sleep -Milliseconds 250
   [System.Windows.Forms.SendKeys]::SendWait('^v')
-  Start-Sleep -Milliseconds 800
+  Start-Sleep -Milliseconds 900
 }
 if ($Mode -eq 'enter' -or $Mode -eq 'paste-enter') {
-  # Ctrl+Enter = envoi typique quand Enter = nouvelle ligne (WhatsApp Desktop/Beta)
-  [WaKeys]::CtrlEnter()
+  # WhatsApp Web: Enter envoie souvent ; Ctrl+Enter en secours
+  [WaKeys]::Enter()
+  Start-Sleep -Milliseconds 220
+  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
   Start-Sleep -Milliseconds 280
-  [System.Windows.Forms.SendKeys]::SendWait('^{ENTER}')
-  Start-Sleep -Milliseconds 400
   [WaKeys]::CtrlEnter()
+  Start-Sleep -Milliseconds 220
+  [System.Windows.Forms.SendKeys]::SendWait('^{ENTER}')
 }
 `
       void runWindowsPs1(script).then(() => resolve())
@@ -500,132 +505,37 @@ async function probeWhatsAppConnection(): Promise<
   Omit<WhatsAppStatus, 'online'>
 > {
   if (process.platform === 'win32') {
+    // Windows: WhatsApp Web uniquement (pas l'application Desktop/Beta)
     const script = `
 $ErrorActionPreference = 'SilentlyContinue'
-Add-Type -AssemblyName UIAutomationClient
-Add-Type -AssemblyName UIAutomationTypes
-
-$desktopInstalled = $false
-$desktopRunning = $false
-$desktopConnected = $false
 $webOpen = $false
+$connected = $false
 $channel = 'none'
-$detail = 'none'
-
-try {
-  if (Get-AppxPackage -Name '*WhatsApp*' -ErrorAction SilentlyContinue) { $desktopInstalled = $true }
-} catch {}
-$paths = @(
-  "$env:LOCALAPPDATA\\WhatsApp\\WhatsApp.exe",
-  "$env:LOCALAPPDATA\\Programs\\WhatsApp\\WhatsApp.exe",
-  "$env:LOCALAPPDATA\\WhatsAppBeta\\WhatsApp.exe",
-  "$env:LOCALAPPDATA\\WhatsAppBeta\\WhatsApp Beta.exe",
-  "$env:LOCALAPPDATA\\Programs\\WhatsAppBeta\\WhatsApp.exe"
-)
-foreach ($p in $paths) { if (Test-Path -LiteralPath $p) { $desktopInstalled = $true } }
-foreach ($root in @('HKCU','HKLM')) {
-  foreach ($proto in @('whatsapp','whatsapp-beta')) {
-    try {
-      $k = Get-ItemProperty -Path ($root + ':\\Software\\Classes\\' + $proto + '\\shell\\open\\command') -ErrorAction SilentlyContinue
-      if ($null -ne $k) { $desktopInstalled = $true }
-    } catch {}
-  }
-}
-
-$waProcs = @(Get-Process | Where-Object { $_.ProcessName -match 'WhatsApp' -and $_.MainWindowHandle -ne 0 })
-if ($waProcs.Count -gt 0) {
-  $desktopInstalled = $true
-  $desktopRunning = $true
-  $proc = $waProcs | Sort-Object {
-    if ($_.MainWindowTitle -match 'Beta') { 0 } else { 1 }
-  } | Select-Object -First 1
-  try {
-    $root = [System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
-    if ($null -ne $root) {
-      $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
-      $texts = New-Object System.Collections.Generic.List[string]
-      $stack = New-Object System.Collections.Generic.Stack[System.Windows.Automation.AutomationElement]
-      $stack.Push($root)
-      $n = 0
-      while ($stack.Count -gt 0 -and $n -lt 250) {
-        $el = $stack.Pop()
-        $n++
-        try {
-          $name = [string]$el.Current.Name
-          if (-not [string]::IsNullOrWhiteSpace($name)) { [void]$texts.Add($name) }
-        } catch {}
-        try {
-          $child = $walker.GetFirstChild($el)
-          while ($null -ne $child) {
-            $stack.Push($child)
-            $child = $walker.GetNextSibling($child)
-          }
-        } catch {}
-      }
-      $blob = ($texts -join ' | ')
-      $login = $blob -match 'QR|קוד QR|Link with phone number|Link a device|קישור למכשיר|Scan this|סרוק|Log in|התחברות'
-      $ready = $blob -match "Type a message|הקלד הודעה|Search|חיפוש|Chats|צ'אטים|Chat list|Message|הודעה|Send|שליחה"
-      if ($login -and -not $ready) {
-        $desktopConnected = $false
-        $detail = 'desktop_login'
-      } elseif ($ready -or (-not $login)) {
-        # Fenêtre ouverte sans écran QR clair => considérée connectée
-        $desktopConnected = $true
-        $detail = 'desktop_connected'
-      }
-    } else {
-      $desktopConnected = $true
-      $detail = 'desktop_running'
-    }
-  } catch {
-    $desktopConnected = $true
-    $detail = 'desktop_running'
-  }
-}
+$detail = 'web_not_open'
 
 $browsers = @('chrome','msedge','brave','firefox','opera','vivaldi')
 foreach ($b in $browsers) {
   $hits = @(Get-Process -Name $b -ErrorAction SilentlyContinue | Where-Object {
-    $_.MainWindowTitle -match 'WhatsApp'
+    $_.MainWindowTitle -match 'WhatsApp' -and $_.MainWindowHandle -ne 0
   })
   if ($hits.Count -gt 0) {
     $webOpen = $true
+    $channel = 'web'
     $titles = ($hits | ForEach-Object { $_.MainWindowTitle }) -join ' | '
     if ($titles -match 'QR|קוד QR|Log in|התחברות') {
-      if ($detail -eq 'none') { $detail = 'web_login' }
+      $connected = $false
+      $detail = 'web_login'
     } else {
-      if (-not $desktopConnected) {
-        $detail = 'web_connected'
-      }
+      $connected = $true
+      $detail = 'web_connected'
     }
     break
   }
 }
 
-$connected = $false
-if ($desktopConnected) {
-  $connected = $true
-  $channel = 'desktop'
-  if ($detail -eq 'none' -or $detail -eq 'desktop_running') { $detail = 'desktop_connected' }
-} elseif ($webOpen -and $detail -eq 'web_connected') {
-  $connected = $true
-  $channel = 'web'
-} elseif ($webOpen -and $detail -eq 'web_login') {
-  $channel = 'web'
-} elseif ($desktopRunning) {
-  $channel = 'desktop'
-  if ($detail -eq 'none') { $detail = 'desktop_login' }
-} elseif ($desktopInstalled) {
-  $channel = 'desktop'
-  $detail = 'desktop_not_running'
-} else {
-  $channel = 'none'
-  $detail = 'not_installed'
-}
-
 Write-Output (@{
-  desktopInstalled = $desktopInstalled
-  desktopRunning = $desktopRunning
+  desktopInstalled = $false
+  desktopRunning = $false
   webOpen = $webOpen
   connected = $connected
   channel = $channel
@@ -766,10 +676,14 @@ async function getWhatsAppStatus(): Promise<WhatsAppStatus> {
 async function openWhatsAppAndPaste() {
   // Un "." ouvre l'écran "à qui envoyer" ; l'image reste dans le presse-papiers
   const text = encodeURIComponent('.')
-  try {
-    await shell.openExternal(`whatsapp://send?text=${text}`)
-  } catch {
+  if (process.platform === 'win32') {
     await shell.openExternal(`https://web.whatsapp.com/send?text=${text}`)
+  } else {
+    try {
+      await shell.openExternal(`whatsapp://send?text=${text}`)
+    } catch {
+      await shell.openExternal(`https://web.whatsapp.com/send?text=${text}`)
+    }
   }
   // Collage + envoi auto après choix du contact / ouverture
   scheduleWhatsAppPasteAndSend([3000, 5500, 8500])
@@ -788,7 +702,16 @@ async function openWhatsAppSendText(
   }
 
   const status = await getWhatsAppStatus()
-  if (!status.connected) {
+  const windowsWebOnly = process.platform === 'win32'
+
+  if (windowsWebOnly) {
+    // Sur Windows on n'utilise jamais l'app : uniquement Web.
+    // Bloquer seulement si un onglet Web est clairement sur l'écran QR.
+    if (status.detail === 'web_login') {
+      clipboard.writeText(text)
+      return { ok: false, error: 'whatsapp_not_connected' }
+    }
+  } else if (!status.connected) {
     clipboard.writeText(text)
     if (!status.desktopInstalled && !status.webOpen) {
       return { ok: false, error: 'whatsapp_unavailable' }
@@ -809,7 +732,9 @@ async function openWhatsAppSendText(
     : `https://web.whatsapp.com/send?phone=${phoneNorm}`
 
   try {
-    if (status.channel === 'web' && !status.desktopRunning) {
+    if (windowsWebOnly) {
+      await shell.openExternal(webUri)
+    } else if (status.channel === 'web' && !status.desktopRunning) {
       await shell.openExternal(webUri)
     } else {
       try {
@@ -822,10 +747,9 @@ async function openWhatsAppSendText(
     return { ok: false, error: 'whatsapp_unavailable' }
   }
 
-  // Attendre l'ouverture du chat puis coller / envoyer (Ctrl+Entrée sur Windows)
-  await wait(status.channel === 'web' ? 5500 : 4200)
+  // Attendre l'ouverture du chat puis coller / envoyer
+  await wait(windowsWebOnly || status.channel === 'web' ? 5500 : 4200)
   if (encoded) {
-    // Le texte est déjà dans le champ : envoi seulement
     await runWhatsAppKeys('enter')
   } else {
     await runWhatsAppKeys('paste-enter')
@@ -855,7 +779,12 @@ async function openWhatsAppSendTextMany(
   }
 
   const status = await getWhatsAppStatus()
-  if (!status.connected) {
+  if (process.platform === 'win32') {
+    if (status.detail === 'web_login') {
+      clipboard.writeText(text)
+      return { ok: false, error: 'whatsapp_not_connected' }
+    }
+  } else if (!status.connected) {
     clipboard.writeText(text)
     if (!status.desktopInstalled && !status.webOpen) {
       return { ok: false, error: 'whatsapp_unavailable' }

@@ -1239,7 +1239,11 @@ export default function App() {
           })
           return
         }
-        if (!status.connected && !status.whatsappAvailable) {
+        // Bloquer seulement si écran QR / login clairement détecté
+        if (
+          status.detail === 'web_login' ||
+          status.detail === 'desktop_login'
+        ) {
           const copied = await copyEmergencyFallback(text)
           const label = whatsappStatusLabel(status)
           setToast({
@@ -1264,12 +1268,12 @@ export default function App() {
           } else if (error === 'whatsapp_not_connected') {
             setToast({
               message:
-                'WhatsApp לא מחובר (אפליקציה או Web) — ההודעה הועתקה. התחברו ושלחו ידנית',
+                'WhatsApp Web לא מחובר — ההודעה הועתקה. התחברו ב־web.whatsapp.com ושלחו ידנית',
             })
           } else if (error === 'whatsapp_unavailable') {
             setToast({
               message:
-                'WhatsApp לא זמין — ההודעה הועתקה. פתחו WhatsApp ושלחו ידנית',
+                'לא ניתן לפתוח WhatsApp Web — ההודעה הועתקה. פתחו את הדפדפן ושלחו ידנית',
             })
           } else {
             setToast({ message: 'שליחת החירום נכשלה' })
@@ -2110,14 +2114,11 @@ export default function App() {
               >
                 {whatsappWarn}
               </div>
-            ) : whatsappStatus.channel === 'web' ? (
+            ) : whatsappStatus.connected || whatsappStatus.whatsappAvailable ? (
               <div className="emergency-status emergency-status-ok" role="status">
-                WhatsApp Web מחובר
-              </div>
-            ) : whatsappStatus.channel === 'desktop' &&
-              (whatsappStatus.connected || whatsappStatus.whatsappAvailable) ? (
-              <div className="emergency-status emergency-status-ok" role="status">
-                WhatsApp מחובר
+                {whatsappStatus.channel === 'desktop'
+                  ? 'WhatsApp מחובר'
+                  : 'WhatsApp Web מחובר'}
               </div>
             ) : null}
           </div>

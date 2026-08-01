@@ -125,18 +125,20 @@ export function whatsappStatusLabel(status: WhatsAppStatus): string | null {
   if (!status.online) return 'אין אינטרנט — שליחת חירום עלולה להיכשל'
   if (status.connected || status.whatsappAvailable) return null
   switch (status.detail) {
+    case 'web_login':
+      return 'WhatsApp Web פתוח אבל לא מחובר — סרקו את קוד ה־QR בדפדפן'
+    case 'web_not_open':
+      return 'פתחו WhatsApp Web בדפדפן והתחברו לפני שליחת חירום'
     case 'desktop_login':
       return 'WhatsApp פתוח אבל לא מחובר — סרקו את קוד ה־QR באפליקציה'
-    case 'web_login':
-      return 'WhatsApp Web פתוח אבל לא מחובר — התחברו בדפדפן'
     case 'desktop_not_running':
       return 'WhatsApp מותקן אך לא פועל — פתחו את האפליקציה והתחברו'
     case 'not_installed':
-      return 'WhatsApp לא מותקן / לא מחובר — התקינו או פתחו WhatsApp Web'
+      return 'WhatsApp לא מחובר — פתחו WhatsApp Web בדפדפן'
     case 'probe_failed':
-      return 'לא ניתן לבדוק את מצב WhatsApp — בדקו שהאפליקציה מחוברת'
+      return 'לא ניתן לבדוק את מצב WhatsApp Web — בדקו את הדפדפן'
     default:
-      return 'WhatsApp לא מחובר — בדקו אפליקציה או WhatsApp Web'
+      return 'WhatsApp Web לא מחובר — פתחו web.whatsapp.com בדפדפן'
   }
 }
 
