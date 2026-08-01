@@ -317,83 +317,72 @@ function setupAutoUpdater(getMainWindow: () => BrowserWindow | null) {
   setInterval(() => void check(), 15 * 60 * 1000)
 }
 
-function scheduleWhatsAppPaste(delaysMs: number[]) {
-  if (process.platform === 'win32') {
-    const activations = delaysMs
-      .map(
-        (ms) => `
-Start-Sleep -Milliseconds ${ms}
-try {
-  $wshell = New-Object -ComObject wscript.shell
-  $null = $wshell.AppActivate('WhatsApp')
-  Start-Sleep -Milliseconds 250
-  Add-Type -AssemblyName System.Windows.Forms
-  [System.Windows.Forms.SendKeys]::SendWait('^v')
-} catch {}
-`,
-      )
-      .join('\n')
-    execFile(
-      'powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', activations],
-      { windowsHide: true },
-      () => undefined,
-    )
-    return
-  }
-
-  if (process.platform === 'darwin') {
-    for (const ms of delaysMs) {
-      const script = `
-        delay ${Math.max(0.2, ms / 1000)}
-        tell application "System Events"
-          keystroke "v" using command down
-        end tell
-      `
-      execFile('osascript', ['-e', script], () => undefined)
-    }
-  }
+function wait(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms))
 }
 
-function scheduleWhatsAppEnter(delaysMs: number[]) {
-  if (process.platform === 'win32') {
-    const activations = delaysMs
-      .map(
-        (ms) => `
-Start-Sleep -Milliseconds ${ms}
+function runWhatsAppKeys(keys: 'paste' | 'enter' | 'paste-enter'): Promise<void> {
+  return new Promise((resolve) => {
+    if (process.platform === 'win32') {
+      const action =
+        keys === 'paste'
+          ? `[System.Windows.Forms.SendKeys]::SendWait('^v')`
+          : keys === 'enter'
+            ? `[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')`
+            : `[System.Windows.Forms.SendKeys]::SendWait('^v'); Start-Sleep -Milliseconds 450; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')`
+      const script = `
 try {
   $wshell = New-Object -ComObject wscript.shell
-  $null = $wshell.AppActivate('WhatsApp')
-  Start-Sleep -Milliseconds 350
-  Add-Type -AssemblyName System.Windows.Forms
-  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-} catch {}
-`,
-      )
-      .join('\n')
-    execFile(
-      'powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', activations],
-      { windowsHide: true },
-      () => undefined,
-    )
-    return
+  $activated = $false
+  foreach ($title in @('WhatsApp', 'WhatsApp Desktop')) {
+    if ($wshell.AppActivate($title)) { $activated = $true; break }
   }
+  if (-not $activated) { $null = $wshell.AppActivate('WhatsApp') }
+  Start-Sleep -Milliseconds 400
+  Add-Type -AssemblyName System.Windows.Forms
+  ${action}
+} catch {}
+`
+      execFile(
+        'powershell.exe',
+        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
+        { windowsHide: true },
+        () => resolve(),
+      )
+      return
+    }
 
-  if (process.platform === 'darwin') {
-    for (const ms of delaysMs) {
+    if (process.platform === 'darwin') {
+      const action =
+        keys === 'paste'
+          ? `keystroke "v" using command down`
+          : keys === 'enter'
+            ? `keystroke return`
+            : `keystroke "v" using command down
+          delay 0.45
+          keystroke return`
       const script = `
-        delay ${Math.max(0.2, ms / 1000)}
         try
           tell application "WhatsApp" to activate
         end try
-        delay 0.35
+        delay 0.4
         tell application "System Events"
-          keystroke return
+          ${action}
         end tell
       `
-      execFile('osascript', ['-e', script], () => undefined)
+      execFile('osascript', ['-e', script], () => resolve())
+      return
     }
+
+    resolve()
+  })
+}
+
+function scheduleWhatsAppPasteAndSend(delaysMs: number[]) {
+  for (const ms of delaysMs) {
+    setTimeout(() => {
+      void runWhatsAppKeys('paste-enter')
+    }, ms)
   }
 }
 
@@ -413,67 +402,31 @@ async function openWhatsAppAndPaste() {
   } catch {
     await shell.openExternal(`https://web.whatsapp.com/send?text=${text}`)
   }
-  // Collage auto après choix du contact / ouverture
-  scheduleWhatsAppPaste([3000, 5500, 8500])
-}
-
-function wait(ms: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, ms))
-}
-
-function pressWhatsAppEnterOnce(): Promise<void> {
-  return new Promise((resolve) => {
-    if (process.platform === 'win32') {
-      const script = `
-try {
-  $wshell = New-Object -ComObject wscript.shell
-  $null = $wshell.AppActivate('WhatsApp')
-  Start-Sleep -Milliseconds 350
-  Add-Type -AssemblyName System.Windows.Forms
-  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-} catch {}
-`
-      execFile(
-        'powershell.exe',
-        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
-        { windowsHide: true },
-        () => resolve(),
-      )
-      return
-    }
-
-    if (process.platform === 'darwin') {
-      const script = `
-        try
-          tell application "WhatsApp" to activate
-        end try
-        delay 0.35
-        tell application "System Events"
-          keystroke return
-        end tell
-      `
-      execFile('osascript', ['-e', script], () => resolve())
-      return
-    }
-
-    resolve()
-  })
+  // Collage + envoi auto après choix du contact / ouverture
+  scheduleWhatsAppPasteAndSend([3000, 5500, 8500])
 }
 
 async function openWhatsAppSendText(phone: string, text: string) {
   const phoneNorm = normalizeWhatsAppPhone(phone)
-  if (!phoneNorm) return false
-  const encoded = encodeURIComponent(text)
+  if (!phoneNorm || !text.trim()) return false
+
+  // Presse-papiers = source fiable (évite les limites d'URL WhatsApp)
+  clipboard.writeText(text)
+
   try {
-    await shell.openExternal(
-      `whatsapp://send?phone=${phoneNorm}&text=${encoded}`,
-    )
+    await shell.openExternal(`whatsapp://send?phone=${phoneNorm}`)
   } catch {
-    await shell.openExternal(`https://wa.me/${phoneNorm}?text=${encoded}`)
+    await shell.openExternal(`https://wa.me/${phoneNorm}`)
   }
-  await wait(4000)
-  await pressWhatsAppEnterOnce()
-  await wait(1200)
+
+  // Attendre l'ouverture du chat, coller la liste, puis Entrée pour envoyer
+  await wait(3200)
+  await runWhatsAppKeys('paste')
+  await wait(700)
+  await runWhatsAppKeys('enter')
+  await wait(900)
+  await runWhatsAppKeys('enter')
+  await wait(1600)
   return true
 }
 

@@ -1129,8 +1129,8 @@ export default function App() {
       setToast({
         message:
           phones.length === 1
-            ? 'הודעת חירום נשלחת ב־WhatsApp…'
-            : `הודעת חירום נשלחת ל־${phones.length} מספרים…`,
+            ? 'הרשימה נשלחת אוטומטית ב־WhatsApp…'
+            : `הרשימה נשלחת אוטומטית ל־${phones.length} מספרים…`,
       })
     } catch {
       setToast({ message: 'שגיאה בשליחת הודעת החירום' })
