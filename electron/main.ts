@@ -335,8 +335,13 @@ function runWhatsAppKeys(keys: 'paste' | 'enter' | 'paste-enter'): Promise<void>
 try {
   $wshell = New-Object -ComObject wscript.shell
   $activated = $false
-  foreach ($title in @('WhatsApp', 'WhatsApp Desktop')) {
+  foreach ($title in @('WhatsApp Beta', 'WhatsApp', 'WhatsApp Desktop')) {
     if ($wshell.AppActivate($title)) { $activated = $true; break }
+  }
+  if (-not $activated) {
+    Get-Process | Where-Object { $_.MainWindowTitle -match 'WhatsApp' -and $_.MainWindowHandle -ne 0 } | ForEach-Object {
+      if (-not $activated -and $wshell.AppActivate($_.MainWindowTitle)) { $activated = $true }
+    }
   }
   if (-not $activated) { $null = $wshell.AppActivate('WhatsApp') }
   Start-Sleep -Milliseconds 400
@@ -364,7 +369,11 @@ try {
           keystroke return`
       const script = `
         try
-          tell application "WhatsApp" to activate
+          tell application "WhatsApp Beta" to activate
+        on error
+          try
+            tell application "WhatsApp" to activate
+          end try
         end try
         delay 0.4
         tell application "System Events"
@@ -412,17 +421,45 @@ function probeWhatsAppAvailable(): Promise<boolean> {
     if (process.platform === 'win32') {
       const script = `
 $found = $false
-if (Get-Process -Name 'WhatsApp','WhatsApp.Desktop' -ErrorAction SilentlyContinue) { $found = $true }
+# Processus WhatsApp / WhatsApp Beta (noms variables selon install Store ou desktop)
+if (Get-Process | Where-Object { $_.ProcessName -match 'WhatsApp' } -ErrorAction SilentlyContinue) {
+  $found = $true
+}
+# Paquets Microsoft Store (WhatsApp Desktop + WhatsApp Beta)
+try {
+  if (Get-AppxPackage -Name '*WhatsApp*' -ErrorAction SilentlyContinue) { $found = $true }
+} catch {}
+# Chemins classiques + Beta
 $paths = @(
   "$env:LOCALAPPDATA\\WhatsApp\\WhatsApp.exe",
-  "$env:LOCALAPPDATA\\Programs\\WhatsApp\\WhatsApp.exe"
+  "$env:LOCALAPPDATA\\Programs\\WhatsApp\\WhatsApp.exe",
+  "$env:LOCALAPPDATA\\WhatsAppBeta\\WhatsApp.exe",
+  "$env:LOCALAPPDATA\\WhatsAppBeta\\WhatsApp Beta.exe",
+  "$env:LOCALAPPDATA\\Programs\\WhatsAppBeta\\WhatsApp.exe",
+  "$env:LOCALAPPDATA\\Programs\\WhatsApp Beta\\WhatsApp.exe"
 )
-foreach ($p in $paths) { if (Test-Path $p) { $found = $true } }
-foreach ($root in @('HKCU','HKLM')) {
+foreach ($p in $paths) { if (Test-Path -LiteralPath $p) { $found = $true } }
+# Dossiers locaux contenant WhatsApp / Beta
+foreach ($root in @("$env:LOCALAPPDATA", "$env:LOCALAPPDATA\\Programs")) {
   try {
-    $k = Get-ItemProperty -Path ($root + ':\\Software\\Classes\\whatsapp\\shell\\open\\command') -ErrorAction SilentlyContinue
-    if ($null -ne $k) { $found = $true }
+    Get-ChildItem -Path $root -Directory -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -match 'WhatsApp' } |
+      ForEach-Object {
+        $exe = Get-ChildItem -Path $_.FullName -Filter '*.exe' -Recurse -Depth 3 -ErrorAction SilentlyContinue |
+          Where-Object { $_.Name -match 'WhatsApp' } |
+          Select-Object -First 1
+        if ($null -ne $exe) { $found = $true }
+      }
   } catch {}
+}
+# Protocoles whatsapp / whatsapp-beta
+foreach ($root in @('HKCU','HKLM')) {
+  foreach ($proto in @('whatsapp','whatsapp-beta')) {
+    try {
+      $k = Get-ItemProperty -Path ($root + ':\\Software\\Classes\\' + $proto + '\\shell\\open\\command') -ErrorAction SilentlyContinue
+      if ($null -ne $k) { $found = $true }
+    } catch {}
+  }
 }
 if ($found) { Write-Output '1' } else { Write-Output '0' }
 `
@@ -438,9 +475,16 @@ if ($found) { Write-Output '1' } else { Write-Output '0' }
     }
 
     if (process.platform === 'darwin') {
-      execFile('osascript', ['-e', 'id of application "WhatsApp"'], (err) => {
-        resolve(!err)
-      })
+      execFile(
+        'osascript',
+        [
+          '-e',
+          'try\n id of application "WhatsApp"\non error\n id of application "WhatsApp Beta"\nend try',
+        ],
+        (err) => {
+          resolve(!err)
+        },
+      )
       return
     }
 
@@ -478,15 +522,10 @@ async function openWhatsAppSendText(
     return { ok: false, error: 'offline' }
   }
 
-  const whatsappAvailable = await probeWhatsAppAvailable()
-  if (!whatsappAvailable) {
-    clipboard.writeText(text)
-    return { ok: false, error: 'whatsapp_unavailable' }
-  }
-
   // Presse-papiers = source fiable (évite les limites d'URL WhatsApp)
   clipboard.writeText(text)
 
+  // Ne pas bloquer sur le probe (WhatsApp Beta / Store peut échapper à la détection)
   try {
     await shell.openExternal(`whatsapp://send?phone=${phoneNorm}`)
   } catch {
@@ -524,12 +563,6 @@ async function openWhatsAppSendTextMany(
   if (!isNetworkOnline()) {
     clipboard.writeText(text)
     return { ok: false, error: 'offline' }
-  }
-
-  const whatsappAvailable = await probeWhatsAppAvailable()
-  if (!whatsappAvailable) {
-    clipboard.writeText(text)
-    return { ok: false, error: 'whatsapp_unavailable' }
   }
 
   for (const phone of unique) {

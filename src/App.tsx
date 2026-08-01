@@ -1187,15 +1187,7 @@ export default function App() {
           })
           return
         }
-        if (!status.whatsappAvailable) {
-          const copied = await copyEmergencyFallback(text)
-          setToast({
-            message: copied
-              ? 'WhatsApp לא זמין — ההודעה הועתקה. פתחו WhatsApp ושלחו ידנית'
-              : 'WhatsApp לא מותקן או לא מחובר — לא ניתן לשלוח',
-          })
-          return
-        }
+        // WhatsApp Beta / Store : on tente l'envoi même si le probe est négatif
       }
 
       if (window.listeApi?.sendWhatsAppText) {
