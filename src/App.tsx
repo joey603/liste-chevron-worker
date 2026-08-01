@@ -442,6 +442,7 @@ export default function App() {
     | { phase: 'installing'; version: string }
     | { phase: 'error'; message: string }
   >(null)
+  const [updateChecking, setUpdateChecking] = useState(false)
   const [listSearch, setListSearch] = useState('')
   const [listSort, setListSort] = useState<ListSort>('time_asc')
   const [listLayout, setListLayout] = useState<ListLayout>('rows')
@@ -644,6 +645,49 @@ export default function App() {
         phase: 'error',
         message: 'הורדת העדכון נכשלה',
       })
+    }
+  }
+
+  async function checkUpdatesFromBadge() {
+    if (
+      updateState?.phase === 'downloading' ||
+      updateState?.phase === 'installing' ||
+      updateChecking
+    ) {
+      return
+    }
+    if (!window.listeApi?.checkForUpdates) {
+      setToast({ message: 'בדיקת עדכונים זמינה רק באפליקציה המותקנת' })
+      return
+    }
+
+    setUpdateChecking(true)
+    try {
+      const pending = await window.listeApi.getPendingUpdate?.()
+      if (pending?.version) {
+        setUpdateState({ phase: 'available', version: pending.version })
+        return
+      }
+
+      const result = await window.listeApi.checkForUpdates()
+      if (result.status === 'available' && result.version) {
+        setUpdateState({ phase: 'available', version: result.version })
+        return
+      }
+      if (result.status === 'error') {
+        setUpdateState({
+          phase: 'error',
+          message: result.message || 'בדיקת העדכון נכשלה',
+        })
+        return
+      }
+      setToast({
+        message: `אתם בגרסה העדכנית ביותר (v${result.version || __APP_VERSION__})`,
+      })
+    } catch {
+      setToast({ message: 'בדיקת העדכון נכשלה' })
+    } finally {
+      setUpdateChecking(false)
     }
   }
 
@@ -1665,9 +1709,15 @@ export default function App() {
           <strong>Chevron</strong>
           <span>רשימת נוכחים באתר</span>
         </div>
-        <span className="app-version" title="גרסת האפליקציה">
-          v{__APP_VERSION__}
-        </span>
+        <button
+          type="button"
+          className={`app-version ${updateChecking ? 'checking' : ''}`}
+          onClick={() => void checkUpdatesFromBadge()}
+          title="לחצו לבדיקת עדכונים"
+          disabled={updateChecking}
+        >
+          {updateChecking ? 'בודק…' : `v${__APP_VERSION__}`}
+        </button>
         <nav className="app-tabs" aria-label="ניווט ראשי">
           <button
             type="button"

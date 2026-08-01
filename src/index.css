@@ -172,6 +172,27 @@ button {
   letter-spacing: 0.02em;
   white-space: nowrap;
   flex-shrink: 0;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+button.app-version {
+  appearance: none;
+  line-height: inherit;
+}
+
+.app-version:hover:not(:disabled) {
+  background: rgba(0, 87, 168, 0.14);
+  border-color: rgba(0, 87, 168, 0.4);
+}
+
+.app-version:disabled,
+.app-version.checking {
+  opacity: 0.75;
+  cursor: wait;
 }
 
 .app-tabs {
