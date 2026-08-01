@@ -493,6 +493,11 @@ type WhatsAppStatus = {
   detail: string
 }
 
+type WhatsAppWebDomState = 'connected' | 'login' | 'loading' | 'error'
+
+let whatsappWebWin: BrowserWindow | null = null
+let isAppQuitting = false
+
 function isNetworkOnline(): boolean {
   try {
     return net.isOnline()
@@ -501,78 +506,259 @@ function isNetworkOnline(): boolean {
   }
 }
 
+function destroyWhatsAppWebWindow() {
+  if (whatsappWebWin && !whatsappWebWin.isDestroyed()) {
+    whatsappWebWin.destroy()
+  }
+  whatsappWebWin = null
+}
+
+function ensureWhatsAppWebWindow(show: boolean): BrowserWindow {
+  if (whatsappWebWin && !whatsappWebWin.isDestroyed()) {
+    if (show) {
+      whatsappWebWin.show()
+      whatsappWebWin.focus()
+    }
+    return whatsappWebWin
+  }
+
+  const icon = resolveAppIcon()
+  whatsappWebWin = new BrowserWindow({
+    width: 1100,
+    height: 820,
+    minWidth: 800,
+    minHeight: 600,
+    show: false,
+    title: 'WhatsApp Web — Chevron',
+    backgroundColor: '#111b21',
+    ...(icon ? { icon } : {}),
+    webPreferences: {
+      // Session persistante = on peut vraiment savoir si Web est connecté
+      partition: 'persist:whatsapp-web',
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  })
+
+  whatsappWebWin.on('close', (event) => {
+    // Garder la session en vie (fenêtre cachée) pour le statut de connexion
+    if (!isAppQuitting) {
+      event.preventDefault()
+      whatsappWebWin?.hide()
+    }
+  })
+
+  void whatsappWebWin.loadURL('https://web.whatsapp.com/')
+  if (show) {
+    whatsappWebWin.once('ready-to-show', () => {
+      whatsappWebWin?.show()
+    })
+  }
+  return whatsappWebWin
+}
+
+async function waitForWebContentsIdle(
+  win: BrowserWindow,
+  timeoutMs = 12000,
+): Promise<void> {
+  if (win.isDestroyed()) return
+  if (!win.webContents.isLoading()) {
+    await wait(400)
+    return
+  }
+  await Promise.race([
+    new Promise<void>((resolve) => {
+      win.webContents.once('did-finish-load', () => resolve())
+    }),
+    wait(timeoutMs),
+  ])
+}
+
+async function inspectWhatsAppWebDom(
+  win: BrowserWindow,
+): Promise<WhatsAppWebDomState> {
+  if (win.isDestroyed()) return 'error'
+  try {
+    await waitForWebContentsIdle(win)
+    const state = (await win.webContents.executeJavaScript(
+      `(() => {
+        const qr = document.querySelector(
+          '[data-testid="qrcode"], canvas[aria-label*="QR"], canvas[aria-label*="qr"], div[data-ref]'
+        );
+        const side = document.querySelector(
+          '#pane-side, [data-testid="chat-list"], #side, [aria-label*="Chat list"], [aria-label*="רשימת הצ׳אטים"]'
+        );
+        const compose = document.querySelector(
+          '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
+        );
+        const text = (document.body && document.body.innerText || '').slice(0, 2500);
+        const loginText = /QR code|Link with phone|Link a device|קישור למכשיר|סרוק את הקוד|Log in|התחברות/i.test(text);
+        if (side || compose) return 'connected';
+        if (qr || loginText) return 'login';
+        return 'loading';
+      })()`,
+      true,
+    )) as WhatsAppWebDomState
+    if (
+      state === 'connected' ||
+      state === 'login' ||
+      state === 'loading' ||
+      state === 'error'
+    ) {
+      return state
+    }
+    return 'loading'
+  } catch {
+    return 'error'
+  }
+}
+
+async function openWhatsAppWebSessionWindow(): Promise<WhatsAppStatus> {
+  const win = ensureWhatsAppWebWindow(true)
+  if (!win.webContents.getURL().includes('web.whatsapp.com')) {
+    await win.loadURL('https://web.whatsapp.com/')
+  }
+  await waitForWebContentsIdle(win, 15000)
+  // Laisser le QR se dessiner
+  await wait(1200)
+  return getWhatsAppStatus()
+}
+
+async function probeWindowsWhatsAppWeb(): Promise<
+  Omit<WhatsAppStatus, 'online'>
+> {
+  try {
+    const win = ensureWhatsAppWebWindow(false)
+    if (!win.webContents.getURL().includes('web.whatsapp.com')) {
+      await win.loadURL('https://web.whatsapp.com/')
+    }
+    let state = await inspectWhatsAppWebDom(win)
+    if (state === 'loading') {
+      await wait(2000)
+      state = await inspectWhatsAppWebDom(win)
+    }
+    if (state === 'connected') {
+      return {
+        whatsappAvailable: true,
+        channel: 'web',
+        connected: true,
+        desktopInstalled: false,
+        desktopRunning: false,
+        webOpen: true,
+        detail: 'web_connected',
+      }
+    }
+    if (state === 'login') {
+      return {
+        whatsappAvailable: false,
+        channel: 'web',
+        connected: false,
+        desktopInstalled: false,
+        desktopRunning: false,
+        webOpen: true,
+        detail: 'web_login',
+      }
+    }
+    return {
+      whatsappAvailable: false,
+      channel: 'web',
+      connected: false,
+      desktopInstalled: false,
+      desktopRunning: false,
+      webOpen: true,
+      detail: state === 'error' ? 'probe_failed' : 'web_loading',
+    }
+  } catch {
+    return {
+      whatsappAvailable: false,
+      channel: 'web',
+      connected: false,
+      desktopInstalled: false,
+      desktopRunning: false,
+      webOpen: false,
+      detail: 'probe_failed',
+    }
+  }
+}
+
+async function sendViaEmbeddedWhatsAppWeb(
+  phoneNorm: string,
+  text: string,
+): Promise<WhatsAppSendResult> {
+  clipboard.writeText(text)
+  const status = await probeWindowsWhatsAppWeb()
+  if (!status.connected) {
+    ensureWhatsAppWebWindow(true)
+    return { ok: false, error: 'whatsapp_not_connected' }
+  }
+
+  const win = ensureWhatsAppWebWindow(true)
+  const shortEnough = text.length <= 1200
+  const encoded = shortEnough ? encodeURIComponent(text) : ''
+  const url = encoded
+    ? `https://web.whatsapp.com/send?phone=${phoneNorm}&text=${encoded}`
+    : `https://web.whatsapp.com/send?phone=${phoneNorm}`
+
+  await win.loadURL(url)
+  await waitForWebContentsIdle(win, 20000)
+  await wait(1500)
+
+  // Accepter les popups "Continue" / attendre la zone de saisie, coller si besoin, envoyer
+  const prepared = await win.webContents.executeJavaScript(
+    `(() => new Promise((resolve) => {
+      let tries = 0
+      const tick = () => {
+        tries += 1
+        const okBtn = document.querySelector(
+          '[data-testid="popup-controls-ok"], button[data-testid="popup-controls-ok"]'
+        )
+        if (okBtn) okBtn.click()
+        const input = document.querySelector(
+          '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
+        )
+        if (input) {
+          input.focus()
+          resolve(true)
+          return
+        }
+        if (tries >= 40) {
+          resolve(false)
+          return
+        }
+        setTimeout(tick, 250)
+      }
+      tick()
+    }))()`,
+    true,
+  )
+
+  if (!prepared) {
+    return { ok: false, error: 'failed' }
+  }
+
+  if (!encoded) {
+    win.webContents.paste()
+    await wait(700)
+  }
+
+  const pressEnter = () => {
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
+  }
+  pressEnter()
+  await wait(500)
+  pressEnter()
+  await wait(800)
+  return { ok: true }
+}
+
 async function probeWhatsAppConnection(): Promise<
   Omit<WhatsAppStatus, 'online'>
 > {
   if (process.platform === 'win32') {
-    // Windows: WhatsApp Web uniquement (pas l'application Desktop/Beta)
-    const script = `
-$ErrorActionPreference = 'SilentlyContinue'
-$webOpen = $false
-$connected = $false
-$channel = 'none'
-$detail = 'web_not_open'
-
-$browsers = @('chrome','msedge','brave','firefox','opera','vivaldi')
-foreach ($b in $browsers) {
-  $hits = @(Get-Process -Name $b -ErrorAction SilentlyContinue | Where-Object {
-    $_.MainWindowTitle -match 'WhatsApp' -and $_.MainWindowHandle -ne 0
-  })
-  if ($hits.Count -gt 0) {
-    $webOpen = $true
-    $channel = 'web'
-    $titles = ($hits | ForEach-Object { $_.MainWindowTitle }) -join ' | '
-    if ($titles -match 'QR|קוד QR|Log in|התחברות') {
-      $connected = $false
-      $detail = 'web_login'
-    } else {
-      $connected = $true
-      $detail = 'web_connected'
-    }
-    break
-  }
-}
-
-Write-Output (@{
-  desktopInstalled = $false
-  desktopRunning = $false
-  webOpen = $webOpen
-  connected = $connected
-  channel = $channel
-  detail = $detail
-} | ConvertTo-Json -Compress)
-`
-    const raw = await runWindowsPs1(script)
-    try {
-      const parsed = JSON.parse(raw) as {
-        desktopInstalled?: boolean
-        desktopRunning?: boolean
-        webOpen?: boolean
-        connected?: boolean
-        channel?: WhatsAppChannel
-        detail?: string
-      }
-      const connected = Boolean(parsed.connected)
-      return {
-        whatsappAvailable: connected,
-        channel: parsed.channel || 'none',
-        connected,
-        desktopInstalled: Boolean(parsed.desktopInstalled),
-        desktopRunning: Boolean(parsed.desktopRunning),
-        webOpen: Boolean(parsed.webOpen),
-        detail: String(parsed.detail || 'none'),
-      }
-    } catch {
-      return {
-        whatsappAvailable: false,
-        channel: 'none',
-        connected: false,
-        desktopInstalled: false,
-        desktopRunning: false,
-        webOpen: false,
-        detail: 'probe_failed',
-      }
-    }
+    // Windows: session WhatsApp Web embarquée (vérifiable via le DOM)
+    return probeWindowsWhatsAppWeb()
   }
 
   if (process.platform === 'darwin') {
@@ -677,13 +863,19 @@ async function openWhatsAppAndPaste() {
   // Un "." ouvre l'écran "à qui envoyer" ; l'image reste dans le presse-papiers
   const text = encodeURIComponent('.')
   if (process.platform === 'win32') {
+    const win = ensureWhatsAppWebWindow(true)
+    await win.loadURL(`https://web.whatsapp.com/send?text=${text}`)
+    await wait(3500)
+    win.webContents.paste()
+    await wait(600)
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
+    return
+  }
+  try {
+    await shell.openExternal(`whatsapp://send?text=${text}`)
+  } catch {
     await shell.openExternal(`https://web.whatsapp.com/send?text=${text}`)
-  } else {
-    try {
-      await shell.openExternal(`whatsapp://send?text=${text}`)
-    } catch {
-      await shell.openExternal(`https://web.whatsapp.com/send?text=${text}`)
-    }
   }
   // Collage + envoi auto après choix du contact / ouverture
   scheduleWhatsAppPasteAndSend([3000, 5500, 8500])
@@ -701,17 +893,13 @@ async function openWhatsAppSendText(
     return { ok: false, error: 'offline' }
   }
 
-  const status = await getWhatsAppStatus()
-  const windowsWebOnly = process.platform === 'win32'
+  // Windows: WhatsApp Web embarqué (statut DOM réel + envoi dans la même session)
+  if (process.platform === 'win32') {
+    return sendViaEmbeddedWhatsAppWeb(phoneNorm, text)
+  }
 
-  if (windowsWebOnly) {
-    // Sur Windows on n'utilise jamais l'app : uniquement Web.
-    // Bloquer seulement si un onglet Web est clairement sur l'écran QR.
-    if (status.detail === 'web_login') {
-      clipboard.writeText(text)
-      return { ok: false, error: 'whatsapp_not_connected' }
-    }
-  } else if (!status.connected) {
+  const status = await getWhatsAppStatus()
+  if (!status.connected) {
     clipboard.writeText(text)
     if (!status.desktopInstalled && !status.webOpen) {
       return { ok: false, error: 'whatsapp_unavailable' }
@@ -719,7 +907,6 @@ async function openWhatsAppSendText(
     return { ok: false, error: 'whatsapp_not_connected' }
   }
 
-  // Presse-papiers = source fiable (évite les limites d'URL WhatsApp)
   clipboard.writeText(text)
 
   const shortEnough = text.length <= 1200
@@ -732,9 +919,7 @@ async function openWhatsAppSendText(
     : `https://web.whatsapp.com/send?phone=${phoneNorm}`
 
   try {
-    if (windowsWebOnly) {
-      await shell.openExternal(webUri)
-    } else if (status.channel === 'web' && !status.desktopRunning) {
+    if (status.channel === 'web' && !status.desktopRunning) {
       await shell.openExternal(webUri)
     } else {
       try {
@@ -747,8 +932,7 @@ async function openWhatsAppSendText(
     return { ok: false, error: 'whatsapp_unavailable' }
   }
 
-  // Attendre l'ouverture du chat puis coller / envoyer
-  await wait(windowsWebOnly || status.channel === 'web' ? 5500 : 4200)
+  await wait(status.channel === 'web' ? 5500 : 4200)
   if (encoded) {
     await runWhatsAppKeys('enter')
   } else {
@@ -778,13 +962,16 @@ async function openWhatsAppSendTextMany(
     return { ok: false, error: 'offline' }
   }
 
-  const status = await getWhatsAppStatus()
   if (process.platform === 'win32') {
-    if (status.detail === 'web_login') {
-      clipboard.writeText(text)
-      return { ok: false, error: 'whatsapp_not_connected' }
+    for (const phone of unique) {
+      const result = await sendViaEmbeddedWhatsAppWeb(phone, text)
+      if (!result.ok) return result
     }
-  } else if (!status.connected) {
+    return { ok: true }
+  }
+
+  const status = await getWhatsAppStatus()
+  if (!status.connected) {
     clipboard.writeText(text)
     if (!status.desktopInstalled && !status.webOpen) {
       return { ok: false, error: 'whatsapp_unavailable' }
@@ -829,6 +1016,15 @@ function createWindow() {
     },
   })
 
+  win.on('closed', () => {
+    // La fenêtre WhatsApp Web cachée empêcherait sinon la fermeture de l'app
+    if (process.platform !== 'darwin') {
+      isAppQuitting = true
+      destroyWhatsAppWebWindow()
+      app.quit()
+    }
+  })
+
   if (process.env.VITE_DEV_SERVER_URL) {
     win.loadURL(process.env.VITE_DEV_SERVER_URL)
   } else {
@@ -855,6 +1051,10 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('whatsapp:status', async () => getWhatsAppStatus())
+
+  ipcMain.handle('whatsapp:openWebSession', async () => {
+    return openWhatsAppWebSessionWindow()
+  })
 
   ipcMain.handle(
     'whatsapp:sendText',
@@ -901,11 +1101,27 @@ app.whenReady().then(() => {
   mainWindow = createWindow()
   setupAutoUpdater(() => mainWindow)
 
+  // Précharger WhatsApp Web en arrière-plan (Windows) pour un statut fiable
+  if (process.platform === 'win32') {
+    setTimeout(() => {
+      try {
+        ensureWhatsAppWebWindow(false)
+      } catch {
+        /* ignore */
+      }
+    }, 2500)
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       mainWindow = createWindow()
     }
   })
+})
+
+app.on('before-quit', () => {
+  isAppQuitting = true
+  destroyWhatsAppWebWindow()
 })
 
 app.on('window-all-closed', () => {

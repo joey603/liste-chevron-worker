@@ -466,35 +466,58 @@ export default function App() {
 
   const [viewportTick, setViewportTick] = useState(0)
 
+  async function refreshWhatsAppStatus() {
+    const online = typeof navigator !== 'undefined' ? navigator.onLine : true
+    if (window.listeApi?.getWhatsAppStatus) {
+      try {
+        const status = await window.listeApi.getWhatsAppStatus()
+        setWhatsappStatus(status)
+        return
+      } catch {
+        /* fallback below */
+      }
+    }
+    setWhatsappStatus((prev) => ({ ...prev, online }))
+  }
+
+  async function openWhatsAppWebLogin() {
+    if (!window.listeApi?.openWhatsAppWebSession) {
+      setToast({ message: 'פתיחת WhatsApp Web זמינה רק באפליקציה המותקנת' })
+      return
+    }
+    setToast({ message: 'פותח WhatsApp Web להתחברות…' })
+    try {
+      const status = await window.listeApi.openWhatsAppWebSession()
+      setWhatsappStatus(status)
+      if (status.connected || status.whatsappAvailable) {
+        setToast({ message: 'WhatsApp Web מחובר' })
+      } else {
+        setToast({
+          message: 'סרקו את קוד ה־QR בחלון WhatsApp Web שנפתח',
+        })
+      }
+    } catch {
+      setToast({ message: 'לא ניתן לפתוח את חלון WhatsApp Web' })
+    }
+  }
+
   useEffect(() => {
     let cancelled = false
 
-    async function refreshWhatsAppStatus() {
-      const online =
-        typeof navigator !== 'undefined' ? navigator.onLine : true
-      if (window.listeApi?.getWhatsAppStatus) {
-        try {
-          const status = await window.listeApi.getWhatsAppStatus()
-          if (!cancelled) setWhatsappStatus(status)
-          return
-        } catch {
-          /* fallback below */
-        }
-      }
-      if (!cancelled) {
-        setWhatsappStatus((prev) => ({ ...prev, online }))
-      }
+    async function refresh() {
+      if (cancelled) return
+      await refreshWhatsAppStatus()
     }
 
-    void refreshWhatsAppStatus()
-    const onOnline = () => void refreshWhatsAppStatus()
+    void refresh()
+    const onOnline = () => void refresh()
     const onOffline = () =>
       setWhatsappStatus((prev) => ({ ...prev, online: false }))
-    const onFocus = () => void refreshWhatsAppStatus()
+    const onFocus = () => void refresh()
     window.addEventListener('online', onOnline)
     window.addEventListener('offline', onOffline)
     window.addEventListener('focus', onFocus)
-    const interval = window.setInterval(() => void refreshWhatsAppStatus(), 12000)
+    const interval = window.setInterval(() => void refresh(), 8000)
     return () => {
       cancelled = true
       window.removeEventListener('online', onOnline)
@@ -2104,22 +2127,29 @@ export default function App() {
               </span>
             </button>
             {whatsappWarn ? (
-              <div
-                className={`emergency-status ${
+              <button
+                type="button"
+                className={`emergency-status emergency-status-button ${
                   !whatsappStatus.online
                     ? 'emergency-status-offline'
                     : 'emergency-status-whatsapp'
                 }`}
-                role="status"
+                onClick={() => void openWhatsAppWebLogin()}
+                title="פתיחת חלון התחברות WhatsApp Web"
               >
                 {whatsappWarn}
-              </div>
+              </button>
             ) : whatsappStatus.connected || whatsappStatus.whatsappAvailable ? (
-              <div className="emergency-status emergency-status-ok" role="status">
+              <button
+                type="button"
+                className="emergency-status emergency-status-ok emergency-status-button"
+                onClick={() => void openWhatsAppWebLogin()}
+                title="פתיחת WhatsApp Web"
+              >
                 {whatsappStatus.channel === 'desktop'
                   ? 'WhatsApp מחובר'
                   : 'WhatsApp Web מחובר'}
-              </div>
+              </button>
             ) : null}
           </div>
           {toast && <div className="toast">{toast.message}</div>}

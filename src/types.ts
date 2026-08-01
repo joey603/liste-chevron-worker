@@ -126,19 +126,21 @@ export function whatsappStatusLabel(status: WhatsAppStatus): string | null {
   if (status.connected || status.whatsappAvailable) return null
   switch (status.detail) {
     case 'web_login':
-      return 'WhatsApp Web פתוח אבל לא מחובר — סרקו את קוד ה־QR בדפדפן'
+      return 'WhatsApp Web לא מחובר — לחצו כאן לסריקת קוד QR'
+    case 'web_loading':
+      return 'בודק חיבור WhatsApp Web… לחצו כאן אם צריך להתחבר'
     case 'web_not_open':
-      return 'פתחו WhatsApp Web בדפדפן והתחברו לפני שליחת חירום'
+      return 'לחצו כאן להתחברות WhatsApp Web'
     case 'desktop_login':
       return 'WhatsApp פתוח אבל לא מחובר — סרקו את קוד ה־QR באפליקציה'
     case 'desktop_not_running':
       return 'WhatsApp מותקן אך לא פועל — פתחו את האפליקציה והתחברו'
     case 'not_installed':
-      return 'WhatsApp לא מחובר — פתחו WhatsApp Web בדפדפן'
+      return 'לחצו כאן להתחברות WhatsApp Web'
     case 'probe_failed':
-      return 'לא ניתן לבדוק את מצב WhatsApp Web — בדקו את הדפדפן'
+      return 'לא ניתן לבדוק את WhatsApp Web — לחצו כאן לנסות שוב'
     default:
-      return 'WhatsApp Web לא מחובר — פתחו web.whatsapp.com בדפדפן'
+      return 'WhatsApp Web לא מחובר — לחצו כאן להתחברות'
   }
 }
 
@@ -149,6 +151,7 @@ export type ListeApi = {
   openWhatsApp: () => Promise<boolean>
   shareImageToWhatsApp: (dataUrl: string) => Promise<boolean>
   getWhatsAppStatus?: () => Promise<WhatsAppStatus>
+  openWhatsAppWebSession?: () => Promise<WhatsAppStatus>
   sendWhatsAppText: (
     phone: string | string[],
     text: string,

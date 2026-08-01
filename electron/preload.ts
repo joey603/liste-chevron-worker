@@ -67,6 +67,16 @@ const api = {
     webOpen: boolean
     detail: string
   }> => ipcRenderer.invoke('whatsapp:status'),
+  openWhatsAppWebSession: (): Promise<{
+    online: boolean
+    whatsappAvailable: boolean
+    channel: 'desktop' | 'web' | 'none'
+    connected: boolean
+    desktopInstalled: boolean
+    desktopRunning: boolean
+    webOpen: boolean
+    detail: string
+  }> => ipcRenderer.invoke('whatsapp:openWebSession'),
   sendWhatsAppText: (
     phone: string | string[],
     text: string,
