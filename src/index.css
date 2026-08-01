@@ -558,6 +558,12 @@ button.app-version {
   border: 1px solid rgba(214, 150, 0, 0.35);
 }
 
+.emergency-status-ok {
+  color: #0f5132;
+  background: rgba(25, 135, 84, 0.1);
+  border: 1px solid rgba(25, 135, 84, 0.28);
+}
+
 @keyframes emergency-pulse {
   0%,
   100% {

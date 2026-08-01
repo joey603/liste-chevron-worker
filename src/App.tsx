@@ -26,6 +26,7 @@ import {
   normalizeWhatsAppPhone,
   purgeExpiredWorkers,
   WhatsAppStatus,
+  whatsappStatusLabel,
   workerDisplayName,
 } from './types'
 import chevronLogo from './assets/chevron-logo.png'
@@ -454,7 +455,14 @@ export default function App() {
   const [whatsappStatus, setWhatsappStatus] = useState<WhatsAppStatus>({
     online: typeof navigator !== 'undefined' ? navigator.onLine : true,
     whatsappAvailable: true,
+    channel: 'none',
+    connected: true,
+    desktopInstalled: false,
+    desktopRunning: false,
+    webOpen: false,
+    detail: 'unknown',
   })
+  const whatsappWarn = whatsappStatusLabel(whatsappStatus)
 
   const [viewportTick, setViewportTick] = useState(0)
 
@@ -1231,7 +1239,16 @@ export default function App() {
           })
           return
         }
-        // WhatsApp Beta / Store : on tente l'envoi même si le probe est négatif
+        if (!status.connected && !status.whatsappAvailable) {
+          const copied = await copyEmergencyFallback(text)
+          const label = whatsappStatusLabel(status)
+          setToast({
+            message: copied
+              ? `${label ?? 'WhatsApp לא מחובר'} — ההודעה הועתקה`
+              : label ?? 'WhatsApp לא מחובר',
+          })
+          return
+        }
       }
 
       if (window.listeApi?.sendWhatsAppText) {
@@ -1243,6 +1260,11 @@ export default function App() {
             setToast({
               message:
                 'אין אינטרנט — ההודעה הועתקה. שלחו ידנית כשיחזור החיבור',
+            })
+          } else if (error === 'whatsapp_not_connected') {
+            setToast({
+              message:
+                'WhatsApp לא מחובר (אפליקציה או Web) — ההודעה הועתקה. התחברו ושלחו ידנית',
             })
           } else if (error === 'whatsapp_unavailable') {
             setToast({
@@ -2051,19 +2073,11 @@ export default function App() {
             <button
               type="button"
               className={`btn btn-emergency ${
-                !whatsappStatus.online || !whatsappStatus.whatsappAvailable
-                  ? 'btn-emergency-warn'
-                  : ''
+                whatsappWarn ? 'btn-emergency-warn' : ''
               }`}
               disabled={busy}
               onClick={() => void sendEmergencyList()}
-              title={
-                !whatsappStatus.online
-                  ? 'אין חיבור לאינטרנט'
-                  : !whatsappStatus.whatsappAvailable
-                    ? 'WhatsApp לא זמין'
-                    : 'שליחת רשימת נוכחים למספרי החירום'
-              }
+              title={whatsappWarn ?? 'שליחת רשימת נוכחים למספרי החירום'}
             >
               <IconAlert />
               <span>חירום</span>
@@ -2085,7 +2099,7 @@ export default function App() {
                   : ''}
               </span>
             </button>
-            {(!whatsappStatus.online || !whatsappStatus.whatsappAvailable) && (
+            {whatsappWarn ? (
               <div
                 className={`emergency-status ${
                   !whatsappStatus.online
@@ -2094,11 +2108,18 @@ export default function App() {
                 }`}
                 role="status"
               >
-                {!whatsappStatus.online
-                  ? 'אין אינטרנט — שליחת חירום עלולה להיכשל'
-                  : 'WhatsApp לא זמין — בדקו שהאפליקציה מותקנת ומחוברת'}
+                {whatsappWarn}
               </div>
-            )}
+            ) : whatsappStatus.channel === 'web' ? (
+              <div className="emergency-status emergency-status-ok" role="status">
+                WhatsApp Web מחובר
+              </div>
+            ) : whatsappStatus.channel === 'desktop' &&
+              (whatsappStatus.connected || whatsappStatus.whatsappAvailable) ? (
+              <div className="emergency-status emergency-status-ok" role="status">
+                WhatsApp מחובר
+              </div>
+            ) : null}
           </div>
           {toast && <div className="toast">{toast.message}</div>}
           <button

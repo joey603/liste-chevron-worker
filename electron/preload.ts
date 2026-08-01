@@ -60,13 +60,23 @@ const api = {
   getWhatsAppStatus: (): Promise<{
     online: boolean
     whatsappAvailable: boolean
+    channel: 'desktop' | 'web' | 'none'
+    connected: boolean
+    desktopInstalled: boolean
+    desktopRunning: boolean
+    webOpen: boolean
+    detail: string
   }> => ipcRenderer.invoke('whatsapp:status'),
   sendWhatsAppText: (
     phone: string | string[],
     text: string,
   ): Promise<{
     ok: boolean
-    error?: 'offline' | 'whatsapp_unavailable' | 'failed'
+    error?:
+      | 'offline'
+      | 'whatsapp_unavailable'
+      | 'whatsapp_not_connected'
+      | 'failed'
   }> => ipcRenderer.invoke('whatsapp:sendText', phone, text),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
   checkForUpdates: (): Promise<{

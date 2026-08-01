@@ -323,201 +323,96 @@ function wait(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))
 }
 
+function runWindowsPs1(script: string): Promise<string> {
+  return new Promise((resolve) => {
+    const scriptPath = path.join(
+      os.tmpdir(),
+      `liste-wa-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.ps1`,
+    )
+    try {
+      fs.writeFileSync(scriptPath, script, 'utf8')
+    } catch {
+      resolve('')
+      return
+    }
+    execFile(
+      'powershell.exe',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
+      { windowsHide: true, timeout: 20000 },
+      (err, stdout) => {
+        try {
+          fs.unlinkSync(scriptPath)
+        } catch {
+          /* ignore */
+        }
+        resolve(err ? '' : String(stdout || '').trim())
+      },
+    )
+  })
+}
+
 function runWhatsAppKeys(keys: 'paste' | 'enter' | 'paste-enter'): Promise<void> {
   return new Promise((resolve) => {
     if (process.platform === 'win32') {
-      // WhatsApp Beta: Entrée = souvent nouvelle ligne. On force l'envoi via
-      // UI Automation (bouton Send/שליחה) + clic souris (LTR/RTL) + Ctrl+Entrée.
+      // Windows: pas de clics aléatoires (comportement bizarre sur Beta).
+      // Collage + Ctrl+Entrée uniquement (Entrée = souvent nouvelle ligne).
       const mode =
         keys === 'paste' ? 'paste' : keys === 'enter' ? 'enter' : 'paste-enter'
       const script = `
 $ErrorActionPreference = 'SilentlyContinue'
 $Mode = '${mode}'
 Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName UIAutomationClient
-Add-Type -AssemblyName UIAutomationTypes
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
-public static class WaInput {
-  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
-  [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
+public static class WaKeys {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
-  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
-  [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
-  [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
   [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
-  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
-  [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
-  [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
-  const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
-  const uint MOUSEEVENTF_LEFTUP = 0x0004;
   const uint KEYEVENTF_KEYUP = 0x0002;
   const byte VK_CONTROL = 0x11;
   const byte VK_RETURN = 0x0D;
   const byte VK_V = 0x56;
-  const byte VK_A = 0x41;
-  public static void ForceForeground(IntPtr hWnd) {
-    uint unused;
-    uint foreTid = GetWindowThreadProcessId(GetForegroundWindow(), out unused);
-    uint appTid = GetWindowThreadProcessId(hWnd, out unused);
-    uint curTid = GetCurrentThreadId();
-    AttachThreadInput(curTid, foreTid, true);
-    AttachThreadInput(curTid, appTid, true);
-    ShowWindowAsync(hWnd, 9);
-    SetForegroundWindow(hWnd);
-    AttachThreadInput(curTid, foreTid, false);
-    AttachThreadInput(curTid, appTid, false);
-  }
-  public static void Click(int x, int y) {
-    SetCursorPos(x, y);
-    mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
-    mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
-  }
   public static void Chord(byte mod, byte key) {
     keybd_event(mod, 0, 0, UIntPtr.Zero);
     keybd_event(key, 0, 0, UIntPtr.Zero);
     keybd_event(key, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
     keybd_event(mod, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
   }
-  public static void Key(byte key) {
-    keybd_event(key, 0, 0, UIntPtr.Zero);
-    keybd_event(key, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-  }
   public static void Paste() { Chord(VK_CONTROL, VK_V); }
-  public static void SelectAll() { Chord(VK_CONTROL, VK_A); }
-  public static void Enter() { Key(VK_RETURN); }
   public static void CtrlEnter() { Chord(VK_CONTROL, VK_RETURN); }
 }
 "@
-
-function Get-WhatsAppWindow {
-  Get-Process |
-    Where-Object { $_.ProcessName -match 'WhatsApp' -and $_.MainWindowHandle -ne 0 } |
-    Sort-Object {
-      if ($_.MainWindowTitle -match 'Beta') { 0 }
-      elseif ($_.ProcessName -match 'Beta') { 1 }
-      else { 2 }
-    } |
-    Select-Object -First 1
-}
-
-function Invoke-SendButton([IntPtr]$hwnd) {
-  try {
-    $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
-    if ($null -eq $root) { return $false }
-    $btnType = New-Object System.Windows.Automation.PropertyCondition(
-      [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-      [System.Windows.Automation.ControlType]::Button
-    )
-    $buttons = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnType)
-    foreach ($btn in $buttons) {
-      $name = [string]$btn.Current.Name
-      if ($name -match 'Send|שליחה|Envoyer|Enviar|Invia|Senden') {
-        $pattern = $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
-        $pattern.Invoke()
-        return $true
-      }
-    }
-  } catch {}
-  return $false
-}
-
-function Click-SendZones([IntPtr]$hwnd) {
-  $rect = New-Object WaInput+RECT
-  if (-not [WaInput]::GetWindowRect($hwnd, [ref]$rect)) { return }
-  $w = [Math]::Max(100, $rect.Right - $rect.Left)
-  $h = [Math]::Max(100, $rect.Bottom - $rect.Top)
-  # Zone de saisie (bas centre) puis bouton envoyer RTL (gauche) et LTR (droite)
-  $composeX = [int]($rect.Left + ($w * 0.55))
-  $composeY = [int]($rect.Bottom - 48)
-  [WaInput]::Click($composeX, $composeY)
+$proc = Get-Process |
+  Where-Object { $_.ProcessName -match 'WhatsApp' -and $_.MainWindowHandle -ne 0 } |
+  Sort-Object {
+    if ($_.MainWindowTitle -match 'Beta') { 0 }
+    elseif ($_.ProcessName -match 'Beta') { 1 }
+    else { 2 }
+  } |
+  Select-Object -First 1
+if ($null -eq $proc) { exit 0 }
+[void][WaKeys]::ShowWindowAsync($proc.MainWindowHandle, 9)
+[void][WaKeys]::SetForegroundWindow($proc.MainWindowHandle)
+$wshell = New-Object -ComObject wscript.shell
+[void]$wshell.AppActivate($proc.Id)
+Start-Sleep -Milliseconds 600
+if ($Mode -eq 'paste' -or $Mode -eq 'paste-enter') {
+  [WaKeys]::Paste()
   Start-Sleep -Milliseconds 250
-  $points = @(
-    @{ X = [int]($rect.Left + 36); Y = [int]($rect.Bottom - 42) },
-    @{ X = [int]($rect.Right - 36); Y = [int]($rect.Bottom - 42) },
-    @{ X = [int]($rect.Left + 56); Y = [int]($rect.Bottom - 56) },
-    @{ X = [int]($rect.Right - 56); Y = [int]($rect.Bottom - 56) }
-  )
-  foreach ($p in $points) {
-    [WaInput]::Click($p.X, $p.Y)
-    Start-Sleep -Milliseconds 180
-  }
+  [System.Windows.Forms.SendKeys]::SendWait('^v')
+  Start-Sleep -Milliseconds 800
 }
-
-function Force-WhatsAppSend([IntPtr]$hwnd) {
-  if (Invoke-SendButton $hwnd) { return }
-  Click-SendZones $hwnd
-  Start-Sleep -Milliseconds 200
-  [WaInput]::CtrlEnter()
-  Start-Sleep -Milliseconds 180
+if ($Mode -eq 'enter' -or $Mode -eq 'paste-enter') {
+  # Ctrl+Enter = envoi typique quand Enter = nouvelle ligne (WhatsApp Desktop/Beta)
+  [WaKeys]::CtrlEnter()
+  Start-Sleep -Milliseconds 280
   [System.Windows.Forms.SendKeys]::SendWait('^{ENTER}')
-  Start-Sleep -Milliseconds 180
-  [WaInput]::Enter()
-  Start-Sleep -Milliseconds 180
-  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-  Start-Sleep -Milliseconds 250
-  if (Invoke-SendButton $hwnd) { return }
-  Click-SendZones $hwnd
+  Start-Sleep -Milliseconds 400
+  [WaKeys]::CtrlEnter()
 }
-
-try {
-  $proc = Get-WhatsAppWindow
-  if ($null -eq $proc) { exit 0 }
-  $hwnd = $proc.MainWindowHandle
-  [WaInput]::ForceForeground($hwnd)
-  $wshell = New-Object -ComObject wscript.shell
-  [void]$wshell.AppActivate($proc.Id)
-  Start-Sleep -Milliseconds 500
-
-  if ($Mode -eq 'paste' -or $Mode -eq 'paste-enter') {
-    # Focus zone de saisie puis collage
-    $rect = New-Object WaInput+RECT
-    if ([WaInput]::GetWindowRect($hwnd, [ref]$rect)) {
-      $w = [Math]::Max(100, $rect.Right - $rect.Left)
-      [WaInput]::Click([int]($rect.Left + ($w * 0.55)), [int]($rect.Bottom - 48))
-      Start-Sleep -Milliseconds 250
-    }
-    [WaInput]::SelectAll()
-    Start-Sleep -Milliseconds 80
-    [WaInput]::Paste()
-    Start-Sleep -Milliseconds 200
-    [System.Windows.Forms.SendKeys]::SendWait('^v')
-    Start-Sleep -Milliseconds 900
-  }
-
-  if ($Mode -eq 'enter' -or $Mode -eq 'paste-enter') {
-    Force-WhatsAppSend $hwnd
-    Start-Sleep -Milliseconds 600
-    Force-WhatsAppSend $hwnd
-  }
-} catch {}
 `
-      const scriptPath = path.join(
-        os.tmpdir(),
-        `liste-wa-${process.pid}-${Date.now()}.ps1`,
-      )
-      try {
-        fs.writeFileSync(scriptPath, script, 'utf8')
-      } catch {
-        resolve()
-        return
-      }
-      execFile(
-        'powershell.exe',
-        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
-        { windowsHide: true },
-        () => {
-          try {
-            fs.unlinkSync(scriptPath)
-          } catch {
-            /* ignore */
-          }
-          resolve()
-        },
-      )
+      void runWindowsPs1(script).then(() => resolve())
       return
     }
 
@@ -573,9 +468,25 @@ function normalizeWhatsAppPhone(phone: string): string {
   return digits
 }
 
-type WhatsAppSendError = 'offline' | 'whatsapp_unavailable' | 'failed'
+type WhatsAppSendError =
+  | 'offline'
+  | 'whatsapp_unavailable'
+  | 'whatsapp_not_connected'
+  | 'failed'
 type WhatsAppSendResult = { ok: boolean; error?: WhatsAppSendError }
-type WhatsAppStatus = { online: boolean; whatsappAvailable: boolean }
+type WhatsAppChannel = 'desktop' | 'web' | 'none'
+type WhatsAppStatus = {
+  online: boolean
+  /** true si une session WhatsApp semble réellement connectée (app ou Web) */
+  whatsappAvailable: boolean
+  channel: WhatsAppChannel
+  connected: boolean
+  /** desktop installé/détecté même si pas connecté */
+  desktopInstalled: boolean
+  desktopRunning: boolean
+  webOpen: boolean
+  detail: string
+}
 
 function isNetworkOnline(): boolean {
   try {
@@ -585,86 +496,271 @@ function isNetworkOnline(): boolean {
   }
 }
 
-function probeWhatsAppAvailable(): Promise<boolean> {
-  return new Promise((resolve) => {
-    if (process.platform === 'win32') {
-      const script = `
-$found = $false
-# Processus WhatsApp / WhatsApp Beta (noms variables selon install Store ou desktop)
-if (Get-Process | Where-Object { $_.ProcessName -match 'WhatsApp' } -ErrorAction SilentlyContinue) {
-  $found = $true
-}
-# Paquets Microsoft Store (WhatsApp Desktop + WhatsApp Beta)
+async function probeWhatsAppConnection(): Promise<
+  Omit<WhatsAppStatus, 'online'>
+> {
+  if (process.platform === 'win32') {
+    const script = `
+$ErrorActionPreference = 'SilentlyContinue'
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+
+$desktopInstalled = $false
+$desktopRunning = $false
+$desktopConnected = $false
+$webOpen = $false
+$channel = 'none'
+$detail = 'none'
+
 try {
-  if (Get-AppxPackage -Name '*WhatsApp*' -ErrorAction SilentlyContinue) { $found = $true }
+  if (Get-AppxPackage -Name '*WhatsApp*' -ErrorAction SilentlyContinue) { $desktopInstalled = $true }
 } catch {}
-# Chemins classiques + Beta
 $paths = @(
   "$env:LOCALAPPDATA\\WhatsApp\\WhatsApp.exe",
   "$env:LOCALAPPDATA\\Programs\\WhatsApp\\WhatsApp.exe",
   "$env:LOCALAPPDATA\\WhatsAppBeta\\WhatsApp.exe",
   "$env:LOCALAPPDATA\\WhatsAppBeta\\WhatsApp Beta.exe",
-  "$env:LOCALAPPDATA\\Programs\\WhatsAppBeta\\WhatsApp.exe",
-  "$env:LOCALAPPDATA\\Programs\\WhatsApp Beta\\WhatsApp.exe"
+  "$env:LOCALAPPDATA\\Programs\\WhatsAppBeta\\WhatsApp.exe"
 )
-foreach ($p in $paths) { if (Test-Path -LiteralPath $p) { $found = $true } }
-# Dossiers locaux contenant WhatsApp / Beta
-foreach ($root in @("$env:LOCALAPPDATA", "$env:LOCALAPPDATA\\Programs")) {
-  try {
-    Get-ChildItem -Path $root -Directory -ErrorAction SilentlyContinue |
-      Where-Object { $_.Name -match 'WhatsApp' } |
-      ForEach-Object {
-        $exe = Get-ChildItem -Path $_.FullName -Filter '*.exe' -Recurse -Depth 3 -ErrorAction SilentlyContinue |
-          Where-Object { $_.Name -match 'WhatsApp' } |
-          Select-Object -First 1
-        if ($null -ne $exe) { $found = $true }
-      }
-  } catch {}
-}
-# Protocoles whatsapp / whatsapp-beta
+foreach ($p in $paths) { if (Test-Path -LiteralPath $p) { $desktopInstalled = $true } }
 foreach ($root in @('HKCU','HKLM')) {
   foreach ($proto in @('whatsapp','whatsapp-beta')) {
     try {
       $k = Get-ItemProperty -Path ($root + ':\\Software\\Classes\\' + $proto + '\\shell\\open\\command') -ErrorAction SilentlyContinue
-      if ($null -ne $k) { $found = $true }
+      if ($null -ne $k) { $desktopInstalled = $true }
     } catch {}
   }
 }
-if ($found) { Write-Output '1' } else { Write-Output '0' }
-`
-      execFile(
-        'powershell.exe',
-        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
-        { windowsHide: true },
-        (err, stdout) => {
-          resolve(!err && String(stdout).trim() === '1')
-        },
-      )
-      return
-    }
 
-    if (process.platform === 'darwin') {
+$waProcs = @(Get-Process | Where-Object { $_.ProcessName -match 'WhatsApp' -and $_.MainWindowHandle -ne 0 })
+if ($waProcs.Count -gt 0) {
+  $desktopInstalled = $true
+  $desktopRunning = $true
+  $proc = $waProcs | Sort-Object {
+    if ($_.MainWindowTitle -match 'Beta') { 0 } else { 1 }
+  } | Select-Object -First 1
+  try {
+    $root = [System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
+    if ($null -ne $root) {
+      $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+      $texts = New-Object System.Collections.Generic.List[string]
+      $stack = New-Object System.Collections.Generic.Stack[System.Windows.Automation.AutomationElement]
+      $stack.Push($root)
+      $n = 0
+      while ($stack.Count -gt 0 -and $n -lt 250) {
+        $el = $stack.Pop()
+        $n++
+        try {
+          $name = [string]$el.Current.Name
+          if (-not [string]::IsNullOrWhiteSpace($name)) { [void]$texts.Add($name) }
+        } catch {}
+        try {
+          $child = $walker.GetFirstChild($el)
+          while ($null -ne $child) {
+            $stack.Push($child)
+            $child = $walker.GetNextSibling($child)
+          }
+        } catch {}
+      }
+      $blob = ($texts -join ' | ')
+      $login = $blob -match 'QR|קוד QR|Link with phone number|Link a device|קישור למכשיר|Scan this|סרוק|Log in|התחברות'
+      $ready = $blob -match "Type a message|הקלד הודעה|Search|חיפוש|Chats|צ'אטים|Chat list|Message|הודעה|Send|שליחה"
+      if ($login -and -not $ready) {
+        $desktopConnected = $false
+        $detail = 'desktop_login'
+      } elseif ($ready -or (-not $login)) {
+        # Fenêtre ouverte sans écran QR clair => considérée connectée
+        $desktopConnected = $true
+        $detail = 'desktop_connected'
+      }
+    } else {
+      $desktopConnected = $true
+      $detail = 'desktop_running'
+    }
+  } catch {
+    $desktopConnected = $true
+    $detail = 'desktop_running'
+  }
+}
+
+$browsers = @('chrome','msedge','brave','firefox','opera','vivaldi')
+foreach ($b in $browsers) {
+  $hits = @(Get-Process -Name $b -ErrorAction SilentlyContinue | Where-Object {
+    $_.MainWindowTitle -match 'WhatsApp'
+  })
+  if ($hits.Count -gt 0) {
+    $webOpen = $true
+    $titles = ($hits | ForEach-Object { $_.MainWindowTitle }) -join ' | '
+    if ($titles -match 'QR|קוד QR|Log in|התחברות') {
+      if ($detail -eq 'none') { $detail = 'web_login' }
+    } else {
+      if (-not $desktopConnected) {
+        $detail = 'web_connected'
+      }
+    }
+    break
+  }
+}
+
+$connected = $false
+if ($desktopConnected) {
+  $connected = $true
+  $channel = 'desktop'
+  if ($detail -eq 'none' -or $detail -eq 'desktop_running') { $detail = 'desktop_connected' }
+} elseif ($webOpen -and $detail -eq 'web_connected') {
+  $connected = $true
+  $channel = 'web'
+} elseif ($webOpen -and $detail -eq 'web_login') {
+  $channel = 'web'
+} elseif ($desktopRunning) {
+  $channel = 'desktop'
+  if ($detail -eq 'none') { $detail = 'desktop_login' }
+} elseif ($desktopInstalled) {
+  $channel = 'desktop'
+  $detail = 'desktop_not_running'
+} else {
+  $channel = 'none'
+  $detail = 'not_installed'
+}
+
+Write-Output (@{
+  desktopInstalled = $desktopInstalled
+  desktopRunning = $desktopRunning
+  webOpen = $webOpen
+  connected = $connected
+  channel = $channel
+  detail = $detail
+} | ConvertTo-Json -Compress)
+`
+    const raw = await runWindowsPs1(script)
+    try {
+      const parsed = JSON.parse(raw) as {
+        desktopInstalled?: boolean
+        desktopRunning?: boolean
+        webOpen?: boolean
+        connected?: boolean
+        channel?: WhatsAppChannel
+        detail?: string
+      }
+      const connected = Boolean(parsed.connected)
+      return {
+        whatsappAvailable: connected,
+        channel: parsed.channel || 'none',
+        connected,
+        desktopInstalled: Boolean(parsed.desktopInstalled),
+        desktopRunning: Boolean(parsed.desktopRunning),
+        webOpen: Boolean(parsed.webOpen),
+        detail: String(parsed.detail || 'none'),
+      }
+    } catch {
+      return {
+        whatsappAvailable: false,
+        channel: 'none',
+        connected: false,
+        desktopInstalled: false,
+        desktopRunning: false,
+        webOpen: false,
+        detail: 'probe_failed',
+      }
+    }
+  }
+
+  if (process.platform === 'darwin') {
+    const installed = await new Promise<boolean>((resolve) => {
       execFile(
         'osascript',
         [
           '-e',
           'try\n id of application "WhatsApp"\non error\n id of application "WhatsApp Beta"\nend try',
         ],
-        (err) => {
-          resolve(!err)
+        (err) => resolve(!err),
+      )
+    })
+    const running = await new Promise<boolean>((resolve) => {
+      execFile(
+        'osascript',
+        [
+          '-e',
+          'tell application "System Events" to (name of processes) contains "WhatsApp" or (name of processes) contains "WhatsApp Beta"',
+        ],
+        (err, stdout) => resolve(!err && String(stdout).trim() === 'true'),
+      )
+    })
+    const webOpen = await new Promise<boolean>((resolve) => {
+      execFile(
+        'osascript',
+        [
+          '-e',
+          'tell application "System Events" to (exists (processes whose name is "Google Chrome" or name is "Safari" or name is "Microsoft Edge" or name is "Brave Browser" or name is "Firefox"))',
+        ],
+        () => {
+          execFile(
+            'osascript',
+            [
+              '-e',
+              `
+set found to false
+tell application "System Events"
+  repeat with p in (every process whose background only is false)
+    try
+      repeat with w in windows of p
+        try
+          if name of w contains "WhatsApp" then set found to true
+        end try
+      end repeat
+    end try
+  end repeat
+end tell
+return found
+`,
+            ],
+            (err, stdout) => resolve(!err && String(stdout).trim() === 'true'),
+          )
         },
       )
-      return
-    }
+    })
 
-    resolve(true)
-  })
+    // Sur Mac, si l'app tourne on considère connectée (probe UI limité)
+    const connected = running || webOpen
+    const channel: WhatsAppChannel = running
+      ? 'desktop'
+      : webOpen
+        ? 'web'
+        : installed
+          ? 'desktop'
+          : 'none'
+    return {
+      whatsappAvailable: connected,
+      channel,
+      connected,
+      desktopInstalled: installed,
+      desktopRunning: running,
+      webOpen,
+      detail: running
+        ? 'desktop_connected'
+        : webOpen
+          ? 'web_connected'
+          : installed
+            ? 'desktop_not_running'
+            : 'not_installed',
+    }
+  }
+
+  return {
+    whatsappAvailable: true,
+    channel: 'desktop',
+    connected: true,
+    desktopInstalled: true,
+    desktopRunning: true,
+    webOpen: false,
+    detail: 'unknown',
+  }
 }
 
 async function getWhatsAppStatus(): Promise<WhatsAppStatus> {
   const online = isNetworkOnline()
-  const whatsappAvailable = await probeWhatsAppAvailable()
-  return { online, whatsappAvailable }
+  const probe = await probeWhatsAppConnection()
+  return { online, ...probe }
 }
 
 async function openWhatsAppAndPaste() {
@@ -691,26 +787,52 @@ async function openWhatsAppSendText(
     return { ok: false, error: 'offline' }
   }
 
+  const status = await getWhatsAppStatus()
+  if (!status.connected) {
+    clipboard.writeText(text)
+    if (!status.desktopInstalled && !status.webOpen) {
+      return { ok: false, error: 'whatsapp_unavailable' }
+    }
+    return { ok: false, error: 'whatsapp_not_connected' }
+  }
+
   // Presse-papiers = source fiable (évite les limites d'URL WhatsApp)
   clipboard.writeText(text)
 
-  // Ne pas bloquer sur le probe (WhatsApp Beta / Store peut échapper à la détection)
+  const shortEnough = text.length <= 1200
+  const encoded = shortEnough ? encodeURIComponent(text) : ''
+  const desktopUri = encoded
+    ? `whatsapp://send?phone=${phoneNorm}&text=${encoded}`
+    : `whatsapp://send?phone=${phoneNorm}`
+  const webUri = encoded
+    ? `https://web.whatsapp.com/send?phone=${phoneNorm}&text=${encoded}`
+    : `https://web.whatsapp.com/send?phone=${phoneNorm}`
+
   try {
-    await shell.openExternal(`whatsapp://send?phone=${phoneNorm}`)
-  } catch {
-    try {
-      await shell.openExternal(`https://wa.me/${phoneNorm}`)
-    } catch {
-      return { ok: false, error: 'whatsapp_unavailable' }
+    if (status.channel === 'web' && !status.desktopRunning) {
+      await shell.openExternal(webUri)
+    } else {
+      try {
+        await shell.openExternal(desktopUri)
+      } catch {
+        await shell.openExternal(webUri)
+      }
     }
+  } catch {
+    return { ok: false, error: 'whatsapp_unavailable' }
   }
 
-  // Attendre l'ouverture du chat, coller, puis forcer l'envoi (bouton + Ctrl+Entrée)
-  await wait(4200)
-  await runWhatsAppKeys('paste-enter')
-  await wait(1400)
+  // Attendre l'ouverture du chat puis coller / envoyer (Ctrl+Entrée sur Windows)
+  await wait(status.channel === 'web' ? 5500 : 4200)
+  if (encoded) {
+    // Le texte est déjà dans le champ : envoi seulement
+    await runWhatsAppKeys('enter')
+  } else {
+    await runWhatsAppKeys('paste-enter')
+  }
+  await wait(900)
   await runWhatsAppKeys('enter')
-  await wait(1000)
+  await wait(800)
   return { ok: true }
 }
 
@@ -730,6 +852,15 @@ async function openWhatsAppSendTextMany(
   if (!isNetworkOnline()) {
     clipboard.writeText(text)
     return { ok: false, error: 'offline' }
+  }
+
+  const status = await getWhatsAppStatus()
+  if (!status.connected) {
+    clipboard.writeText(text)
+    if (!status.desktopInstalled && !status.webOpen) {
+      return { ok: false, error: 'whatsapp_unavailable' }
+    }
+    return { ok: false, error: 'whatsapp_not_connected' }
   }
 
   for (const phone of unique) {

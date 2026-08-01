@@ -101,12 +101,43 @@ export type AppData = {
 
 export type WhatsAppSendResult = {
   ok: boolean
-  error?: 'offline' | 'whatsapp_unavailable' | 'failed'
+  error?:
+    | 'offline'
+    | 'whatsapp_unavailable'
+    | 'whatsapp_not_connected'
+    | 'failed'
 }
+
+export type WhatsAppChannel = 'desktop' | 'web' | 'none'
 
 export type WhatsAppStatus = {
   online: boolean
   whatsappAvailable: boolean
+  channel?: WhatsAppChannel
+  connected?: boolean
+  desktopInstalled?: boolean
+  desktopRunning?: boolean
+  webOpen?: boolean
+  detail?: string
+}
+
+export function whatsappStatusLabel(status: WhatsAppStatus): string | null {
+  if (!status.online) return 'אין אינטרנט — שליחת חירום עלולה להיכשל'
+  if (status.connected || status.whatsappAvailable) return null
+  switch (status.detail) {
+    case 'desktop_login':
+      return 'WhatsApp פתוח אבל לא מחובר — סרקו את קוד ה־QR באפליקציה'
+    case 'web_login':
+      return 'WhatsApp Web פתוח אבל לא מחובר — התחברו בדפדפן'
+    case 'desktop_not_running':
+      return 'WhatsApp מותקן אך לא פועל — פתחו את האפליקציה והתחברו'
+    case 'not_installed':
+      return 'WhatsApp לא מותקן / לא מחובר — התקינו או פתחו WhatsApp Web'
+    case 'probe_failed':
+      return 'לא ניתן לבדוק את מצב WhatsApp — בדקו שהאפליקציה מחוברת'
+    default:
+      return 'WhatsApp לא מחובר — בדקו אפליקציה או WhatsApp Web'
+  }
 }
 
 export type ListeApi = {
