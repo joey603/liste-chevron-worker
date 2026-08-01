@@ -726,57 +726,99 @@ async function sendViaEmbeddedWhatsAppWeb(
 
   await win.loadURL(url, { userAgent: WHATSAPP_WEB_USER_AGENT })
   await waitForWebContentsIdle(win, 15000)
-  await wait(500)
+  await wait(250)
 
-  // Accepter les popups "Continue" / attendre la zone de saisie, coller si besoin, envoyer
-  const prepared = await win.webContents.executeJavaScript(
+  // Une seule passe DOM : attendre le champ, remplir si besoin, cliquer Send aussitôt
+  // (évite le délai lent collage → Entrée via SendInput)
+  const sent = await win.webContents.executeJavaScript(
     `(() => new Promise((resolve) => {
+      const message = ${JSON.stringify(text)}
+      const alreadyFilled = ${encoded ? 'true' : 'false'}
       let tries = 0
+
+      const findInput = () =>
+        document.querySelector(
+          '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
+        )
+
+      const findSend = () => {
+        const byTestId = document.querySelector('[data-testid="send"]')
+        if (byTestId) return byTestId
+        const byIcon = document.querySelector('span[data-icon="send"]')
+        if (byIcon) return byIcon.closest('button') || byIcon.parentElement
+        const buttons = Array.from(document.querySelectorAll('button,[role="button"]'))
+        return buttons.find((b) => {
+          const label = (b.getAttribute('aria-label') || b.textContent || '').toLowerCase()
+          return (
+            label.includes('send') ||
+            label.includes('שליחה') ||
+            label.includes('envoyer')
+          )
+        }) || null
+      }
+
+      const clickSend = (input) => {
+        const sendBtn = findSend()
+        if (sendBtn) {
+          sendBtn.click()
+          return true
+        }
+        const opts = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }
+        input.dispatchEvent(new KeyboardEvent('keydown', opts))
+        input.dispatchEvent(new KeyboardEvent('keypress', opts))
+        input.dispatchEvent(new KeyboardEvent('keyup', opts))
+        return true
+      }
+
       const tick = () => {
         tries += 1
         const okBtn = document.querySelector(
           '[data-testid="popup-controls-ok"], button[data-testid="popup-controls-ok"]'
         )
         if (okBtn) okBtn.click()
-        const input = document.querySelector(
-          '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
-        )
-        if (input) {
-          input.focus()
-          resolve(true)
+
+        const input = findInput()
+        if (!input) {
+          if (tries >= 50) {
+            resolve(false)
+            return
+          }
+          setTimeout(tick, 80)
           return
         }
-        if (tries >= 40) {
-          resolve(false)
-          return
+
+        input.focus()
+        if (!alreadyFilled) {
+          try {
+            document.execCommand('selectAll', false)
+            document.execCommand('insertText', false, message)
+          } catch (_) {
+            input.textContent = message
+            input.dispatchEvent(new InputEvent('input', { bubbles: true }))
+          }
         }
-        setTimeout(tick, 120)
+
+        // Envoi immédiat après remplissage (pas d'attente artificielle)
+        clickSend(input)
+        setTimeout(() => clickSend(input), 60)
+        resolve(true)
       }
       tick()
     }))()`,
     true,
   )
 
-  if (!prepared) {
-    return { ok: false, error: 'failed' }
-  }
-
-  if (!encoded) {
+  if (!sent) {
+    // Secours minimal : collage natif + Entrée sans longues pauses
     win.webContents.paste()
-    await wait(180)
-  } else {
-    // Texte déjà dans le champ via l'URL — court délai avant Envoyer
-    await wait(120)
-  }
-
-  const pressEnter = () => {
+    await wait(80)
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
+    await wait(80)
+    return { ok: true }
   }
-  pressEnter()
-  await wait(160)
-  pressEnter()
-  await wait(250)
+
+  await wait(120)
   return { ok: true }
 }
 
