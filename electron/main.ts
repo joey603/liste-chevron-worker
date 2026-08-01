@@ -9,6 +9,7 @@ import {
 } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
+import os from 'node:os'
 import { execFile } from 'node:child_process'
 import { autoUpdater } from 'electron-updater'
 
@@ -325,47 +326,75 @@ function wait(ms: number) {
 function runWhatsAppKeys(keys: 'paste' | 'enter' | 'paste-enter'): Promise<void> {
   return new Promise((resolve) => {
     if (process.platform === 'win32') {
-      // WhatsApp Beta (UWP/Chromium) ignore souvent SendKeys '{ENTER}'.
-      // On active via PID, on colle, puis on force l'envoi (Enter + Ctrl+Enter)
-      // avec keybd_event, plus fiable que SendKeys seul.
+      // WhatsApp Beta: Entrée = souvent nouvelle ligne. On force l'envoi via
+      // UI Automation (bouton Send/שליחה) + clic souris (LTR/RTL) + Ctrl+Entrée.
       const mode =
         keys === 'paste' ? 'paste' : keys === 'enter' ? 'enter' : 'paste-enter'
       const script = `
 $ErrorActionPreference = 'SilentlyContinue'
+$Mode = '${mode}'
 Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
-public static class WaKeys {
+public static class WaInput {
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+  [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
+  [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
   [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+  [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+  [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+  const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+  const uint MOUSEEVENTF_LEFTUP = 0x0004;
   const uint KEYEVENTF_KEYUP = 0x0002;
   const byte VK_CONTROL = 0x11;
   const byte VK_RETURN = 0x0D;
   const byte VK_V = 0x56;
-  public static void Paste() {
-    keybd_event(VK_CONTROL, 0, 0, UIntPtr.Zero);
-    keybd_event(VK_V, 0, 0, UIntPtr.Zero);
-    keybd_event(VK_V, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-    keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+  const byte VK_A = 0x41;
+  public static void ForceForeground(IntPtr hWnd) {
+    uint unused;
+    uint foreTid = GetWindowThreadProcessId(GetForegroundWindow(), out unused);
+    uint appTid = GetWindowThreadProcessId(hWnd, out unused);
+    uint curTid = GetCurrentThreadId();
+    AttachThreadInput(curTid, foreTid, true);
+    AttachThreadInput(curTid, appTid, true);
+    ShowWindowAsync(hWnd, 9);
+    SetForegroundWindow(hWnd);
+    AttachThreadInput(curTid, foreTid, false);
+    AttachThreadInput(curTid, appTid, false);
   }
-  public static void Enter() {
-    keybd_event(VK_RETURN, 0, 0, UIntPtr.Zero);
-    keybd_event(VK_RETURN, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+  public static void Click(int x, int y) {
+    SetCursorPos(x, y);
+    mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+    mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
   }
-  public static void CtrlEnter() {
-    keybd_event(VK_CONTROL, 0, 0, UIntPtr.Zero);
-    keybd_event(VK_RETURN, 0, 0, UIntPtr.Zero);
-    keybd_event(VK_RETURN, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-    keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+  public static void Chord(byte mod, byte key) {
+    keybd_event(mod, 0, 0, UIntPtr.Zero);
+    keybd_event(key, 0, 0, UIntPtr.Zero);
+    keybd_event(key, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+    keybd_event(mod, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
   }
+  public static void Key(byte key) {
+    keybd_event(key, 0, 0, UIntPtr.Zero);
+    keybd_event(key, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+  }
+  public static void Paste() { Chord(VK_CONTROL, VK_V); }
+  public static void SelectAll() { Chord(VK_CONTROL, VK_A); }
+  public static void Enter() { Key(VK_RETURN); }
+  public static void CtrlEnter() { Chord(VK_CONTROL, VK_RETURN); }
 }
 "@
 
-function Activate-WhatsApp {
-  $wshell = New-Object -ComObject wscript.shell
-  $proc = Get-Process |
+function Get-WhatsAppWindow {
+  Get-Process |
     Where-Object { $_.ProcessName -match 'WhatsApp' -and $_.MainWindowHandle -ne 0 } |
     Sort-Object {
       if ($_.MainWindowTitle -match 'Beta') { 0 }
@@ -373,51 +402,121 @@ function Activate-WhatsApp {
       else { 2 }
     } |
     Select-Object -First 1
-  if ($null -ne $proc) {
-    [void][WaKeys]::ShowWindowAsync($proc.MainWindowHandle, 9)
-    [void][WaKeys]::SetForegroundWindow($proc.MainWindowHandle)
-    [void]$wshell.AppActivate($proc.Id)
-    return $true
-  }
-  foreach ($title in @('WhatsApp Beta', 'WhatsApp', 'WhatsApp Desktop')) {
-    if ($wshell.AppActivate($title)) { return $true }
-  }
+}
+
+function Invoke-SendButton([IntPtr]$hwnd) {
+  try {
+    $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+    if ($null -eq $root) { return $false }
+    $btnType = New-Object System.Windows.Automation.PropertyCondition(
+      [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+      [System.Windows.Automation.ControlType]::Button
+    )
+    $buttons = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnType)
+    foreach ($btn in $buttons) {
+      $name = [string]$btn.Current.Name
+      if ($name -match 'Send|שליחה|Envoyer|Enviar|Invia|Senden') {
+        $pattern = $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+        $pattern.Invoke()
+        return $true
+      }
+    }
+  } catch {}
   return $false
 }
 
-function Send-WhatsAppMessage {
+function Click-SendZones([IntPtr]$hwnd) {
+  $rect = New-Object WaInput+RECT
+  if (-not [WaInput]::GetWindowRect($hwnd, [ref]$rect)) { return }
+  $w = [Math]::Max(100, $rect.Right - $rect.Left)
+  $h = [Math]::Max(100, $rect.Bottom - $rect.Top)
+  # Zone de saisie (bas centre) puis bouton envoyer RTL (gauche) et LTR (droite)
+  $composeX = [int]($rect.Left + ($w * 0.55))
+  $composeY = [int]($rect.Bottom - 48)
+  [WaInput]::Click($composeX, $composeY)
+  Start-Sleep -Milliseconds 250
+  $points = @(
+    @{ X = [int]($rect.Left + 36); Y = [int]($rect.Bottom - 42) },
+    @{ X = [int]($rect.Right - 36); Y = [int]($rect.Bottom - 42) },
+    @{ X = [int]($rect.Left + 56); Y = [int]($rect.Bottom - 56) },
+    @{ X = [int]($rect.Right - 56); Y = [int]($rect.Bottom - 56) }
+  )
+  foreach ($p in $points) {
+    [WaInput]::Click($p.X, $p.Y)
+    Start-Sleep -Milliseconds 180
+  }
+}
+
+function Force-WhatsAppSend([IntPtr]$hwnd) {
+  if (Invoke-SendButton $hwnd) { return }
+  Click-SendZones $hwnd
+  Start-Sleep -Milliseconds 200
+  [WaInput]::CtrlEnter()
   Start-Sleep -Milliseconds 180
-  [WaKeys]::Enter()
-  Start-Sleep -Milliseconds 220
-  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-  Start-Sleep -Milliseconds 220
-  [WaKeys]::CtrlEnter()
-  Start-Sleep -Milliseconds 220
   [System.Windows.Forms.SendKeys]::SendWait('^{ENTER}')
+  Start-Sleep -Milliseconds 180
+  [WaInput]::Enter()
+  Start-Sleep -Milliseconds 180
+  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+  Start-Sleep -Milliseconds 250
+  if (Invoke-SendButton $hwnd) { return }
+  Click-SendZones $hwnd
 }
 
 try {
-  [void](Activate-WhatsApp)
-  Start-Sleep -Milliseconds 450
-  $mode = '${mode}'
-  if ($mode -eq 'paste' -or $mode -eq 'paste-enter') {
-    [WaKeys]::Paste()
+  $proc = Get-WhatsAppWindow
+  if ($null -eq $proc) { exit 0 }
+  $hwnd = $proc.MainWindowHandle
+  [WaInput]::ForceForeground($hwnd)
+  $wshell = New-Object -ComObject wscript.shell
+  [void]$wshell.AppActivate($proc.Id)
+  Start-Sleep -Milliseconds 500
+
+  if ($Mode -eq 'paste' -or $Mode -eq 'paste-enter') {
+    # Focus zone de saisie puis collage
+    $rect = New-Object WaInput+RECT
+    if ([WaInput]::GetWindowRect($hwnd, [ref]$rect)) {
+      $w = [Math]::Max(100, $rect.Right - $rect.Left)
+      [WaInput]::Click([int]($rect.Left + ($w * 0.55)), [int]($rect.Bottom - 48))
+      Start-Sleep -Milliseconds 250
+    }
+    [WaInput]::SelectAll()
+    Start-Sleep -Milliseconds 80
+    [WaInput]::Paste()
     Start-Sleep -Milliseconds 200
     [System.Windows.Forms.SendKeys]::SendWait('^v')
-    Start-Sleep -Milliseconds 700
+    Start-Sleep -Milliseconds 900
   }
-  if ($mode -eq 'enter' -or $mode -eq 'paste-enter') {
-    Send-WhatsAppMessage
-    Start-Sleep -Milliseconds 500
-    Send-WhatsAppMessage
+
+  if ($Mode -eq 'enter' -or $Mode -eq 'paste-enter') {
+    Force-WhatsAppSend $hwnd
+    Start-Sleep -Milliseconds 600
+    Force-WhatsAppSend $hwnd
   }
 } catch {}
 `
+      const scriptPath = path.join(
+        os.tmpdir(),
+        `liste-wa-${process.pid}-${Date.now()}.ps1`,
+      )
+      try {
+        fs.writeFileSync(scriptPath, script, 'utf8')
+      } catch {
+        resolve()
+        return
+      }
       execFile(
         'powershell.exe',
-        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
+        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
         { windowsHide: true },
-        () => resolve(),
+        () => {
+          try {
+            fs.unlinkSync(scriptPath)
+          } catch {
+            /* ignore */
+          }
+          resolve()
+        },
       )
       return
     }
@@ -427,16 +526,16 @@ try {
         keys === 'paste'
           ? `keystroke "v" using command down`
           : keys === 'enter'
-            ? `keystroke return
+            ? `keystroke return using control down
           delay 0.2
-          keystroke return using control down`
+          keystroke return`
             : `keystroke "v" using command down
           delay 0.7
-          keystroke return
-          delay 0.25
           keystroke return using control down
           delay 0.25
-          keystroke return`
+          keystroke return
+          delay 0.25
+          keystroke return using control down`
       const script = `
         try
           tell application "WhatsApp Beta" to activate
@@ -606,14 +705,12 @@ async function openWhatsAppSendText(
     }
   }
 
-  // Attendre l'ouverture du chat, coller + forcer l'envoi (Enter et Ctrl+Enter)
-  await wait(3800)
+  // Attendre l'ouverture du chat, coller, puis forcer l'envoi (bouton + Ctrl+Entrée)
+  await wait(4200)
   await runWhatsAppKeys('paste-enter')
-  await wait(1200)
+  await wait(1400)
   await runWhatsAppKeys('enter')
-  await wait(900)
-  await runWhatsAppKeys('enter')
-  await wait(1200)
+  await wait(1000)
   return { ok: true }
 }
 
