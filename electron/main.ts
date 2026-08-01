@@ -706,9 +706,88 @@ async function probeWindowsWhatsAppWeb(): Promise<
   }
 }
 
+const WA_CLICK_SEND_JS = `(() => {
+  const findSend = () => {
+    const byTestId = document.querySelector('[data-testid="send"]')
+    if (byTestId) return byTestId
+    const byIcon = document.querySelector(
+      'span[data-icon="send"], span[data-icon="wds-ic-send-filled"]'
+    )
+    if (byIcon) return byIcon.closest('button') || byIcon.parentElement
+    const buttons = Array.from(
+      document.querySelectorAll('button,[role="button"]'),
+    )
+    return (
+      buttons.find((b) => {
+        const label = (
+          b.getAttribute('aria-label') ||
+          b.textContent ||
+          ''
+        ).toLowerCase()
+        return (
+          label.includes('send') ||
+          label.includes('שליחה') ||
+          label.includes('envoyer')
+        )
+      }) || null
+    )
+  }
+  const click = () => {
+    const sendBtn = findSend()
+    if (sendBtn) {
+      sendBtn.click()
+      return true
+    }
+    const input = document.querySelector(
+      '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
+    )
+    if (!input) return false
+    const opts = {
+      key: 'Enter',
+      code: 'Enter',
+      keyCode: 13,
+      which: 13,
+      bubbles: true,
+      cancelable: true,
+    }
+    input.dispatchEvent(new KeyboardEvent('keydown', opts))
+    input.dispatchEvent(new KeyboardEvent('keyup', opts))
+    return true
+  }
+  click()
+  setTimeout(click, 80)
+  return true
+})()`
+
+async function sendImageInOpenWhatsAppChat(
+  win: BrowserWindow,
+  imageDataUrl: string,
+): Promise<void> {
+  const image = nativeImage.createFromDataURL(imageDataUrl)
+  if (image.isEmpty()) return
+  clipboard.writeImage(image)
+  await wait(150)
+  await win.webContents.executeJavaScript(
+    `(() => {
+      const input = document.querySelector(
+        '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
+      )
+      if (input) input.focus()
+      return !!input
+    })()`,
+    true,
+  )
+  win.webContents.focus()
+  win.webContents.paste()
+  await wait(140)
+  await win.webContents.executeJavaScript(WA_CLICK_SEND_JS, true)
+  await wait(350)
+}
+
 async function sendViaEmbeddedWhatsAppWeb(
   phoneNorm: string,
   text: string,
+  imageDataUrl?: string,
 ): Promise<WhatsAppSendResult> {
   clipboard.writeText(text)
   const status = await probeWindowsWhatsAppWeb()
@@ -729,7 +808,6 @@ async function sendViaEmbeddedWhatsAppWeb(
   await wait(250)
 
   // Une seule passe DOM : attendre le champ, remplir si besoin, cliquer Send aussitôt
-  // (évite le délai lent collage → Entrée via SendInput)
   const sent = await win.webContents.executeJavaScript(
     `(() => new Promise((resolve) => {
       const message = ${JSON.stringify(text)}
@@ -798,7 +876,6 @@ async function sendViaEmbeddedWhatsAppWeb(
           }
         }
 
-        // Envoi immédiat après remplissage (pas d'attente artificielle)
         clickSend(input)
         setTimeout(() => clickSend(input), 60)
         resolve(true)
@@ -809,16 +886,20 @@ async function sendViaEmbeddedWhatsAppWeb(
   )
 
   if (!sent) {
-    // Secours minimal : collage natif + Entrée sans longues pauses
     win.webContents.paste()
     await wait(80)
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
     await wait(80)
-    return { ok: true }
+  } else {
+    await wait(400)
   }
 
-  await wait(120)
+  // Urgence : envoyer aussi la photo de la liste (comme le preview)
+  if (imageDataUrl) {
+    await sendImageInOpenWhatsAppChat(win, imageDataUrl)
+  }
+
   return { ok: true }
 }
 
@@ -928,6 +1009,116 @@ async function getWhatsAppStatus(): Promise<WhatsAppStatus> {
   return { online, ...probe }
 }
 
+type WhatsAppShareImageResult = {
+  ok: boolean
+  error?: 'whatsapp_not_connected' | 'no_chat' | 'pending_chat' | 'failed'
+}
+
+/** Attend un chat ouvert, colle l'image du presse-papiers ; envoi optionnel. */
+async function pasteClipboardImageAndSend(
+  win: BrowserWindow,
+  maxTries = 40,
+  autoSend = true,
+): Promise<boolean> {
+  const ready = await win.webContents.executeJavaScript(
+    `(() => new Promise((resolve) => {
+      let tries = 0
+      const maxTries = ${maxTries}
+      const findInput = () =>
+        document.querySelector(
+          '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
+        )
+      const tick = () => {
+        tries += 1
+        const input = findInput()
+        if (input) {
+          input.focus()
+          resolve(true)
+          return
+        }
+        if (tries >= maxTries) {
+          resolve(false)
+          return
+        }
+        setTimeout(tick, 80)
+      }
+      tick()
+    }))()`,
+    true,
+  )
+
+  if (!ready) return false
+
+  win.focus()
+  win.webContents.focus()
+  win.webContents.paste()
+  await wait(100)
+  // Preview : collage seulement — l'utilisateur envoie manuellement
+  if (autoSend) {
+    await win.webContents.executeJavaScript(WA_CLICK_SEND_JS, true)
+  }
+  return true
+}
+
+async function shareImageViaEmbeddedWhatsAppWeb(
+  dataUrl: string,
+): Promise<WhatsAppShareImageResult> {
+  const image = nativeImage.createFromDataURL(dataUrl)
+  if (image.isEmpty()) return { ok: false, error: 'failed' }
+
+  if (!isNetworkOnline()) {
+    clipboard.writeImage(image)
+    return { ok: false, error: 'failed' }
+  }
+
+  const status = await probeWindowsWhatsAppWeb()
+  clipboard.writeImage(image)
+
+  if (!status.connected) {
+    ensureWhatsAppWebWindow(true)
+    return { ok: false, error: 'whatsapp_not_connected' }
+  }
+
+  const win = ensureWhatsAppWebWindow(true)
+  // Toujours revenir à la liste des chats pour forcer le choix du contact
+  await win.loadURL('https://web.whatsapp.com/', {
+    userAgent: WHATSAPP_WEB_USER_AGENT,
+  })
+  await waitForWebContentsIdle(win, 15000)
+  win.show()
+  win.focus()
+  await wait(400)
+
+  // Après choix du contact : coller la photo seulement (pas d'envoi auto)
+  void (async () => {
+    try {
+      await win.webContents.executeJavaScript(
+        `(() => new Promise((resolve) => {
+          let tries = 0
+          const hasInput = () =>
+            !!document.querySelector(
+              '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
+            )
+          const tick = () => {
+            tries += 1
+            if (!hasInput() || tries >= 40) {
+              resolve(true)
+              return
+            }
+            setTimeout(tick, 100)
+          }
+          tick()
+        }))()`,
+        true,
+      )
+      await pasteClipboardImageAndSend(win, 600, false)
+    } catch {
+      /* ignore */
+    }
+  })()
+  return { ok: true, error: 'pending_chat' }
+}
+
 async function openWhatsAppAndPaste() {
   // Un "." ouvre l'écran "à qui envoyer" ; l'image reste dans le presse-papiers
   const text = encodeURIComponent('.')
@@ -936,11 +1127,15 @@ async function openWhatsAppAndPaste() {
     await win.loadURL(`https://web.whatsapp.com/send?text=${text}`, {
       userAgent: WHATSAPP_WEB_USER_AGENT,
     })
-    await wait(1800)
-    win.webContents.paste()
-    await wait(180)
-    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
-    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
+    await waitForWebContentsIdle(win, 12000)
+    await wait(400)
+    const sent = await pasteClipboardImageAndSend(win)
+    if (!sent) {
+      win.webContents.paste()
+      await wait(100)
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
+      win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
+    }
     return
   }
   try {
@@ -955,6 +1150,7 @@ async function openWhatsAppAndPaste() {
 async function openWhatsAppSendText(
   phone: string,
   text: string,
+  imageDataUrl?: string,
 ): Promise<WhatsAppSendResult> {
   const phoneNorm = normalizeWhatsAppPhone(phone)
   if (!phoneNorm || !text.trim()) return { ok: false, error: 'failed' }
@@ -966,7 +1162,7 @@ async function openWhatsAppSendText(
 
   // Windows: WhatsApp Web embarqué (statut DOM réel + envoi dans la même session)
   if (process.platform === 'win32') {
-    return sendViaEmbeddedWhatsAppWeb(phoneNorm, text)
+    return sendViaEmbeddedWhatsAppWeb(phoneNorm, text, imageDataUrl)
   }
 
   const status = await getWhatsAppStatus()
@@ -1012,12 +1208,24 @@ async function openWhatsAppSendText(
   await wait(350)
   await runWhatsAppKeys('enter')
   await wait(250)
+
+  if (imageDataUrl) {
+    const image = nativeImage.createFromDataURL(imageDataUrl)
+    if (!image.isEmpty()) {
+      clipboard.writeImage(image)
+      await wait(400)
+      await runWhatsAppKeys('paste-enter')
+      await wait(300)
+    }
+  }
+
   return { ok: true }
 }
 
 async function openWhatsAppSendTextMany(
   phones: string[],
   text: string,
+  imageDataUrl?: string,
 ): Promise<WhatsAppSendResult> {
   const unique = Array.from(
     new Set(
@@ -1035,7 +1243,11 @@ async function openWhatsAppSendTextMany(
 
   if (process.platform === 'win32') {
     for (const phone of unique) {
-      const result = await sendViaEmbeddedWhatsAppWeb(phone, text)
+      const result = await sendViaEmbeddedWhatsAppWeb(
+        phone,
+        text,
+        imageDataUrl,
+      )
       if (!result.ok) return result
     }
     return { ok: true }
@@ -1051,7 +1263,7 @@ async function openWhatsAppSendTextMany(
   }
 
   for (const phone of unique) {
-    const result = await openWhatsAppSendText(phone, text)
+    const result = await openWhatsAppSendText(phone, text, imageDataUrl)
     if (!result.ok) return result
   }
   return { ok: true }
@@ -1129,11 +1341,17 @@ app.whenReady().then(() => {
 
   ipcMain.handle(
     'whatsapp:sendText',
-    async (_event, phone: string | string[], text: string) => {
+    async (
+      _event,
+      phone: string | string[],
+      text: string,
+      imageDataUrl?: string,
+    ) => {
       const phones = Array.isArray(phone) ? phone : [phone]
       return openWhatsAppSendTextMany(
         phones.map((p) => String(p || '')),
         String(text || ''),
+        imageDataUrl ? String(imageDataUrl) : undefined,
       )
     },
   )
@@ -1147,11 +1365,14 @@ app.whenReady().then(() => {
   ipcMain.handle(
     'whatsapp:shareImage',
     async (_event, dataUrl: string) => {
+      if (process.platform === 'win32') {
+        return shareImageViaEmbeddedWhatsAppWeb(String(dataUrl || ''))
+      }
       const image = nativeImage.createFromDataURL(dataUrl)
-      if (image.isEmpty()) return false
+      if (image.isEmpty()) return { ok: false, error: 'failed' as const }
       clipboard.writeImage(image)
       await openWhatsAppAndPaste()
-      return true
+      return { ok: true }
     },
   )
 

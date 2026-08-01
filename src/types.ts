@@ -149,12 +149,23 @@ export type ListeApi = {
   saveData: (data: AppData) => Promise<boolean>
   copyImage: (dataUrl: string) => Promise<boolean>
   openWhatsApp: () => Promise<boolean>
-  shareImageToWhatsApp: (dataUrl: string) => Promise<boolean>
+  shareImageToWhatsApp: (dataUrl: string) => Promise<
+    | boolean
+    | {
+        ok: boolean
+        error?:
+          | 'whatsapp_not_connected'
+          | 'no_chat'
+          | 'pending_chat'
+          | 'failed'
+      }
+  >
   getWhatsAppStatus?: () => Promise<WhatsAppStatus>
   openWhatsAppWebSession?: () => Promise<WhatsAppStatus>
   sendWhatsAppText: (
     phone: string | string[],
     text: string,
+    imageDataUrl?: string,
   ) => Promise<boolean | WhatsAppSendResult>
   getAppVersion: () => Promise<string>
   checkForUpdates: () => Promise<{

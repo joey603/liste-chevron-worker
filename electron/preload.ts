@@ -55,8 +55,12 @@ const api = {
   copyImage: (dataUrl: string): Promise<boolean> =>
     ipcRenderer.invoke('clipboard:writeImage', dataUrl),
   openWhatsApp: (): Promise<boolean> => ipcRenderer.invoke('whatsapp:open'),
-  shareImageToWhatsApp: (dataUrl: string): Promise<boolean> =>
-    ipcRenderer.invoke('whatsapp:shareImage', dataUrl),
+  shareImageToWhatsApp: (
+    dataUrl: string,
+  ): Promise<{
+    ok: boolean
+    error?: 'whatsapp_not_connected' | 'no_chat' | 'pending_chat' | 'failed'
+  }> => ipcRenderer.invoke('whatsapp:shareImage', dataUrl),
   getWhatsAppStatus: (): Promise<{
     online: boolean
     whatsappAvailable: boolean
@@ -80,6 +84,7 @@ const api = {
   sendWhatsAppText: (
     phone: string | string[],
     text: string,
+    imageDataUrl?: string,
   ): Promise<{
     ok: boolean
     error?:
@@ -87,7 +92,7 @@ const api = {
       | 'whatsapp_unavailable'
       | 'whatsapp_not_connected'
       | 'failed'
-  }> => ipcRenderer.invoke('whatsapp:sendText', phone, text),
+  }> => ipcRenderer.invoke('whatsapp:sendText', phone, text, imageDataUrl),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
   checkForUpdates: (): Promise<{
     status: 'available' | 'up-to-date' | 'error'

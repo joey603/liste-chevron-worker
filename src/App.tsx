@@ -1224,6 +1224,86 @@ export default function App() {
     }
   }
 
+  async function captureListImageDataUrl(): Promise<string | null> {
+    const visiblePage = document.querySelector(
+      '.preview-share-wrap .preview-pdf-page',
+    ) as HTMLElement | null
+    const fallbackRoot = shareRef.current
+    const source =
+      visiblePage ||
+      (fallbackRoot?.querySelector('.preview-pdf-page') as HTMLElement | null) ||
+      fallbackRoot
+
+    if (!source) return null
+
+    const host = document.createElement('div')
+    host.setAttribute('data-capture-host', '1')
+    host.style.cssText = [
+      'position:fixed',
+      'left:0',
+      'top:0',
+      'z-index:2147483647',
+      'background:#ffffff',
+      'padding:0',
+      'margin:0',
+      'opacity:1',
+      'filter:none',
+      'pointer-events:none',
+      'transform:none',
+    ].join(';')
+
+    const clone = source.cloneNode(true) as HTMLElement
+    clone.style.width = `${Math.max(source.scrollWidth, source.clientWidth, 900)}px`
+    clone.style.maxWidth = 'none'
+    clone.style.height = 'auto'
+    clone.style.maxHeight = 'none'
+    clone.style.overflow = 'visible'
+    clone.style.opacity = '1'
+    clone.style.filter = 'none'
+    clone.style.background = '#ffffff'
+    clone.style.boxShadow = 'none'
+    clone.style.border = 'none'
+    clone.style.transform = 'none'
+
+    clone
+      .querySelectorAll<HTMLElement>('.people.doc-scroll-list, .list-capture, .people')
+      .forEach((node) => {
+        node.style.overflow = 'visible'
+        node.style.maxHeight = 'none'
+        node.style.height = 'auto'
+        node.style.opacity = '1'
+        node.style.filter = 'none'
+      })
+
+    clone.querySelectorAll<HTMLElement>('*').forEach((node) => {
+      node.style.animation = 'none'
+      node.style.transition = 'none'
+    })
+
+    host.appendChild(clone)
+    document.body.appendChild(host)
+
+    try {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      })
+      return await domToPng(clone, {
+        backgroundColor: '#ffffff',
+        scale: Math.min(2, window.devicePixelRatio || 2),
+        quality: 1,
+        style: {
+          opacity: '1',
+          filter: 'none',
+          transform: 'none',
+        },
+      })
+    } catch {
+      return null
+    } finally {
+      host.remove()
+    }
+  }
+
   async function sendEmergencyList() {
     if (!data) return
     const phones = data.settings.emergencyPhones ?? []
@@ -1237,6 +1317,7 @@ export default function App() {
     try {
       const present = data.people.filter(isPresent)
       const text = buildEmergencyMessage(data, present)
+      const listImage = await captureListImageDataUrl()
 
       const browserOnline =
         typeof navigator !== 'undefined' ? navigator.onLine : true
@@ -1279,7 +1360,11 @@ export default function App() {
       }
 
       if (window.listeApi?.sendWhatsAppText) {
-        const result = await window.listeApi.sendWhatsAppText(phones, text)
+        const result = await window.listeApi.sendWhatsAppText(
+          phones,
+          text,
+          listImage ?? undefined,
+        )
         const ok = typeof result === 'boolean' ? result : result.ok
         const error = typeof result === 'boolean' ? undefined : result.error
         if (!ok) {
@@ -1316,8 +1401,12 @@ export default function App() {
       setToast({
         message:
           phones.length === 1
-            ? 'הרשימה נשלחת אוטומטית ב־WhatsApp…'
-            : `הרשימה נשלחת אוטומטית ל־${phones.length} מספרים…`,
+            ? listImage
+              ? 'הודעת החירום והתמונה נשלחות ב־WhatsApp…'
+              : 'הרשימה נשלחת אוטומטית ב־WhatsApp…'
+            : listImage
+              ? `הודעת החירום והתמונה נשלחות ל־${phones.length} מספרים…`
+              : `הרשימה נשלחת אוטומטית ל־${phones.length} מספרים…`,
       })
     } catch {
       setToast({ message: 'שגיאה בשליחת הודעת החירום' })
@@ -1378,105 +1467,63 @@ export default function App() {
     if (!data) return
     setBusy(true)
 
-    const visiblePage = document.querySelector(
-      '.preview-share-wrap .preview-pdf-page',
-    ) as HTMLElement | null
-    const fallbackRoot = shareRef.current
-    const source =
-      visiblePage ||
-      (fallbackRoot?.querySelector('.preview-pdf-page') as HTMLElement | null) ||
-      fallbackRoot
-
-    if (!source) {
-      setBusy(false)
-      return
-    }
-
-    // Isoler hors du modal (backdrop / stacking) pour une capture nette.
-    const host = document.createElement('div')
-    host.setAttribute('data-capture-host', '1')
-    host.style.cssText = [
-      'position:fixed',
-      'left:0',
-      'top:0',
-      'z-index:2147483647',
-      'background:#ffffff',
-      'padding:0',
-      'margin:0',
-      'opacity:1',
-      'filter:none',
-      'pointer-events:none',
-      'transform:none',
-    ].join(';')
-
-    const clone = source.cloneNode(true) as HTMLElement
-    clone.style.width = `${Math.max(source.scrollWidth, source.clientWidth, 900)}px`
-    clone.style.maxWidth = 'none'
-    clone.style.height = 'auto'
-    clone.style.maxHeight = 'none'
-    clone.style.overflow = 'visible'
-    clone.style.opacity = '1'
-    clone.style.filter = 'none'
-    clone.style.background = '#ffffff'
-    clone.style.boxShadow = 'none'
-    clone.style.border = 'none'
-    clone.style.transform = 'none'
-
-    clone
-      .querySelectorAll<HTMLElement>('.people.doc-scroll-list, .list-capture, .people')
-      .forEach((node) => {
-        node.style.overflow = 'visible'
-        node.style.maxHeight = 'none'
-        node.style.height = 'auto'
-        node.style.opacity = '1'
-        node.style.filter = 'none'
-      })
-
-    // Couper les animations (rise) qui peuvent laisser un rendu semi-transparent.
-    clone.querySelectorAll<HTMLElement>('*').forEach((node) => {
-      node.style.animation = 'none'
-      node.style.transition = 'none'
-    })
-
-    host.appendChild(clone)
-    document.body.appendChild(host)
-
     try {
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-      })
-
-      const dataUrl = await domToPng(clone, {
-        backgroundColor: '#ffffff',
-        scale: Math.min(2, window.devicePixelRatio || 2),
-        quality: 1,
-        style: {
-          opacity: '1',
-          filter: 'none',
-          transform: 'none',
-        },
-      })
+      const dataUrl = await captureListImageDataUrl()
+      if (!dataUrl) {
+        setToast({ message: 'שגיאה ביצירת התמונה' })
+        return
+      }
 
       if (window.listeApi?.shareImageToWhatsApp) {
-        await window.listeApi.shareImageToWhatsApp(dataUrl)
+        const result = await window.listeApi.shareImageToWhatsApp(dataUrl)
+        const ok = typeof result === 'boolean' ? result : result.ok
+        const error = typeof result === 'boolean' ? undefined : result.error
+        if (!ok) {
+          if (error === 'whatsapp_not_connected') {
+            setToast({
+              message:
+                'WhatsApp Web לא מחובר — לחצו על מצב החיבור וסרקו את קוד ה־QR. התמונה הועתקה',
+            })
+            void window.listeApi.openWhatsAppWebSession?.()
+          } else if (error === 'no_chat') {
+            setToast({
+              message:
+                'בחרו איש קשר בחלון WhatsApp — התמונה הועתקה (Ctrl+V) ואז שליחה',
+            })
+          } else {
+            setToast({ message: 'שיתוף התמונה נכשל — התמונה הועתקה ללוח' })
+          }
+        } else if (error === 'pending_chat') {
+          setToast({
+            message:
+              'בחרו איש קשר בחלון WhatsApp — התמונה תודבק אוטומטית, ואז לחצו שליחה',
+          })
+        } else {
+          setToast({
+            message: 'התמונה הודבקה — לחצו שליחה ב־WhatsApp',
+          })
+        }
       } else if (window.listeApi) {
         await window.listeApi.copyImage(dataUrl)
         await window.listeApi.openWhatsApp()
+        setToast({
+          message:
+            'בחרו איש קשר ב־WhatsApp — התמונה תודבק אוטומטית (או Ctrl+V)',
+        })
       } else {
         const blob = await (await fetch(dataUrl)).blob()
         await navigator.clipboard.write([
           new ClipboardItem({ 'image/png': blob }),
         ])
         window.open('https://web.whatsapp.com/', '_blank')
+        setToast({
+          message:
+            'בחרו איש קשר ב־WhatsApp — התמונה תודבק אוטומטית (או Ctrl+V)',
+        })
       }
-      setToast({
-        message:
-          'בחרו איש קשר ב־WhatsApp — התמונה תודבק אוטומטית (או Ctrl+V)',
-      })
     } catch {
       setToast({ message: 'שגיאה ביצירת התמונה' })
     } finally {
-      host.remove()
       setBusy(false)
     }
   }
