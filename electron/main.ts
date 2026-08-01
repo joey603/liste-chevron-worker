@@ -325,28 +325,92 @@ function wait(ms: number) {
 function runWhatsAppKeys(keys: 'paste' | 'enter' | 'paste-enter'): Promise<void> {
   return new Promise((resolve) => {
     if (process.platform === 'win32') {
-      const action =
-        keys === 'paste'
-          ? `[System.Windows.Forms.SendKeys]::SendWait('^v')`
-          : keys === 'enter'
-            ? `[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')`
-            : `[System.Windows.Forms.SendKeys]::SendWait('^v'); Start-Sleep -Milliseconds 450; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')`
+      // WhatsApp Beta (UWP/Chromium) ignore souvent SendKeys '{ENTER}'.
+      // On active via PID, on colle, puis on force l'envoi (Enter + Ctrl+Enter)
+      // avec keybd_event, plus fiable que SendKeys seul.
+      const mode =
+        keys === 'paste' ? 'paste' : keys === 'enter' ? 'enter' : 'paste-enter'
       const script = `
-try {
+$ErrorActionPreference = 'SilentlyContinue'
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class WaKeys {
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+  [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+  const uint KEYEVENTF_KEYUP = 0x0002;
+  const byte VK_CONTROL = 0x11;
+  const byte VK_RETURN = 0x0D;
+  const byte VK_V = 0x56;
+  public static void Paste() {
+    keybd_event(VK_CONTROL, 0, 0, UIntPtr.Zero);
+    keybd_event(VK_V, 0, 0, UIntPtr.Zero);
+    keybd_event(VK_V, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+    keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+  }
+  public static void Enter() {
+    keybd_event(VK_RETURN, 0, 0, UIntPtr.Zero);
+    keybd_event(VK_RETURN, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+  }
+  public static void CtrlEnter() {
+    keybd_event(VK_CONTROL, 0, 0, UIntPtr.Zero);
+    keybd_event(VK_RETURN, 0, 0, UIntPtr.Zero);
+    keybd_event(VK_RETURN, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+    keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+  }
+}
+"@
+
+function Activate-WhatsApp {
   $wshell = New-Object -ComObject wscript.shell
-  $activated = $false
+  $proc = Get-Process |
+    Where-Object { $_.ProcessName -match 'WhatsApp' -and $_.MainWindowHandle -ne 0 } |
+    Sort-Object {
+      if ($_.MainWindowTitle -match 'Beta') { 0 }
+      elseif ($_.ProcessName -match 'Beta') { 1 }
+      else { 2 }
+    } |
+    Select-Object -First 1
+  if ($null -ne $proc) {
+    [void][WaKeys]::ShowWindowAsync($proc.MainWindowHandle, 9)
+    [void][WaKeys]::SetForegroundWindow($proc.MainWindowHandle)
+    [void]$wshell.AppActivate($proc.Id)
+    return $true
+  }
   foreach ($title in @('WhatsApp Beta', 'WhatsApp', 'WhatsApp Desktop')) {
-    if ($wshell.AppActivate($title)) { $activated = $true; break }
+    if ($wshell.AppActivate($title)) { return $true }
   }
-  if (-not $activated) {
-    Get-Process | Where-Object { $_.MainWindowTitle -match 'WhatsApp' -and $_.MainWindowHandle -ne 0 } | ForEach-Object {
-      if (-not $activated -and $wshell.AppActivate($_.MainWindowTitle)) { $activated = $true }
-    }
+  return $false
+}
+
+function Send-WhatsAppMessage {
+  Start-Sleep -Milliseconds 180
+  [WaKeys]::Enter()
+  Start-Sleep -Milliseconds 220
+  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+  Start-Sleep -Milliseconds 220
+  [WaKeys]::CtrlEnter()
+  Start-Sleep -Milliseconds 220
+  [System.Windows.Forms.SendKeys]::SendWait('^{ENTER}')
+}
+
+try {
+  [void](Activate-WhatsApp)
+  Start-Sleep -Milliseconds 450
+  $mode = '${mode}'
+  if ($mode -eq 'paste' -or $mode -eq 'paste-enter') {
+    [WaKeys]::Paste()
+    Start-Sleep -Milliseconds 200
+    [System.Windows.Forms.SendKeys]::SendWait('^v')
+    Start-Sleep -Milliseconds 700
   }
-  if (-not $activated) { $null = $wshell.AppActivate('WhatsApp') }
-  Start-Sleep -Milliseconds 400
-  Add-Type -AssemblyName System.Windows.Forms
-  ${action}
+  if ($mode -eq 'enter' -or $mode -eq 'paste-enter') {
+    Send-WhatsAppMessage
+    Start-Sleep -Milliseconds 500
+    Send-WhatsAppMessage
+  }
 } catch {}
 `
       execFile(
@@ -363,9 +427,15 @@ try {
         keys === 'paste'
           ? `keystroke "v" using command down`
           : keys === 'enter'
-            ? `keystroke return`
+            ? `keystroke return
+          delay 0.2
+          keystroke return using control down`
             : `keystroke "v" using command down
-          delay 0.45
+          delay 0.7
+          keystroke return
+          delay 0.25
+          keystroke return using control down
+          delay 0.25
           keystroke return`
       const script = `
         try
@@ -375,7 +445,7 @@ try {
             tell application "WhatsApp" to activate
           end try
         end try
-        delay 0.4
+        delay 0.45
         tell application "System Events"
           ${action}
         end tell
@@ -536,14 +606,14 @@ async function openWhatsAppSendText(
     }
   }
 
-  // Attendre l'ouverture du chat, coller la liste, puis Entrée pour envoyer
-  await wait(3200)
-  await runWhatsAppKeys('paste')
-  await wait(700)
+  // Attendre l'ouverture du chat, coller + forcer l'envoi (Enter et Ctrl+Enter)
+  await wait(3800)
+  await runWhatsAppKeys('paste-enter')
+  await wait(1200)
   await runWhatsAppKeys('enter')
   await wait(900)
   await runWhatsAppKeys('enter')
-  await wait(1600)
+  await wait(1200)
   return { ok: true }
 }
 
