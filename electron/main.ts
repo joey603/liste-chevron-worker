@@ -5,6 +5,7 @@ import {
   ipcMain,
   nativeImage,
   net,
+  session,
   shell,
 } from 'electron'
 import path from 'node:path'
@@ -498,12 +499,22 @@ type WhatsAppWebDomState = 'connected' | 'login' | 'loading' | 'error'
 let whatsappWebWin: BrowserWindow | null = null
 let isAppQuitting = false
 
+/** WhatsApp Web refuse souvent Electron : se faire passer pour Chrome. */
+const WHATSAPP_WEB_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+
 function isNetworkOnline(): boolean {
   try {
     return net.isOnline()
   } catch {
     return true
   }
+}
+
+function configureWhatsAppWebSession() {
+  const ses = session.fromPartition('persist:whatsapp-web')
+  ses.setUserAgent(WHATSAPP_WEB_USER_AGENT)
+  return ses
 }
 
 function destroyWhatsAppWebWindow() {
@@ -514,7 +525,10 @@ function destroyWhatsAppWebWindow() {
 }
 
 function ensureWhatsAppWebWindow(show: boolean): BrowserWindow {
+  configureWhatsAppWebSession()
+
   if (whatsappWebWin && !whatsappWebWin.isDestroyed()) {
+    whatsappWebWin.webContents.setUserAgent(WHATSAPP_WEB_USER_AGENT)
     if (show) {
       whatsappWebWin.show()
       whatsappWebWin.focus()
@@ -523,6 +537,7 @@ function ensureWhatsAppWebWindow(show: boolean): BrowserWindow {
   }
 
   const icon = resolveAppIcon()
+  const preloadPath = path.join(__dirname, 'whatsapp-preload.js')
   whatsappWebWin = new BrowserWindow({
     width: 1100,
     height: 820,
@@ -535,11 +550,14 @@ function ensureWhatsAppWebWindow(show: boolean): BrowserWindow {
     webPreferences: {
       // Session persistante = on peut vraiment savoir si Web est connecté
       partition: 'persist:whatsapp-web',
+      ...(fs.existsSync(preloadPath) ? { preload: preloadPath } : {}),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
     },
   })
+
+  whatsappWebWin.webContents.setUserAgent(WHATSAPP_WEB_USER_AGENT)
 
   whatsappWebWin.on('close', (event) => {
     // Garder la session en vie (fenêtre cachée) pour le statut de connexion
@@ -549,7 +567,9 @@ function ensureWhatsAppWebWindow(show: boolean): BrowserWindow {
     }
   })
 
-  void whatsappWebWin.loadURL('https://web.whatsapp.com/')
+  void whatsappWebWin.loadURL('https://web.whatsapp.com/', {
+    userAgent: WHATSAPP_WEB_USER_AGENT,
+  })
   if (show) {
     whatsappWebWin.once('ready-to-show', () => {
       whatsappWebWin?.show()
@@ -616,11 +636,13 @@ async function inspectWhatsAppWebDom(
 
 async function openWhatsAppWebSessionWindow(): Promise<WhatsAppStatus> {
   const win = ensureWhatsAppWebWindow(true)
-  if (!win.webContents.getURL().includes('web.whatsapp.com')) {
-    await win.loadURL('https://web.whatsapp.com/')
-  }
+  win.webContents.setUserAgent(WHATSAPP_WEB_USER_AGENT)
+  // Recharger avec UA Chrome (évite l'écran "Télécharger Chrome")
+  await win.loadURL('https://web.whatsapp.com/', {
+    userAgent: WHATSAPP_WEB_USER_AGENT,
+  })
   await waitForWebContentsIdle(win, 15000)
-  // Laisser le QR se dessiner
+  // Laisser le QR / l'UI se dessiner
   await wait(1200)
   return getWhatsAppStatus()
 }
@@ -631,7 +653,9 @@ async function probeWindowsWhatsAppWeb(): Promise<
   try {
     const win = ensureWhatsAppWebWindow(false)
     if (!win.webContents.getURL().includes('web.whatsapp.com')) {
-      await win.loadURL('https://web.whatsapp.com/')
+      await win.loadURL('https://web.whatsapp.com/', {
+        userAgent: WHATSAPP_WEB_USER_AGENT,
+      })
     }
     let state = await inspectWhatsAppWebDom(win)
     if (state === 'loading') {
@@ -700,7 +724,7 @@ async function sendViaEmbeddedWhatsAppWeb(
     ? `https://web.whatsapp.com/send?phone=${phoneNorm}&text=${encoded}`
     : `https://web.whatsapp.com/send?phone=${phoneNorm}`
 
-  await win.loadURL(url)
+  await win.loadURL(url, { userAgent: WHATSAPP_WEB_USER_AGENT })
   await waitForWebContentsIdle(win, 20000)
   await wait(1500)
 
@@ -864,7 +888,9 @@ async function openWhatsAppAndPaste() {
   const text = encodeURIComponent('.')
   if (process.platform === 'win32') {
     const win = ensureWhatsAppWebWindow(true)
-    await win.loadURL(`https://web.whatsapp.com/send?text=${text}`)
+    await win.loadURL(`https://web.whatsapp.com/send?text=${text}`, {
+      userAgent: WHATSAPP_WEB_USER_AGENT,
+    })
     await wait(3500)
     win.webContents.paste()
     await wait(600)
@@ -1103,6 +1129,7 @@ app.whenReady().then(() => {
 
   // Précharger WhatsApp Web en arrière-plan (Windows) pour un statut fiable
   if (process.platform === 'win32') {
+    configureWhatsAppWebSession()
     setTimeout(() => {
       try {
         ensureWhatsAppWebWindow(false)
