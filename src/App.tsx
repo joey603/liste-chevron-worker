@@ -1930,6 +1930,7 @@ export default function App() {
                 : ''}
             </span>
           </button>
+          {toast && <div className="toast">{toast.message}</div>}
           <button
             type="button"
             className="btn btn-preview"
@@ -2038,6 +2039,7 @@ export default function App() {
                 ))}
               </div>
             )}
+            {toast && <div className="toast">{toast.message}</div>}
           </div>
         </main>
       )}
@@ -2675,8 +2677,6 @@ export default function App() {
           </div>
         </div>
       )}
-
-      {toast && <div className="toast">{toast.message}</div>}
 
       {updateState && (
         <div className="update-overlay" role="dialog" aria-modal="true">
