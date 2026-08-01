@@ -311,53 +311,51 @@ button {
   flex-direction: column;
 }
 
-.sidebar .roster-block.workers-block {
+.sidebar .roster-block.workers-block,
+.sidebar .roster-block.visitors-block {
   flex: 1 1 auto;
   min-height: 0;
+  margin-top: 0;
 }
 
-.sidebar .roster-block.visitors-block,
-.sidebar .roster-block:last-child {
-  flex: 0 0 auto;
-  margin-top: 10px;
-  min-height: 0;
-}
-
-.sidebar .roster-block.visitors-block.visitors-compact {
-  margin-top: 6px;
-}
-
-.workers-expand-toggle {
+.sidebar-roster-badges {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
   flex-shrink: 0;
-  align-self: center;
-  width: 40px;
-  height: 22px;
-  margin-top: 8px;
+  margin-bottom: 12px;
+}
+
+.sidebar-roster-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  min-height: 38px;
+  padding: 8px 12px;
   border-radius: 999px;
-  border: 1px solid var(--line);
+  border: 1.5px solid rgba(0, 87, 168, 0.28);
   background: #fff;
   color: var(--chevron-blue-dark);
-  box-shadow: 0 2px 8px rgba(0, 59, 112, 0.1);
+  font-family: var(--display);
+  font-size: 0.9rem;
+  font-weight: 700;
   transition:
-    background 0.2s ease,
-    color 0.2s ease,
-    transform 0.2s ease;
+    background 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
-.workers-expand-toggle:hover {
-  background: rgba(0, 87, 168, 0.08);
+.sidebar-roster-badge:hover {
+  background: rgba(0, 87, 168, 0.06);
+  border-color: rgba(0, 87, 168, 0.45);
 }
 
-.workers-expand-icon {
-  transition: transform 0.28s ease;
-  transform: rotate(0deg);
-}
-
-.workers-expand-toggle.is-expanded .workers-expand-icon {
-  transform: rotate(180deg);
+.sidebar-roster-badge.active {
+  background: var(--chevron-blue);
+  border-color: var(--chevron-blue);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(0, 87, 168, 0.22);
 }
 
 .sidebar-workers-scroll {
@@ -368,8 +366,12 @@ button {
 }
 
 .sidebar-visitors-scroll {
-  max-height: none;
-  overflow: hidden;
+  flex: 1;
+  max-height: none !important;
+  min-height: 0;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .main-panel {
@@ -1772,50 +1774,14 @@ button {
 
 .roster-scroll.sidebar-visitors-scroll {
   max-height: none;
-  overflow: hidden;
-  flex: 0 0 auto;
-}
-
-.visitors-compact .roster-scroll.sidebar-visitors-scroll {
-  --visitor-row-h: clamp(32px, 4.2vh, 46px);
-  --visitor-gap: clamp(4px, 0.7vh, 8px);
-  max-height: calc(var(--visitor-row-h) + 16px);
-  padding-block: 8px;
   overflow-x: hidden;
   overflow-y: auto;
-  scroll-snap-type: y mandatory;
-  scroll-padding-block: 8px;
-  overscroll-behavior-y: contain;
-}
-
-.visitors-compact .roster-scroll.sidebar-visitors-scroll.is-row-snap {
-  scrollbar-width: thin;
-}
-
-.visitors-snap-rows {
-  display: flex;
-  flex-direction: column;
-  gap: var(--visitor-gap, clamp(4px, 0.7vh, 8px));
-  direction: ltr;
-}
-
-.visitors-snap-row {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: var(--visitor-gap, clamp(4px, 0.7vh, 8px));
-  height: var(--visitor-row-h, clamp(32px, 4.2vh, 46px));
-  flex-shrink: 0;
-  scroll-snap-align: start;
-  scroll-snap-stop: always;
-}
-
-.visitors-snap-row .pick-btn.visitor {
-  width: 100%;
+  flex: 1;
+  min-height: 0;
 }
 
 .roster-scroll.visitors-scroll {
   max-height: none;
-  overflow: hidden;
 }
 
 .roster-scroll::-webkit-scrollbar {

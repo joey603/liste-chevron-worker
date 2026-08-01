@@ -213,16 +213,6 @@ type ListKindFilter = 'all' | 'visitors' | 'workers_constant' | 'workers_tempora
 type ColumnChoice = number | 'max'
 
 const COLUMN_CHOICE_MAX = 10
-const VISITOR_COLS = 5
-
-const VISITOR_ROWS: number[][] = (() => {
-  const rows: number[][] = []
-  const nums = Array.from({ length: VISITOR_COUNT }, (_, i) => i + 1)
-  for (let i = 0; i < nums.length; i += VISITOR_COLS) {
-    rows.push(nums.slice(i, i + VISITOR_COLS))
-  }
-  return rows
-})()
 
 type FancySelectOption = { value: string; label: string }
 
@@ -488,7 +478,9 @@ export default function App() {
     return Math.min(COLUMN_CHOICE_MAX, Math.max(1, choice))
   }
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [workersExpanded, setWorkersExpanded] = useState(false)
+  const [sidebarRoster, setSidebarRoster] = useState<'workers' | 'visitors'>(
+    'workers',
+  )
   const [workerSearch, setWorkerSearch] = useState('')
   const [activeWorkerLetter, setActiveWorkerLetter] = useState<string>('א')
   const [showVisitorManage, setShowVisitorManage] = useState(false)
@@ -637,13 +629,7 @@ export default function App() {
     return set
   }, [filteredWorkers])
 
-  const workerAlphaLetters = useMemo(() => {
-    // Mode petit (visiteurs pleins) : seulement les lettres présentes, plus lisible.
-    if (!workersExpanded) {
-      return HEBREW_ALPHABET.filter((letter) => workerLettersPresent.has(letter))
-    }
-    return [...HEBREW_ALPHABET]
-  }, [workersExpanded, workerLettersPresent])
+  const workerAlphaLetters = useMemo(() => [...HEBREW_ALPHABET], [])
 
   useEffect(() => {
     if (sortedWorkers.length === 0 && manageMode !== 'none') {
@@ -654,7 +640,9 @@ export default function App() {
 
   useEffect(() => {
     const root = workersScrollRef.current
-    if (!root || filteredWorkers.length === 0) return
+    if (!root || filteredWorkers.length === 0 || sidebarRoster !== 'workers') {
+      return
+    }
 
     const updateActiveLetter = () => {
       const wraps = root.querySelectorAll<HTMLElement>('[data-alpha-letter]')
@@ -675,17 +663,17 @@ export default function App() {
     updateActiveLetter()
     root.addEventListener('scroll', updateActiveLetter, { passive: true })
     return () => root.removeEventListener('scroll', updateActiveLetter)
-  }, [filteredWorkers, workersExpanded])
+  }, [filteredWorkers, sidebarRoster])
 
   useEffect(() => {
     const rail = workersAlphaLettersRef.current
-    if (!rail || workersExpanded) return
+    if (!rail || sidebarRoster !== 'workers') return
     const activeBtn = rail.querySelector<HTMLElement>(
       '.workers-alpha-letter.is-active',
     )
     if (!activeBtn) return
     activeBtn.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  }, [activeWorkerLetter, workersExpanded, workerAlphaLetters])
+  }, [activeWorkerLetter, sidebarRoster, workerAlphaLetters])
 
   function scrollWorkersToLetter(letter: string) {
     const root = workersScrollRef.current
@@ -1649,7 +1637,35 @@ export default function App() {
           </div>
         </div>
 
-        {manageMode !== 'none' && (
+        <div className="sidebar-roster-badges" role="tablist" aria-label="בחירת רשימה צדדית">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={sidebarRoster === 'workers'}
+            className={`sidebar-roster-badge ${
+              sidebarRoster === 'workers' ? 'active' : ''
+            }`}
+            onClick={() => setSidebarRoster('workers')}
+          >
+            עובדים
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={sidebarRoster === 'visitors'}
+            className={`sidebar-roster-badge ${
+              sidebarRoster === 'visitors' ? 'active' : ''
+            }`}
+            onClick={() => {
+              clearManageMode()
+              setSidebarRoster('visitors')
+            }}
+          >
+            ויזיטורים
+          </button>
+        </div>
+
+        {manageMode !== 'none' && sidebarRoster === 'workers' && (
           <p
             className={`manage-hint ${
               manageMode === 'edit' ? 'mode-edit' : 'mode-delete'
@@ -1661,6 +1677,7 @@ export default function App() {
           </p>
         )}
 
+        {sidebarRoster === 'workers' && (
         <div
           className={`roster-block workers-block ${
             manageMode === 'edit'
@@ -1745,9 +1762,7 @@ export default function App() {
                 </div>
               </div>
               <nav
-                className={`workers-alpha-rail ${
-                  workersExpanded ? 'is-expanded' : 'is-compact'
-                }`}
+                className="workers-alpha-rail is-expanded"
                 aria-label="ניווט אלפביתי לעובדים"
               >
                 <div
@@ -1783,46 +1798,10 @@ export default function App() {
             </div>
           )}
         </div>
+        )}
 
-        <button
-          type="button"
-          className={`workers-expand-toggle ${workersExpanded ? 'is-expanded' : ''}`}
-          onClick={() => setWorkersExpanded((v) => !v)}
-          title={
-            workersExpanded
-              ? 'הצג יותר ויזיטורים'
-              : 'הרחב עובדים · ויזיטורים בשתי שורות'
-          }
-          aria-label={
-            workersExpanded
-              ? 'הצג יותר ויזיטורים'
-              : 'הרחב עובדים · ויזיטורים בשתי שורות'
-          }
-          aria-expanded={workersExpanded}
-        >
-          <svg
-            viewBox="0 0 20 20"
-            width="16"
-            height="16"
-            aria-hidden="true"
-            className="workers-expand-icon"
-          >
-            <path
-              d="M4.5 7.5 L10 13 L15.5 7.5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
-
-        <div
-          className={`roster-block visitors-block ${
-            workersExpanded ? 'visitors-compact' : ''
-          }`}
-        >
+        {sidebarRoster === 'visitors' && (
+        <div className="roster-block visitors-block">
           <div className="roster-title-row">
             <h3 className="roster-title">ויזיטורים 1–30</h3>
             <button
@@ -1837,95 +1816,46 @@ export default function App() {
               ניהול
             </button>
           </div>
-          <div
-            className={`roster-scroll visitors-scroll sidebar-visitors-scroll ${
-              workersExpanded ? 'is-row-snap' : ''
-            }`}
-          >
-            {workersExpanded ? (
-              <div className="visitors-snap-rows">
-                {VISITOR_ROWS.map((row) => (
-                  <div
-                    className="visitors-snap-row"
-                    key={`vrow-${row[0]}`}
+          <div className="roster-scroll visitors-scroll sidebar-visitors-scroll">
+            <div className="pick-grid visitors">
+              {Array.from({ length: VISITOR_COUNT }, (_, i) => i + 1).map((n) => {
+                const present = isVisitorPresent(data, n)
+                const open = isVisitorNumberOpen(data, n)
+                const slot = getVisitorSlot(data, n)
+                const modeClass =
+                  open && slot.access === 'open_constant'
+                    ? 'visitor-open'
+                    : open && slot.access === 'open_temp'
+                      ? 'visitor-open-temp'
+                      : ''
+                return (
+                  <button
+                    key={n}
+                    type="button"
+                    className={`pick-btn visitor ${present ? 'present' : ''} ${modeClass}`}
+                    onClick={() => {
+                      clearManageMode()
+                      void addVisitorToSite(n)
+                    }}
+                    disabled={present}
+                    title={
+                      present
+                        ? 'כבר באתר'
+                        : open && slot.access === 'open_temp'
+                          ? `ויזיטור ${n} · פתוח עד חצות`
+                          : open
+                            ? `הוסף ויזיטור ${n}`
+                            : `ויזיטור ${n} · אין הרשאה`
+                    }
                   >
-                    {row.map((n) => {
-                      const present = isVisitorPresent(data, n)
-                      const open = isVisitorNumberOpen(data, n)
-                      const slot = getVisitorSlot(data, n)
-                      const modeClass =
-                        open && slot.access === 'open_constant'
-                          ? 'visitor-open'
-                          : open && slot.access === 'open_temp'
-                            ? 'visitor-open-temp'
-                            : ''
-                      return (
-                        <button
-                          key={n}
-                          type="button"
-                          className={`pick-btn visitor ${present ? 'present' : ''} ${modeClass}`}
-                          onClick={() => {
-                            clearManageMode()
-                            void addVisitorToSite(n)
-                          }}
-                          disabled={present}
-                          title={
-                            present
-                              ? 'כבר באתר'
-                              : open && slot.access === 'open_temp'
-                                ? `ויזיטור ${n} · פתוח עד חצות`
-                                : open
-                                  ? `הוסף ויזיטור ${n}`
-                                  : `ויזיטור ${n} · אין הרשאה`
-                          }
-                        >
-                          <span className="pick-label">{n}</span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="pick-grid visitors">
-                {Array.from({ length: VISITOR_COUNT }, (_, i) => i + 1).map((n) => {
-                  const present = isVisitorPresent(data, n)
-                  const open = isVisitorNumberOpen(data, n)
-                  const slot = getVisitorSlot(data, n)
-                  const modeClass =
-                    open && slot.access === 'open_constant'
-                      ? 'visitor-open'
-                      : open && slot.access === 'open_temp'
-                        ? 'visitor-open-temp'
-                        : ''
-                  return (
-                    <button
-                      key={n}
-                      type="button"
-                      className={`pick-btn visitor ${present ? 'present' : ''} ${modeClass}`}
-                      onClick={() => {
-                        clearManageMode()
-                        void addVisitorToSite(n)
-                      }}
-                      disabled={present}
-                      title={
-                        present
-                          ? 'כבר באתר'
-                          : open && slot.access === 'open_temp'
-                            ? `ויזיטור ${n} · פתוח עד חצות`
-                            : open
-                              ? `הוסף ויזיטור ${n}`
-                              : `ויזיטור ${n} · אין הרשאה`
-                      }
-                    >
-                      <span className="pick-label">{n}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            )}
+                    <span className="pick-label">{n}</span>
+                  </button>
+                )
+              })}
+            </div>
           </div>
         </div>
+        )}
       </aside>
 
       <button
