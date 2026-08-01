@@ -99,13 +99,27 @@ export type AppData = {
   banned: BannedPerson[]
 }
 
+export type WhatsAppSendResult = {
+  ok: boolean
+  error?: 'offline' | 'whatsapp_unavailable' | 'failed'
+}
+
+export type WhatsAppStatus = {
+  online: boolean
+  whatsappAvailable: boolean
+}
+
 export type ListeApi = {
   getData: () => Promise<AppData>
   saveData: (data: AppData) => Promise<boolean>
   copyImage: (dataUrl: string) => Promise<boolean>
   openWhatsApp: () => Promise<boolean>
   shareImageToWhatsApp: (dataUrl: string) => Promise<boolean>
-  sendWhatsAppText: (phone: string | string[], text: string) => Promise<boolean>
+  getWhatsAppStatus?: () => Promise<WhatsAppStatus>
+  sendWhatsAppText: (
+    phone: string | string[],
+    text: string,
+  ) => Promise<boolean | WhatsAppSendResult>
   getAppVersion: () => Promise<string>
   checkForUpdates: () => Promise<{
     status: 'available' | 'up-to-date' | 'error'

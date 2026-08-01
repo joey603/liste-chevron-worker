@@ -4,6 +4,7 @@ import {
   clipboard,
   ipcMain,
   nativeImage,
+  net,
   shell,
 } from 'electron'
 import path from 'node:path'
@@ -394,6 +395,65 @@ function normalizeWhatsAppPhone(phone: string): string {
   return digits
 }
 
+type WhatsAppSendError = 'offline' | 'whatsapp_unavailable' | 'failed'
+type WhatsAppSendResult = { ok: boolean; error?: WhatsAppSendError }
+type WhatsAppStatus = { online: boolean; whatsappAvailable: boolean }
+
+function isNetworkOnline(): boolean {
+  try {
+    return net.isOnline()
+  } catch {
+    return true
+  }
+}
+
+function probeWhatsAppAvailable(): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (process.platform === 'win32') {
+      const script = `
+$found = $false
+if (Get-Process -Name 'WhatsApp','WhatsApp.Desktop' -ErrorAction SilentlyContinue) { $found = $true }
+$paths = @(
+  "$env:LOCALAPPDATA\\WhatsApp\\WhatsApp.exe",
+  "$env:LOCALAPPDATA\\Programs\\WhatsApp\\WhatsApp.exe"
+)
+foreach ($p in $paths) { if (Test-Path $p) { $found = $true } }
+foreach ($root in @('HKCU','HKLM')) {
+  try {
+    $k = Get-ItemProperty -Path ($root + ':\\Software\\Classes\\whatsapp\\shell\\open\\command') -ErrorAction SilentlyContinue
+    if ($null -ne $k) { $found = $true }
+  } catch {}
+}
+if ($found) { Write-Output '1' } else { Write-Output '0' }
+`
+      execFile(
+        'powershell.exe',
+        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
+        { windowsHide: true },
+        (err, stdout) => {
+          resolve(!err && String(stdout).trim() === '1')
+        },
+      )
+      return
+    }
+
+    if (process.platform === 'darwin') {
+      execFile('osascript', ['-e', 'id of application "WhatsApp"'], (err) => {
+        resolve(!err)
+      })
+      return
+    }
+
+    resolve(true)
+  })
+}
+
+async function getWhatsAppStatus(): Promise<WhatsAppStatus> {
+  const online = isNetworkOnline()
+  const whatsappAvailable = await probeWhatsAppAvailable()
+  return { online, whatsappAvailable }
+}
+
 async function openWhatsAppAndPaste() {
   // Un "." ouvre l'écran "à qui envoyer" ; l'image reste dans le presse-papiers
   const text = encodeURIComponent('.')
@@ -406,9 +466,23 @@ async function openWhatsAppAndPaste() {
   scheduleWhatsAppPasteAndSend([3000, 5500, 8500])
 }
 
-async function openWhatsAppSendText(phone: string, text: string) {
+async function openWhatsAppSendText(
+  phone: string,
+  text: string,
+): Promise<WhatsAppSendResult> {
   const phoneNorm = normalizeWhatsAppPhone(phone)
-  if (!phoneNorm || !text.trim()) return false
+  if (!phoneNorm || !text.trim()) return { ok: false, error: 'failed' }
+
+  if (!isNetworkOnline()) {
+    clipboard.writeText(text)
+    return { ok: false, error: 'offline' }
+  }
+
+  const whatsappAvailable = await probeWhatsAppAvailable()
+  if (!whatsappAvailable) {
+    clipboard.writeText(text)
+    return { ok: false, error: 'whatsapp_unavailable' }
+  }
 
   // Presse-papiers = source fiable (évite les limites d'URL WhatsApp)
   clipboard.writeText(text)
@@ -416,7 +490,11 @@ async function openWhatsAppSendText(phone: string, text: string) {
   try {
     await shell.openExternal(`whatsapp://send?phone=${phoneNorm}`)
   } catch {
-    await shell.openExternal(`https://wa.me/${phoneNorm}`)
+    try {
+      await shell.openExternal(`https://wa.me/${phoneNorm}`)
+    } catch {
+      return { ok: false, error: 'whatsapp_unavailable' }
+    }
   }
 
   // Attendre l'ouverture du chat, coller la liste, puis Entrée pour envoyer
@@ -427,10 +505,13 @@ async function openWhatsAppSendText(phone: string, text: string) {
   await wait(900)
   await runWhatsAppKeys('enter')
   await wait(1600)
-  return true
+  return { ok: true }
 }
 
-async function openWhatsAppSendTextMany(phones: string[], text: string) {
+async function openWhatsAppSendTextMany(
+  phones: string[],
+  text: string,
+): Promise<WhatsAppSendResult> {
   const unique = Array.from(
     new Set(
       phones
@@ -438,11 +519,24 @@ async function openWhatsAppSendTextMany(phones: string[], text: string) {
         .filter(Boolean),
     ),
   )
-  if (unique.length === 0) return false
-  for (const phone of unique) {
-    await openWhatsAppSendText(phone, text)
+  if (unique.length === 0) return { ok: false, error: 'failed' }
+
+  if (!isNetworkOnline()) {
+    clipboard.writeText(text)
+    return { ok: false, error: 'offline' }
   }
-  return true
+
+  const whatsappAvailable = await probeWhatsAppAvailable()
+  if (!whatsappAvailable) {
+    clipboard.writeText(text)
+    return { ok: false, error: 'whatsapp_unavailable' }
+  }
+
+  for (const phone of unique) {
+    const result = await openWhatsAppSendText(phone, text)
+    if (!result.ok) return result
+  }
+  return { ok: true }
 }
 
 function resolveAppIcon(): string | undefined {
@@ -499,6 +593,8 @@ app.whenReady().then(() => {
     await openWhatsAppAndPaste()
     return true
   })
+
+  ipcMain.handle('whatsapp:status', async () => getWhatsAppStatus())
 
   ipcMain.handle(
     'whatsapp:sendText',

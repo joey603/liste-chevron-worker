@@ -57,8 +57,17 @@ const api = {
   openWhatsApp: (): Promise<boolean> => ipcRenderer.invoke('whatsapp:open'),
   shareImageToWhatsApp: (dataUrl: string): Promise<boolean> =>
     ipcRenderer.invoke('whatsapp:shareImage', dataUrl),
-  sendWhatsAppText: (phone: string | string[], text: string): Promise<boolean> =>
-    ipcRenderer.invoke('whatsapp:sendText', phone, text),
+  getWhatsAppStatus: (): Promise<{
+    online: boolean
+    whatsappAvailable: boolean
+  }> => ipcRenderer.invoke('whatsapp:status'),
+  sendWhatsAppText: (
+    phone: string | string[],
+    text: string,
+  ): Promise<{
+    ok: boolean
+    error?: 'offline' | 'whatsapp_unavailable' | 'failed'
+  }> => ipcRenderer.invoke('whatsapp:sendText', phone, text),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
   checkForUpdates: (): Promise<{
     status: 'available' | 'up-to-date' | 'error'

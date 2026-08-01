@@ -481,6 +481,14 @@ button {
   display: block;
 }
 
+.emergency-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
 .btn-emergency {
   width: auto;
   min-width: 96px;
@@ -499,6 +507,44 @@ button {
 
 .btn-emergency:disabled {
   opacity: 0.65;
+}
+
+.btn-emergency-warn {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px rgba(176, 18, 42, 0.55);
+  animation: emergency-pulse 1.6s ease-in-out infinite;
+}
+
+.emergency-status {
+  max-width: 280px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.35;
+  direction: rtl;
+  text-align: right;
+}
+
+.emergency-status-offline {
+  color: #7a1d12;
+  background: rgba(227, 24, 55, 0.1);
+  border: 1px solid rgba(227, 24, 55, 0.28);
+}
+
+.emergency-status-whatsapp {
+  color: #5c3b00;
+  background: rgba(214, 150, 0, 0.12);
+  border: 1px solid rgba(214, 150, 0, 0.35);
+}
+
+@keyframes emergency-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px #fff, 0 0 0 4px rgba(176, 18, 42, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 2px #fff, 0 0 0 6px rgba(176, 18, 42, 0.2);
+  }
 }
 
 .btn-emergency-phones {
@@ -2646,7 +2692,7 @@ button {
   animation: toast-rise 0.25s ease-out both;
   z-index: 50;
   pointer-events: none;
-  max-width: min(360px, calc(100% - 280px));
+  max-width: min(420px, calc(100% - 220px));
   text-align: center;
 }
 

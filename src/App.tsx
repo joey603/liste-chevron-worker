@@ -25,6 +25,7 @@ import {
   normalizeData,
   normalizeWhatsAppPhone,
   purgeExpiredWorkers,
+  WhatsAppStatus,
   workerDisplayName,
 } from './types'
 import chevronLogo from './assets/chevron-logo.png'
@@ -449,8 +450,50 @@ export default function App() {
   const [previewColumnChoice, setPreviewColumnChoice] =
     useState<ColumnChoice>('max')
   const [listKindFilter, setListKindFilter] = useState<ListKindFilter>('all')
+  const [whatsappStatus, setWhatsappStatus] = useState<WhatsAppStatus>({
+    online: typeof navigator !== 'undefined' ? navigator.onLine : true,
+    whatsappAvailable: true,
+  })
 
   const [viewportTick, setViewportTick] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function refreshWhatsAppStatus() {
+      const online =
+        typeof navigator !== 'undefined' ? navigator.onLine : true
+      if (window.listeApi?.getWhatsAppStatus) {
+        try {
+          const status = await window.listeApi.getWhatsAppStatus()
+          if (!cancelled) setWhatsappStatus(status)
+          return
+        } catch {
+          /* fallback below */
+        }
+      }
+      if (!cancelled) {
+        setWhatsappStatus((prev) => ({ ...prev, online }))
+      }
+    }
+
+    void refreshWhatsAppStatus()
+    const onOnline = () => void refreshWhatsAppStatus()
+    const onOffline = () =>
+      setWhatsappStatus((prev) => ({ ...prev, online: false }))
+    const onFocus = () => void refreshWhatsAppStatus()
+    window.addEventListener('online', onOnline)
+    window.addEventListener('offline', onOffline)
+    window.addEventListener('focus', onFocus)
+    const interval = window.setInterval(() => void refreshWhatsAppStatus(), 12000)
+    return () => {
+      cancelled = true
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('offline', onOffline)
+      window.removeEventListener('focus', onFocus)
+      window.clearInterval(interval)
+    }
+  }, [])
 
   useEffect(() => {
     const onResize = () => setViewportTick((n) => n + 1)
@@ -1097,6 +1140,15 @@ export default function App() {
     )
   }
 
+  async function copyEmergencyFallback(text: string) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      return false
+    }
+  }
+
   async function sendEmergencyList() {
     if (!data) return
     const phones = data.settings.emergencyPhones ?? []
@@ -1110,10 +1162,60 @@ export default function App() {
     try {
       const present = data.people.filter(isPresent)
       const text = buildEmergencyMessage(data, present)
+
+      const browserOnline =
+        typeof navigator !== 'undefined' ? navigator.onLine : true
+      if (!browserOnline || !whatsappStatus.online) {
+        const copied = await copyEmergencyFallback(text)
+        setToast({
+          message: copied
+            ? 'אין אינטרנט — ההודעה הועתקה. שלחו ידנית כשיחזור החיבור'
+            : 'אין אינטרנט — לא ניתן לשלוח חירום כרגע',
+        })
+        return
+      }
+
+      if (window.listeApi?.getWhatsAppStatus) {
+        const status = await window.listeApi.getWhatsAppStatus()
+        setWhatsappStatus(status)
+        if (!status.online) {
+          const copied = await copyEmergencyFallback(text)
+          setToast({
+            message: copied
+              ? 'אין אינטרנט — ההודעה הועתקה. שלחו ידנית כשיחזור החיבור'
+              : 'אין אינטרנט — לא ניתן לשלוח חירום כרגע',
+          })
+          return
+        }
+        if (!status.whatsappAvailable) {
+          const copied = await copyEmergencyFallback(text)
+          setToast({
+            message: copied
+              ? 'WhatsApp לא זמין — ההודעה הועתקה. פתחו WhatsApp ושלחו ידנית'
+              : 'WhatsApp לא מותקן או לא מחובר — לא ניתן לשלוח',
+          })
+          return
+        }
+      }
+
       if (window.listeApi?.sendWhatsAppText) {
-        const ok = await window.listeApi.sendWhatsAppText(phones, text)
+        const result = await window.listeApi.sendWhatsAppText(phones, text)
+        const ok = typeof result === 'boolean' ? result : result.ok
+        const error = typeof result === 'boolean' ? undefined : result.error
         if (!ok) {
-          setToast({ message: 'שליחת החירום נכשלה' })
+          if (error === 'offline') {
+            setToast({
+              message:
+                'אין אינטרנט — ההודעה הועתקה. שלחו ידנית כשיחזור החיבור',
+            })
+          } else if (error === 'whatsapp_unavailable') {
+            setToast({
+              message:
+                'WhatsApp לא זמין — ההודעה הועתקה. פתחו WhatsApp ושלחו ידנית',
+            })
+          } else {
+            setToast({ message: 'שליחת החירום נכשלה' })
+          }
           return
         }
       } else {
@@ -1903,33 +2005,59 @@ export default function App() {
         </div>
 
         <div className="whatsapp-bar">
-          <button
-            type="button"
-            className="btn btn-emergency"
-            disabled={busy}
-            onClick={() => void sendEmergencyList()}
-            title="שליחת רשימת נוכחים למספרי החירום"
-          >
-            <IconAlert />
-            <span>חירום</span>
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-emergency-phones"
-            onClick={() => {
-              setEmergencyPhoneDraft('')
-              setShowEmergencyPhones(true)
-            }}
-            title="ניהול מספרי חירום"
-          >
-            <IconPhone />
-            <span>
-              מספרים
-              {(data.settings.emergencyPhones?.length ?? 0) > 0
-                ? ` (${data.settings.emergencyPhones.length})`
-                : ''}
-            </span>
-          </button>
+          <div className="emergency-actions">
+            <button
+              type="button"
+              className={`btn btn-emergency ${
+                !whatsappStatus.online || !whatsappStatus.whatsappAvailable
+                  ? 'btn-emergency-warn'
+                  : ''
+              }`}
+              disabled={busy}
+              onClick={() => void sendEmergencyList()}
+              title={
+                !whatsappStatus.online
+                  ? 'אין חיבור לאינטרנט'
+                  : !whatsappStatus.whatsappAvailable
+                    ? 'WhatsApp לא זמין'
+                    : 'שליחת רשימת נוכחים למספרי החירום'
+              }
+            >
+              <IconAlert />
+              <span>חירום</span>
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-emergency-phones"
+              onClick={() => {
+                setEmergencyPhoneDraft('')
+                setShowEmergencyPhones(true)
+              }}
+              title="ניהול מספרי חירום"
+            >
+              <IconPhone />
+              <span>
+                מספרים
+                {(data.settings.emergencyPhones?.length ?? 0) > 0
+                  ? ` (${data.settings.emergencyPhones.length})`
+                  : ''}
+              </span>
+            </button>
+            {(!whatsappStatus.online || !whatsappStatus.whatsappAvailable) && (
+              <div
+                className={`emergency-status ${
+                  !whatsappStatus.online
+                    ? 'emergency-status-offline'
+                    : 'emergency-status-whatsapp'
+                }`}
+                role="status"
+              >
+                {!whatsappStatus.online
+                  ? 'אין אינטרנט — שליחת חירום עלולה להיכשל'
+                  : 'WhatsApp לא זמין — בדקו שהאפליקציה מותקנת ומחוברת'}
+              </div>
+            )}
+          </div>
           {toast && <div className="toast">{toast.message}</div>}
           <button
             type="button"
