@@ -6,6 +6,7 @@ import {
   BannedPerson,
   CardlessAssignment,
   CardlessPerson,
+  ContactPhone,
   PersonEntry,
   VISITOR_COUNT,
   VisitorAccess,
@@ -14,8 +15,10 @@ import {
   buildEmergencyMessage,
   cardlessDisplayName,
   comparePresentByName,
+  contactDisplayName,
   createId,
   displayName,
+  emergencyDialPhones,
   endOfTodayMidnight,
   formatDateTime,
   formatTime,
@@ -452,6 +455,8 @@ export default function App() {
   const [toast, setToast] = useState<Toast>(null)
   const [busy, setBusy] = useState(false)
   const [showListPreview, setShowListPreview] = useState(false)
+  const [showShareTarget, setShowShareTarget] = useState(false)
+  const [sharePhoneDraft, setSharePhoneDraft] = useState('')
   const [updateState, setUpdateState] = useState<
     | null
     | { phase: 'available'; version: string }
@@ -577,6 +582,8 @@ export default function App() {
   const [showVisitorManage, setShowVisitorManage] = useState(false)
   const [showEmergencyPhones, setShowEmergencyPhones] = useState(false)
   const [emergencyPhoneDraft, setEmergencyPhoneDraft] = useState('')
+  const [emergencyNameDraft, setEmergencyNameDraft] = useState('')
+  const [emergencyFlagDraft, setEmergencyFlagDraft] = useState(true)
   const [visitorManageMode, setVisitorManageMode] =
     useState<VisitorAccess>('closed')
   const listRef = useRef<HTMLDivElement>(null)
@@ -1535,9 +1542,11 @@ export default function App() {
 
   async function sendEmergencyList() {
     if (!data) return
-    const phones = data.settings.emergencyPhones ?? []
+    const phones = emergencyDialPhones(data.settings.emergencyPhones ?? [])
     if (phones.length === 0) {
-      setToast({ message: 'הוסיפו לפחות מספר אחד ב«מספרים»' })
+      setToast({
+        message: 'הוסיפו לפחות מספר אחד מסומן כ«חירום» ב«מספרים»',
+      })
       setShowEmergencyPhones(true)
       return
     }
@@ -1644,40 +1653,52 @@ export default function App() {
     }
   }
 
+  function resetPhoneForm() {
+    setEmergencyPhoneDraft('')
+    setEmergencyNameDraft('')
+    setEmergencyFlagDraft(true)
+  }
+
   async function addEmergencyPhone(e: FormEvent) {
     e.preventDefault()
     if (!data) return
     const phone = emergencyPhoneDraft.trim()
+    const name = emergencyNameDraft.trim()
     if (!normalizeWhatsAppPhone(phone)) {
       setToast({ message: 'נא להזין מספר טלפון תקין' })
       return
     }
     const key = normalizeWhatsAppPhone(phone)
     const current = data.settings.emergencyPhones ?? []
-    if (current.some((p) => normalizeWhatsAppPhone(p) === key)) {
+    if (current.some((p) => normalizeWhatsAppPhone(p.phone) === key)) {
       setToast({ message: 'המספר כבר ברשימה' })
       return
     }
-    const emergencyPhones = [...current, phone]
-    setEmergencyPhoneDraft('')
+    const contact: ContactPhone = {
+      id: createId(),
+      name,
+      phone,
+      emergency: emergencyFlagDraft,
+    }
+    const emergencyPhones = [...current, contact]
+    resetPhoneForm()
     await persist(
       {
         ...data,
         settings: {
           ...data.settings,
           emergencyPhones,
-          directorPhone: emergencyPhones[0] ?? '',
+          directorPhone: emergencyPhones[0]?.phone ?? '',
         },
       },
       'המספר נוסף',
     )
   }
 
-  async function removeEmergencyPhone(phone: string) {
+  async function removeEmergencyPhone(contactId: string) {
     if (!data) return
-    const key = normalizeWhatsAppPhone(phone)
     const emergencyPhones = (data.settings.emergencyPhones ?? []).filter(
-      (p) => normalizeWhatsAppPhone(p) !== key,
+      (p) => p.id !== contactId,
     )
     await persist(
       {
@@ -1685,17 +1706,48 @@ export default function App() {
         settings: {
           ...data.settings,
           emergencyPhones,
-          directorPhone: emergencyPhones[0] ?? '',
+          directorPhone: emergencyPhones[0]?.phone ?? '',
         },
       },
       'המספר הוסר',
     )
   }
 
-  async function shareListOnWhatsApp() {
+  async function toggleContactEmergency(contactId: string) {
     if (!data) return
-    setBusy(true)
+    const emergencyPhones = (data.settings.emergencyPhones ?? []).map((c) =>
+      c.id === contactId ? { ...c, emergency: !c.emergency } : c,
+    )
+    await persist(
+      {
+        ...data,
+        settings: {
+          ...data.settings,
+          emergencyPhones,
+          directorPhone: emergencyPhones[0]?.phone ?? '',
+        },
+      },
+      'עודכן',
+    )
+  }
 
+  function openShareTargetPicker() {
+    const phones = data?.settings.emergencyPhones ?? []
+    setSharePhoneDraft(phones[0]?.phone ?? '')
+    setShowShareTarget(true)
+  }
+
+  /** שליחה ישירה לפי מספר (בלי בחירה בתוך WhatsApp) */
+  async function shareListOnWhatsAppToPhone(phoneRaw: string) {
+    if (!data) return
+    const phone = phoneRaw.trim()
+    if (!normalizeWhatsAppPhone(phone)) {
+      setToast({ message: 'מספר לא תקין' })
+      return
+    }
+
+    setShowShareTarget(false)
+    setBusy(true)
     try {
       const dataUrl = await captureListImageDataUrl()
       if (!dataUrl) {
@@ -1703,55 +1755,58 @@ export default function App() {
         return
       }
 
-      if (window.listeApi?.shareImageToWhatsApp) {
-        const result = await window.listeApi.shareImageToWhatsApp(dataUrl)
+      if (window.listeApi?.sendWhatsAppText) {
+        setToast({ message: 'שולח את התמונה ב־WhatsApp…' })
+        const result = await window.listeApi.sendWhatsAppText(
+          phone,
+          '',
+          dataUrl,
+        )
         const ok = typeof result === 'boolean' ? result : result.ok
         const error = typeof result === 'boolean' ? undefined : result.error
         if (!ok) {
           if (error === 'whatsapp_not_connected') {
             setToast({
               message:
-                'WhatsApp Web לא מחובר — לחצו על מצב החיבור וסרקו את קוד ה־QR. התמונה הועתקה',
+                'WhatsApp Web לא מחובר — לחצו על מצב החיבור וסרקו QR. התמונה הועתקה',
             })
+            void window.listeApi.copyImage?.(dataUrl)
             void window.listeApi.openWhatsAppWebSession?.()
-          } else if (error === 'no_chat') {
-            setToast({
-              message:
-                'בחרו איש קשר בחלון WhatsApp — התמונה הועתקה (Ctrl+V) ואז שליחה',
-            })
+          } else if (error === 'offline') {
+            setToast({ message: 'אין אינטרנט — לא ניתן לשלוח כרגע' })
           } else {
-            setToast({ message: 'שיתוף התמונה נכשל — התמונה הועתקה ללוח' })
+            setToast({ message: 'שליחת התמונה נכשלה' })
           }
-        } else if (error === 'pending_chat') {
-          setToast({
-            message:
-              'בחרו איש קשר בחלון WhatsApp — התמונה תודבק אוטומטית, ואז לחצו שליחה',
-          })
-        } else {
-          setToast({
-            message: 'התמונה הודבקה — לחצו שליחה ב־WhatsApp',
-          })
+          return
         }
-      } else if (window.listeApi) {
-        await window.listeApi.copyImage(dataUrl)
-        await window.listeApi.openWhatsApp()
-        setToast({
-          message:
-            'בחרו איש קשר ב־WhatsApp — התמונה תודבק אוטומטית (או Ctrl+V)',
-        })
-      } else {
-        const blob = await (await fetch(dataUrl)).blob()
-        await navigator.clipboard.write([
-          new ClipboardItem({ 'image/png': blob }),
-        ])
-        window.open('https://web.whatsapp.com/', '_blank')
-        setToast({
-          message:
-            'בחרו איש קשר ב־WhatsApp — התמונה תודבק אוטומטית (או Ctrl+V)',
-        })
+        setToast({ message: 'התמונה נשלחה ב־WhatsApp' })
+        return
       }
+
+      // Fallback דפדפן / בלי API שליחה
+      if (window.listeApi?.shareImageToWhatsApp) {
+        const result = await window.listeApi.shareImageToWhatsApp(dataUrl)
+        const ok = typeof result === 'boolean' ? result : result.ok
+        setToast({
+          message: ok
+            ? 'בחרו איש קשר ב־WhatsApp — התמונה תודבק'
+            : 'שיתוף התמונה נכשל',
+        })
+        return
+      }
+
+      const blob = await (await fetch(dataUrl)).blob()
+      await navigator.clipboard.write([
+        new ClipboardItem({ 'image/png': blob }),
+      ])
+      const phoneNorm = normalizeWhatsAppPhone(phone)
+      window.open(
+        `https://web.whatsapp.com/send?phone=${phoneNorm}`,
+        '_blank',
+      )
+      setToast({ message: 'התמונה הועתקה — הדביקו (Ctrl+V) ושלחו' })
     } catch {
-      setToast({ message: 'שגיאה ביצירת התמונה' })
+      setToast({ message: 'שגיאה בשליחת התמונה' })
     } finally {
       setBusy(false)
     }
@@ -2573,10 +2628,10 @@ export default function App() {
               type="button"
               className="btn btn-ghost btn-emergency-phones"
               onClick={() => {
-                setEmergencyPhoneDraft('')
+                resetPhoneForm()
                 setShowEmergencyPhones(true)
               }}
-              title="ניהול מספרי חירום"
+              title="ניהול מספרים"
             >
               <IconPhone />
               <span>
@@ -2838,11 +2893,99 @@ export default function App() {
                 type="button"
                 className="btn btn-primary btn-whatsapp"
                 disabled={busy}
-                onClick={() => void shareListOnWhatsApp()}
+                onClick={() => openShareTargetPicker()}
               >
                 שיתוף הרשימה ב־WhatsApp
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showShareTarget && data && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setShowShareTarget(false)}
+        >
+          <div
+            className="modal modal-share-target"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3>שליחת הרשימה ב־WhatsApp</h3>
+            <p className="settings-note" style={{ marginBottom: 12 }}>
+              בחרו מספר — התמונה תישלח ישירות לצ׳אט (בלי בחירה בתוך WhatsApp).
+            </p>
+
+            {(data.settings.emergencyPhones?.length ?? 0) > 0 ? (
+              <div className="emergency-phone-scroll">
+                <ul className="emergency-phone-list share-target-list">
+                  {data.settings.emergencyPhones.map((contact) => (
+                    <li key={contact.id}>
+                      <div className="contact-phone-meta">
+                        <strong>{contactDisplayName(contact)}</strong>
+                        <span dir="ltr">{contact.phone}</span>
+                        {contact.emergency ? (
+                          <span className="contact-phone-badge emergency">חירום</span>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        style={{ width: 'auto' }}
+                        disabled={busy}
+                        onClick={() =>
+                          void shareListOnWhatsAppToPhone(contact.phone)
+                        }
+                      >
+                        שלח
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="settings-note" style={{ marginBottom: 10 }}>
+                אין מספרים שמורים — הזינו מספר למטה.
+              </p>
+            )}
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                void shareListOnWhatsAppToPhone(sharePhoneDraft)
+              }}
+            >
+              <div className="field">
+                <label htmlFor="sharePhone">מספר אחר</label>
+                <input
+                  id="sharePhone"
+                  type="tel"
+                  inputMode="tel"
+                  value={sharePhoneDraft}
+                  onChange={(e) => setSharePhoneDraft(e.target.value)}
+                  placeholder="0501234567"
+                  autoComplete="tel"
+                  dir="ltr"
+                />
+              </div>
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => setShowShareTarget(false)}
+                >
+                  ביטול
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-whatsapp"
+                  style={{ width: 'auto' }}
+                  disabled={busy || !normalizeWhatsAppPhone(sharePhoneDraft)}
+                >
+                  שלח תמונה
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -2856,44 +2999,107 @@ export default function App() {
             className="modal modal-emergency-phones"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3>מספרי חירום</h3>
+            <h3>מספרים</h3>
             <p className="settings-note" style={{ marginBottom: 12 }}>
-              המספרים שאליהם תישלח הרשימה בלחיצה על «חירום».
+              מספרי WhatsApp לשיתוף הרשימה. סמנו «חירום» רק למספרים שיקבלו
+              הודעה בלחיצה על חירום.
             </p>
 
             {(data.settings.emergencyPhones?.length ?? 0) === 0 ? (
               <p className="settings-note">אין מספרים עדיין.</p>
             ) : (
-              <ul className="emergency-phone-list">
-                {data.settings.emergencyPhones.map((phone) => (
-                  <li key={normalizeWhatsAppPhone(phone)}>
-                    <span dir="ltr">{phone}</span>
-                    <button
-                      type="button"
-                      className="btn btn-ghost"
-                      onClick={() => void removeEmergencyPhone(phone)}
-                    >
-                      הסרה
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <div className="emergency-phone-scroll">
+                <ul className="emergency-phone-list">
+                  {data.settings.emergencyPhones.map((contact) => (
+                    <li key={contact.id}>
+                      <div className="contact-phone-meta">
+                        <strong>{contactDisplayName(contact)}</strong>
+                        <span dir="ltr">{contact.phone}</span>
+                        {contact.emergency ? (
+                          <span className="contact-phone-badge emergency">חירום</span>
+                        ) : (
+                          <span className="contact-phone-badge">שיתוף</span>
+                        )}
+                      </div>
+                      <div className="contact-phone-actions">
+                        <button
+                          type="button"
+                          className={`btn btn-ghost ${
+                            contact.emergency ? 'mode-active' : ''
+                          }`}
+                          onClick={() => void toggleContactEmergency(contact.id)}
+                          title={
+                            contact.emergency
+                              ? 'הסר מסימון חירום'
+                              : 'סמן כמספר חירום'
+                          }
+                        >
+                          {contact.emergency ? 'חירום ✓' : 'חירום'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          onClick={() => void removeEmergencyPhone(contact.id)}
+                        >
+                          הסרה
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
 
             <form onSubmit={(e) => void addEmergencyPhone(e)}>
+              <div className="row-2">
+                <div className="field">
+                  <label htmlFor="contactName">שם</label>
+                  <input
+                    id="contactName"
+                    value={emergencyNameDraft}
+                    onChange={(e) => setEmergencyNameDraft(e.target.value)}
+                    placeholder="מנהל / שמירה…"
+                    autoFocus
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="emergencyPhone">מספר טלפון</label>
+                  <input
+                    id="emergencyPhone"
+                    type="tel"
+                    inputMode="tel"
+                    value={emergencyPhoneDraft}
+                    onChange={(e) => setEmergencyPhoneDraft(e.target.value)}
+                    placeholder="0501234567"
+                    autoComplete="tel"
+                    dir="ltr"
+                  />
+                </div>
+              </div>
               <div className="field">
-                <label htmlFor="emergencyPhone">הוספת מספר</label>
-                <input
-                  id="emergencyPhone"
-                  type="tel"
-                  inputMode="tel"
-                  value={emergencyPhoneDraft}
-                  onChange={(e) => setEmergencyPhoneDraft(e.target.value)}
-                  placeholder="0501234567"
-                  autoFocus
-                  autoComplete="tel"
-                  dir="ltr"
-                />
+                <label>סוג מספר</label>
+                <div className="type-toggle">
+                  <button
+                    type="button"
+                    className={`type-toggle-btn ${emergencyFlagDraft ? 'active' : ''}`}
+                    onClick={() => setEmergencyFlagDraft(true)}
+                  >
+                    חירום
+                  </button>
+                  <button
+                    type="button"
+                    className={`type-toggle-btn ${!emergencyFlagDraft ? 'active' : ''}`}
+                    onClick={() => setEmergencyFlagDraft(false)}
+                  >
+                    שיתוף בלבד
+                  </button>
+                </div>
+                <p className="settings-note" style={{ marginTop: 6 }}>
+                  {emergencyFlagDraft
+                    ? 'יכלל בשליחת חירום ובשיתוף התצוגה המקדימה'
+                    : 'רק לשיתוף התצוגה המקדימה — לא יישלח בלחיצת חירום'}
+                </p>
               </div>
               <div className="modal-actions">
                 <button

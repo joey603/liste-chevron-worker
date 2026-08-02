@@ -3,7 +3,12 @@ import { contextBridge, ipcRenderer } from 'electron'
 export type AppData = {
   settings: {
     directorPhone: string
-    emergencyPhones: string[]
+    emergencyPhones: Array<{
+      id: string
+      name: string
+      phone: string
+      emergency: boolean
+    }>
     siteName: string
     visitorSlots: Record<
       string,

@@ -7,6 +7,7 @@ import {
   net,
   session,
   shell,
+  type NativeImage,
 } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -50,9 +51,16 @@ type VisitorSlot = {
   openUntil: string | null
 }
 
+type ContactPhone = {
+  id: string
+  name: string
+  phone: string
+  emergency: boolean
+}
+
 type AppSettings = {
   directorPhone: string
-  emergencyPhones: string[]
+  emergencyPhones: ContactPhone[]
   siteName: string
   visitorSlots: Record<string, VisitorSlot>
 }
@@ -132,28 +140,54 @@ function dataPath() {
   return path.join(app.getPath('userData'), 'liste-data.json')
 }
 
+function makeId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
+}
+
 function normalizeEmergencyPhones(
   raw: unknown,
   directorPhone = '',
-): string[] {
-  const list: string[] = []
+): ContactPhone[] {
+  const list: ContactPhone[] = []
   if (Array.isArray(raw)) {
     for (const item of raw) {
-      if (typeof item !== 'string') continue
-      const trimmed = item.trim()
-      if (!trimmed) continue
-      list.push(trimmed)
+      if (typeof item === 'string') {
+        const trimmed = item.trim()
+        if (!trimmed) continue
+        list.push({
+          id: makeId(),
+          name: '',
+          phone: trimmed,
+          emergency: true,
+        })
+        continue
+      }
+      if (!item || typeof item !== 'object') continue
+      const obj = item as Partial<ContactPhone>
+      const phone = String(obj.phone ?? '').trim()
+      if (!phone) continue
+      list.push({
+        id: typeof obj.id === 'string' && obj.id ? obj.id : makeId(),
+        name: typeof obj.name === 'string' ? obj.name.trim() : '',
+        phone,
+        emergency: obj.emergency !== false,
+      })
     }
   } else if (directorPhone.trim()) {
-    list.push(directorPhone.trim())
+    list.push({
+      id: makeId(),
+      name: '',
+      phone: directorPhone.trim(),
+      emergency: true,
+    })
   }
   const seen = new Set<string>()
-  const unique: string[] = []
-  for (const phone of list) {
-    const key = phone.replace(/\D/g, '')
+  const unique: ContactPhone[] = []
+  for (const contact of list) {
+    const key = contact.phone.replace(/\D/g, '')
     if (!key || seen.has(key)) continue
     seen.add(key)
-    unique.push(phone)
+    unique.push(contact)
   }
   return unique
 }
@@ -201,7 +235,7 @@ function normalize(raw: Partial<AppData>): AppData {
     ...defaultData().settings,
     ...raw.settings,
     emergencyPhones,
-    directorPhone: emergencyPhones[0] ?? '',
+    directorPhone: emergencyPhones[0]?.phone ?? '',
     visitorSlots: normalizeVisitorSlots(raw.settings?.visitorSlots, now),
   }
 
@@ -617,7 +651,7 @@ async function waitForWebContentsIdle(
 ): Promise<void> {
   if (win.isDestroyed()) return
   if (!win.webContents.isLoading()) {
-    await wait(400)
+    await wait(80)
     return
   }
   await Promise.race([
@@ -626,6 +660,7 @@ async function waitForWebContentsIdle(
     }),
     wait(timeoutMs),
   ])
+  await wait(80)
 }
 
 async function inspectWhatsAppWebDom(
@@ -792,6 +827,49 @@ const WA_CLICK_SEND_JS = `(() => {
   return true
 })()`
 
+/** Attend le bouton Send du média (aperçu photo) puis clique. */
+async function clickWhatsAppMediaSend(
+  win: BrowserWindow,
+  maxMs = 4000,
+): Promise<boolean> {
+  return Boolean(
+    await win.webContents.executeJavaScript(
+      `(() => new Promise((resolve) => {
+        const started = Date.now()
+        const maxMs = ${maxMs}
+        const findSend = () => {
+          const mediaSend = document.querySelector(
+            '[data-testid="send"], [data-testid="drawer-btn-send"], span[data-icon="send"], span[data-icon="wds-ic-send-filled"]'
+          )
+          if (mediaSend) {
+            return mediaSend.closest('button') || mediaSend
+          }
+          return null
+        }
+        const tryClick = () => {
+          const btn = findSend()
+          if (btn) {
+            btn.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+            setTimeout(() => {
+              const again = findSend()
+              if (again) again.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+            }, 60)
+            resolve(true)
+            return
+          }
+          if (Date.now() - started >= maxMs) {
+            resolve(false)
+            return
+          }
+          setTimeout(tryClick, 40)
+        }
+        tryClick()
+      }))()`,
+      true,
+    ),
+  )
+}
+
 async function sendImageInOpenWhatsAppChat(
   win: BrowserWindow,
   imageDataUrl: string,
@@ -799,7 +877,6 @@ async function sendImageInOpenWhatsAppChat(
   const image = nativeImage.createFromDataURL(imageDataUrl)
   if (image.isEmpty()) return
   clipboard.writeImage(image)
-  await wait(150)
   await win.webContents.executeJavaScript(
     `(() => {
       const input = document.querySelector(
@@ -810,11 +887,14 @@ async function sendImageInOpenWhatsAppChat(
     })()`,
     true,
   )
+  win.focus()
   win.webContents.focus()
   win.webContents.paste()
-  await wait(140)
-  await win.webContents.executeJavaScript(WA_CLICK_SEND_JS, true)
-  await wait(350)
+  // L'aperçu média WA peut prendre un moment : attendre le Send réel
+  const sent = await clickWhatsAppMediaSend(win, 4500)
+  if (!sent) {
+    await win.webContents.executeJavaScript(WA_CLICK_SEND_JS, true)
+  }
 }
 
 async function sendViaEmbeddedWhatsAppWeb(
@@ -822,7 +902,8 @@ async function sendViaEmbeddedWhatsAppWeb(
   text: string,
   imageDataUrl?: string,
 ): Promise<WhatsAppSendResult> {
-  clipboard.writeText(text)
+  const message = text.trim()
+  if (message) clipboard.writeText(message)
   const status = await probeWindowsWhatsAppWeb()
   if (!status.connected) {
     ensureWhatsAppWebWindow(true)
@@ -830,8 +911,8 @@ async function sendViaEmbeddedWhatsAppWeb(
   }
 
   const win = ensureWhatsAppWebWindow(true)
-  const shortEnough = text.length <= 1200
-  const encoded = shortEnough ? encodeURIComponent(text) : ''
+  const shortEnough = message.length > 0 && message.length <= 1200
+  const encoded = shortEnough ? encodeURIComponent(message) : ''
   const url = encoded
     ? `https://web.whatsapp.com/send?phone=${phoneNorm}&text=${encoded}`
     : `https://web.whatsapp.com/send?phone=${phoneNorm}`
@@ -840,10 +921,41 @@ async function sendViaEmbeddedWhatsAppWeb(
   await waitForWebContentsIdle(win, 15000)
   await wait(250)
 
+  // Photo seule : pas de texte à envoyer
+  if (!message) {
+    if (imageDataUrl) {
+      // Attendre que le chat soit prêt avant collage/envoi
+      await win.webContents.executeJavaScript(
+        `(() => new Promise((resolve) => {
+          let tries = 0
+          const tick = () => {
+            const input = document.querySelector(
+              '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
+            )
+            const okBtn = document.querySelector(
+              '[data-testid="popup-controls-ok"], button[data-testid="popup-controls-ok"]'
+            )
+            if (okBtn) okBtn.click()
+            if (input || tries >= 50) {
+              resolve(!!input)
+              return
+            }
+            tries += 1
+            setTimeout(tick, 80)
+          }
+          tick()
+        }))()`,
+        true,
+      )
+      await sendImageInOpenWhatsAppChat(win, imageDataUrl)
+    }
+    return { ok: true }
+  }
+
   // Une seule passe DOM : attendre le champ, remplir si besoin, cliquer Send aussitôt
   const sent = await win.webContents.executeJavaScript(
     `(() => new Promise((resolve) => {
-      const message = ${JSON.stringify(text)}
+      const message = ${JSON.stringify(message)}
       const alreadyFilled = ${encoded ? 'true' : 'false'}
       let tries = 0
 
@@ -920,12 +1032,12 @@ async function sendViaEmbeddedWhatsAppWeb(
 
   if (!sent) {
     win.webContents.paste()
-    await wait(80)
+    await wait(60)
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
-    await wait(80)
+    await wait(60)
   } else {
-    await wait(400)
+    await wait(120)
   }
 
   // Urgence : envoyer aussi la photo de la liste (comme le preview)
@@ -1047,48 +1159,260 @@ type WhatsAppShareImageResult = {
   error?: 'whatsapp_not_connected' | 'no_chat' | 'pending_chat' | 'failed'
 }
 
-/** Attend un chat ouvert, colle l'image du presse-papiers ; envoi optionnel. */
-async function pasteClipboardImageAndSend(
+const WA_OPEN_SEND_PICKER_JS = `(() => {
+  const hasPicker = () =>
+    !!(
+      document.querySelector('[data-testid="popup"]') ||
+      document.querySelector('[data-testid="contact-list-popup"]') ||
+      document.querySelector('[data-animate-modal-popup="true"]') ||
+      document.querySelector('div[role="dialog"]') ||
+      document.querySelector('[data-testid="new-chat-drawer"]') ||
+      document.querySelector('div[aria-label*="Search"] input, div[aria-label*="חיפוש"] input')
+    )
+  if (hasPicker()) return 'already'
+
+  const selectors = [
+    '[data-testid="chat-new-chat-button"]',
+    '[data-testid="new-chat-button"]',
+    '[data-icon="new-chat-outline"]',
+    '[data-icon="new-chat"]',
+    'span[data-icon="new-chat-outline"]',
+    'span[data-icon="new-chat"]',
+  ]
+  for (const sel of selectors) {
+    const el = document.querySelector(sel)
+    if (!el) continue
+    const btn = el.closest('button') || el
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    return 'clicked'
+  }
+  const byLabel = Array.from(
+    document.querySelectorAll('button[aria-label], div[role="button"][aria-label]'),
+  ).find((el) => {
+    const label = (el.getAttribute('aria-label') || '').toLowerCase()
+    return (
+      label.includes('new chat') ||
+      label.includes('צ׳אט חדש') ||
+      label.includes("צ'אט חדש")
+    )
+  })
+  if (byLabel) {
+    byLabel.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    return 'clicked'
+  }
+  return 'none'
+})()`
+
+/**
+ * WhatsApp Web n'expose PAS d'ID contact fiable dans le DOM/URL.
+ * Signal réel d'un chat ouvert = header[data-testid="conversation-header"]
+ * avec un nom, + zone de saisie, APRÈS fermeture du picker « שליחה אל… ».
+ *
+ * Étapes :
+ * 1) attendre que le picker/liste contacts soit visible
+ * 2) mémoriser le header à ce moment-là (baseline)
+ * 3) coller seulement si picker fermé + header différent + compose présent
+ */
+async function waitForWhatsAppRecipientSelected(
   win: BrowserWindow,
-  maxTries = 40,
-  autoSend = true,
+  maxWaitMs = 120_000,
 ): Promise<boolean> {
-  const ready = await win.webContents.executeJavaScript(
-    `(() => new Promise((resolve) => {
-      let tries = 0
-      const maxTries = ${maxTries}
-      const findInput = () =>
-        document.querySelector(
+  return Boolean(
+    await win.webContents.executeJavaScript(
+      `(() => new Promise((resolve) => {
+        const maxWaitMs = ${maxWaitMs}
+        const started = Date.now()
+        let settled = false
+        let observer = null
+        let iv = null
+        let baselineHeader = null
+        let sawPicker = false
+
+        const composeSel =
+          '[data-testid="conversation-compose-box-input"], #main footer div[contenteditable="true"]'
+
+        // Nom du chat actif — seul signal fiable côté DOM moderne
+        const activeChatName = () => {
+          const header = document.querySelector(
+            'header[data-testid="conversation-header"]',
+          )
+          if (!header) return ''
+          const titled = header.querySelector('span[title], [title]')
+          if (titled) {
+            const t = (titled.getAttribute('title') || titled.textContent || '')
+              .trim()
+            if (t) return t.slice(0, 200)
+          }
+          const spans = Array.from(header.querySelectorAll('span'))
+          for (const span of spans) {
+            const text = (span.textContent || '').trim()
+            if (!text || text.length < 1) continue
+            if (span.closest('[data-icon]') || span.getAttribute('data-icon')) continue
+            if (/^[\\uE000-\\uF8FF]+$/.test(text)) continue
+            return text.slice(0, 200)
+          }
+          return (header.innerText || '').trim().split('\\n')[0].slice(0, 200)
+        }
+
+        const hasCompose = () => {
+          const input = document.querySelector(composeSel)
+          if (!input) return false
+          // Ignorer un compose caché derrière un modal
+          const style = window.getComputedStyle(input)
+          return style.display !== 'none' && style.visibility !== 'hidden'
+        }
+
+        const hasPicker = () => {
+          // Uniquement les vrais sélecteurs "nouveau message / send to / new chat"
+          // (pas tout role=dialog — trop large, déclenchait le collage trop tôt)
+          return !!(
+            document.querySelector('[data-testid="contact-list-popup"]') ||
+            document.querySelector('[data-testid="new-chat-drawer"]') ||
+            document.querySelector('[data-testid="chat-list-search"]') ||
+            document.querySelector('[data-animate-modal-popup="true"]') ||
+            document.querySelector(
+              '[data-testid="popup"] [data-testid="cell-frame-container"]',
+            ) ||
+            document.querySelector(
+              'div[data-animate-modal-body="true"] [data-testid="cell-frame-container"]',
+            )
+          )
+        }
+
+        const done = (ok) => {
+          if (settled) return
+          settled = true
+          if (iv) clearInterval(iv)
+          try { if (observer) observer.disconnect() } catch (_) {}
+          resolve(ok)
+        }
+
+        const check = () => {
+          const picker = hasPicker()
+          const compose = hasCompose()
+          const name = activeChatName()
+
+          if (picker) {
+            sawPicker = true
+            // Baseline pendant que le picker est ouvert (souvent header vide / ancien chat)
+            if (baselineHeader === null) {
+              baselineHeader = name
+            }
+          }
+
+          // Ne coller QUE si :
+          // - on a bien vu le picker au moins une fois
+          // - le picker est fermé
+          // - un header de conversation avec un nom est visible
+          // - ce nom a changé par rapport à la baseline (vraie sélection)
+          // - la zone de saisie du chat est là
+          const selected =
+            sawPicker &&
+            !picker &&
+            baselineHeader !== null &&
+            !!name &&
+            name !== baselineHeader &&
+            compose
+
+          if (selected) {
+            const input = document.querySelector(composeSel)
+            if (input) input.focus()
+            done(true)
+            return
+          }
+          if (Date.now() - started >= maxWaitMs) done(false)
+        }
+
+        observer = new MutationObserver(check)
+        observer.observe(document.body, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+        })
+        iv = setInterval(check, 80)
+        check()
+      }))()`,
+      true,
+    ),
+  )
+}
+
+async function focusWhatsAppCompose(win: BrowserWindow): Promise<boolean> {
+  return Boolean(
+    await win.webContents.executeJavaScript(
+      `(() => {
+        const input = document.querySelector(
           '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
         )
-      const tick = () => {
-        tries += 1
-        const input = findInput()
-        if (input) {
-          input.focus()
-          resolve(true)
-          return
-        }
-        if (tries >= maxTries) {
-          resolve(false)
-          return
-        }
-        setTimeout(tick, 80)
-      }
-      tick()
-    }))()`,
-    true,
+        if (!input) return false
+        input.focus()
+        input.click()
+        return true
+      })()`,
+      true,
+    ),
   )
+}
 
-  if (!ready) return false
+/** Colle l'image (plusieurs tentatives) ; envoi optionnel. */
+async function pasteClipboardImageAndSend(
+  win: BrowserWindow,
+  image: NativeImage,
+  autoSend = true,
+): Promise<boolean> {
+  if (image.isEmpty()) return false
+
+  const focused = await focusWhatsAppCompose(win)
+  if (!focused) return false
+
+  // Réécrire le presse-papiers juste avant collage
+  clipboard.writeImage(image)
+  await wait(40)
 
   win.focus()
   win.webContents.focus()
-  win.webContents.paste()
-  await wait(100)
-  // Preview : collage seulement — l'utilisateur envoie manuellement
+  await focusWhatsAppCompose(win)
+
+  // Tentatives: Electron paste + Ctrl+V (Windows)
+  for (let i = 0; i < 3; i++) {
+    clipboard.writeImage(image)
+    await wait(30)
+    await focusWhatsAppCompose(win)
+    win.webContents.focus()
+    win.webContents.paste()
+    await wait(120)
+    // Ctrl+V en secours
+    win.webContents.sendInputEvent({
+      type: 'keyDown',
+      keyCode: 'V',
+      modifiers: ['control'],
+    })
+    win.webContents.sendInputEvent({
+      type: 'keyUp',
+      keyCode: 'V',
+      modifiers: ['control'],
+    })
+    await wait(180)
+
+    const mediaReady = await win.webContents.executeJavaScript(
+      `(() => !!(
+        document.querySelector('[data-testid="media-canvas"]') ||
+        document.querySelector('[data-testid="drawer-middle"]') ||
+        document.querySelector('[data-testid="send"]') ||
+        document.querySelector('span[data-icon="send"]') ||
+        document.querySelector('div[data-animate-modal-body="true"] img') ||
+        document.querySelector('canvas')
+      ))()`,
+      true,
+    )
+    if (mediaReady) break
+  }
+
   if (autoSend) {
-    await win.webContents.executeJavaScript(WA_CLICK_SEND_JS, true)
+    const sent = await clickWhatsAppMediaSend(win, 4500)
+    if (!sent) {
+      await win.webContents.executeJavaScript(WA_CLICK_SEND_JS, true)
+    }
   }
   return true
 }
@@ -1113,38 +1437,58 @@ async function shareImageViaEmbeddedWhatsAppWeb(
   }
 
   const win = ensureWhatsAppWebWindow(true)
-  // Toujours revenir à la liste des chats pour forcer le choix du contact
-  await win.loadURL('https://web.whatsapp.com/', {
-    userAgent: WHATSAPP_WEB_USER_AGENT,
-  })
-  await waitForWebContentsIdle(win, 15000)
   win.show()
   win.focus()
-  await wait(400)
 
-  // Après choix du contact : coller la photo seulement (pas d'envoi auto)
-  void (async () => {
+  // Éviter un reload complet si WhatsApp Web est déjà chargé (beaucoup plus rapide)
+  const currentUrl = win.webContents.getURL()
+  const alreadyOnWeb =
+    currentUrl.includes('web.whatsapp.com') && !win.webContents.isLoading()
+
+  if (alreadyOnWeb) {
     try {
-      await win.webContents.executeJavaScript(
-        `(() => new Promise((resolve) => {
-          let tries = 0
-          const hasInput = () =>
-            !!document.querySelector(
-              '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
-            )
-          const tick = () => {
-            tries += 1
-            if (!hasInput() || tries >= 40) {
-              resolve(true)
-              return
-            }
-            setTimeout(tick, 100)
-          }
-          tick()
-        }))()`,
+      const opened = await win.webContents.executeJavaScript(
+        WA_OPEN_SEND_PICKER_JS,
         true,
       )
-      await pasteClipboardImageAndSend(win, 600, false)
+      if (opened === 'none') {
+        await win.loadURL(
+          `https://web.whatsapp.com/send?text=${encodeURIComponent('.')}`,
+          { userAgent: WHATSAPP_WEB_USER_AGENT },
+        )
+        await waitForWebContentsIdle(win, 8000)
+      }
+    } catch {
+      await win.loadURL(
+        `https://web.whatsapp.com/send?text=${encodeURIComponent('.')}`,
+        { userAgent: WHATSAPP_WEB_USER_AGENT },
+      )
+      await waitForWebContentsIdle(win, 8000)
+    }
+  } else {
+    await win.loadURL(
+      `https://web.whatsapp.com/send?text=${encodeURIComponent('.')}`,
+      { userAgent: WHATSAPP_WEB_USER_AGENT },
+    )
+    await waitForWebContentsIdle(win, 10000)
+    try {
+      await win.webContents.executeJavaScript(WA_OPEN_SEND_PICKER_JS, true)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  win.focus()
+  clipboard.writeImage(image)
+
+  // Attendre la VRAIE sélection du destinataire, puis coller (pas d'envoi auto)
+  void (async () => {
+    try {
+      const selected = await waitForWhatsAppRecipientSelected(win, 120_000)
+      if (!selected) return
+      await wait(150)
+      clipboard.writeImage(image)
+      await pasteClipboardImageAndSend(win, image, false)
     } catch {
       /* ignore */
     }
@@ -1155,19 +1499,37 @@ async function shareImageViaEmbeddedWhatsAppWeb(
 async function openWhatsAppAndPaste() {
   // Un "." ouvre l'écran "à qui envoyer" ; l'image reste dans le presse-papiers
   const text = encodeURIComponent('.')
+  const image = clipboard.readImage()
   if (process.platform === 'win32') {
     const win = ensureWhatsAppWebWindow(true)
-    await win.loadURL(`https://web.whatsapp.com/send?text=${text}`, {
-      userAgent: WHATSAPP_WEB_USER_AGENT,
-    })
-    await waitForWebContentsIdle(win, 12000)
-    await wait(400)
-    const sent = await pasteClipboardImageAndSend(win)
-    if (!sent) {
+    const currentUrl = win.webContents.getURL()
+    if (!currentUrl.includes('web.whatsapp.com') || win.webContents.isLoading()) {
+      await win.loadURL(`https://web.whatsapp.com/send?text=${text}`, {
+        userAgent: WHATSAPP_WEB_USER_AGENT,
+      })
+      await waitForWebContentsIdle(win, 10000)
+    } else {
+      try {
+        await win.webContents.executeJavaScript(WA_OPEN_SEND_PICKER_JS, true)
+      } catch {
+        await win.loadURL(`https://web.whatsapp.com/send?text=${text}`, {
+          userAgent: WHATSAPP_WEB_USER_AGENT,
+        })
+        await waitForWebContentsIdle(win, 8000)
+      }
+    }
+    win.show()
+    win.focus()
+    if (!image.isEmpty()) clipboard.writeImage(image)
+    const selected = await waitForWhatsAppRecipientSelected(win, 120_000)
+    if (!selected) return
+    await wait(150)
+    if (!image.isEmpty()) {
+      await pasteClipboardImageAndSend(win, image, true)
+    } else {
+      await focusWhatsAppCompose(win)
       win.webContents.paste()
-      await wait(100)
-      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
-      win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
+      await clickWhatsAppMediaSend(win, 3000)
     }
     return
   }
@@ -1186,31 +1548,34 @@ async function openWhatsAppSendText(
   imageDataUrl?: string,
 ): Promise<WhatsAppSendResult> {
   const phoneNorm = normalizeWhatsAppPhone(phone)
-  if (!phoneNorm || !text.trim()) return { ok: false, error: 'failed' }
+  const message = text.trim()
+  if (!phoneNorm || (!message && !imageDataUrl)) {
+    return { ok: false, error: 'failed' }
+  }
 
   if (!isNetworkOnline()) {
-    clipboard.writeText(text)
+    if (message) clipboard.writeText(message)
     return { ok: false, error: 'offline' }
   }
 
   // Windows: WhatsApp Web embarqué (statut DOM réel + envoi dans la même session)
   if (process.platform === 'win32') {
-    return sendViaEmbeddedWhatsAppWeb(phoneNorm, text, imageDataUrl)
+    return sendViaEmbeddedWhatsAppWeb(phoneNorm, message, imageDataUrl)
   }
 
   const status = await getWhatsAppStatus()
   if (!status.connected) {
-    clipboard.writeText(text)
+    if (message) clipboard.writeText(message)
     if (!status.desktopInstalled && !status.webOpen) {
       return { ok: false, error: 'whatsapp_unavailable' }
     }
     return { ok: false, error: 'whatsapp_not_connected' }
   }
 
-  clipboard.writeText(text)
+  if (message) clipboard.writeText(message)
 
-  const shortEnough = text.length <= 1200
-  const encoded = shortEnough ? encodeURIComponent(text) : ''
+  const shortEnough = message.length > 0 && message.length <= 1200
+  const encoded = shortEnough ? encodeURIComponent(message) : ''
   const desktopUri = encoded
     ? `whatsapp://send?phone=${phoneNorm}&text=${encoded}`
     : `whatsapp://send?phone=${phoneNorm}`
@@ -1233,14 +1598,16 @@ async function openWhatsAppSendText(
   }
 
   await wait(status.channel === 'web' ? 3200 : 2600)
-  if (encoded) {
+  if (message) {
+    if (encoded) {
+      await runWhatsAppKeys('enter')
+    } else {
+      await runWhatsAppKeys('paste-enter')
+    }
+    await wait(350)
     await runWhatsAppKeys('enter')
-  } else {
-    await runWhatsAppKeys('paste-enter')
+    await wait(250)
   }
-  await wait(350)
-  await runWhatsAppKeys('enter')
-  await wait(250)
 
   if (imageDataUrl) {
     const image = nativeImage.createFromDataURL(imageDataUrl)

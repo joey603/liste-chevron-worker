@@ -44,10 +44,19 @@ export type VisitorSlot = {
   openUntil: string | null
 }
 
+/** איש קשר לשליחת WhatsApp (חירום ו/או שיתוף) */
+export type ContactPhone = {
+  id: string
+  name: string
+  phone: string
+  /** נשלח בלחיצת «חירום» */
+  emergency: boolean
+}
+
 export type AppSettings = {
   directorPhone: string
-  /** מספרי חירום לשליחת WhatsApp */
-  emergencyPhones: string[]
+  /** מספרי WhatsApp (עם שם + דגל חירום) */
+  emergencyPhones: ContactPhone[]
   siteName: string
   /** מצב לכל ויזיטור 1–30 */
   visitorSlots: Record<string, VisitorSlot>
@@ -379,37 +388,68 @@ export function normalizeWhatsAppPhone(phone: string): string {
   return digits
 }
 
+export function createId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
+}
+
+export function contactDisplayName(c: ContactPhone): string {
+  return c.name.trim() || c.phone
+}
+
+/** מספרי חירום בלבד (לשליחת חירום) */
+export function emergencyDialPhones(contacts: ContactPhone[]): string[] {
+  return contacts.filter((c) => c.emergency).map((c) => c.phone)
+}
+
 export function normalizeEmergencyPhones(
   raw: unknown,
   directorPhone = '',
-): string[] {
-  const list: string[] = []
+): ContactPhone[] {
+  const list: ContactPhone[] = []
   if (Array.isArray(raw)) {
     for (const item of raw) {
-      if (typeof item !== 'string') continue
-      const trimmed = item.trim()
-      if (!trimmed || !normalizeWhatsAppPhone(trimmed)) continue
-      list.push(trimmed)
+      if (typeof item === 'string') {
+        const trimmed = item.trim()
+        if (!trimmed || !normalizeWhatsAppPhone(trimmed)) continue
+        list.push({
+          id: createId(),
+          name: '',
+          phone: trimmed,
+          emergency: true,
+        })
+        continue
+      }
+      if (!item || typeof item !== 'object') continue
+      const obj = item as Partial<ContactPhone>
+      const phone = String(obj.phone ?? '').trim()
+      if (!phone || !normalizeWhatsAppPhone(phone)) continue
+      list.push({
+        id: typeof obj.id === 'string' && obj.id ? obj.id : createId(),
+        name: typeof obj.name === 'string' ? obj.name.trim() : '',
+        phone,
+        emergency: obj.emergency !== false,
+      })
     }
   } else {
     const legacy = directorPhone.trim()
     if (legacy && normalizeWhatsAppPhone(legacy)) {
-      list.push(legacy)
+      list.push({
+        id: createId(),
+        name: '',
+        phone: legacy,
+        emergency: true,
+      })
     }
   }
   const seen = new Set<string>()
-  const unique: string[] = []
-  for (const phone of list) {
-    const key = normalizeWhatsAppPhone(phone)
+  const unique: ContactPhone[] = []
+  for (const contact of list) {
+    const key = normalizeWhatsAppPhone(contact.phone)
     if (!key || seen.has(key)) continue
     seen.add(key)
-    unique.push(phone)
+    unique.push(contact)
   }
   return unique
-}
-
-export function createId(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
 }
 
 /** חצות בסוף היום הנוכחי (מחיקת כרטיס זמני) */
@@ -495,7 +535,7 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
     siteName: rawSettings?.siteName ?? 'אתר Chevron',
     visitorSlots: normalizeVisitorSlots(rawSettings?.visitorSlots),
   }
-  settings.directorPhone = settings.emergencyPhones[0] ?? ''
+  settings.directorPhone = settings.emergencyPhones[0]?.phone ?? ''
   const workers = (Array.isArray(raw?.workers) ? raw.workers : []).map((w) => ({
     id: w.id,
     firstName: w.firstName,
