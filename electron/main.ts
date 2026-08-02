@@ -24,10 +24,20 @@ type Worker = {
   expiresAt: string | null
 }
 
+type CardlessPerson = {
+  id: string
+  firstName: string
+  lastName: string
+  temporary: boolean
+  expiresAt: string | null
+  assignment: 'unique' | 'multiple'
+}
+
 type PersonEntry = {
   id: string
   kind: EntryKind
   workerId: string | null
+  cardlessPersonId: string | null
   firstName: string
   lastName: string
   visitorNumber: number | null
@@ -50,6 +60,7 @@ type AppSettings = {
 type AppData = {
   settings: AppSettings
   workers: Worker[]
+  cardlessPeople: CardlessPerson[]
   people: PersonEntry[]
   banned: BannedPerson[]
 }
@@ -112,6 +123,7 @@ const defaultData = (): AppData => ({
     visitorSlots: defaultVisitorSlots(),
   },
   workers: [],
+  cardlessPeople: [],
   people: [],
   banned: [],
 })
@@ -161,6 +173,25 @@ function normalize(raw: Partial<AppData>): AppData {
       return new Date(w.expiresAt).getTime() > now
     })
 
+  const cardlessPeople = (
+    Array.isArray(raw.cardlessPeople) ? raw.cardlessPeople : []
+  )
+    .map((c) => ({
+      id: c.id,
+      firstName: c.firstName,
+      lastName: c.lastName,
+      temporary: Boolean(c.temporary),
+      expiresAt: c.expiresAt ?? null,
+      assignment:
+        c.assignment === 'unique' || c.assignment === 'multiple'
+          ? c.assignment
+          : ('multiple' as const),
+    }))
+    .filter((c) => {
+      if (!c.temporary || !c.expiresAt) return true
+      return new Date(c.expiresAt).getTime() > now
+    })
+
   const emergencyPhones = normalizeEmergencyPhones(
     raw.settings?.emergencyPhones,
     raw.settings?.directorPhone ?? '',
@@ -177,10 +208,12 @@ function normalize(raw: Partial<AppData>): AppData {
   return {
     settings,
     workers,
+    cardlessPeople,
     people: Array.isArray(raw.people)
       ? raw.people.map((p) => ({
           ...p,
           workerId: p.workerId ?? null,
+          cardlessPersonId: p.cardlessPersonId ?? null,
         }))
       : [],
     banned: Array.isArray(raw.banned)

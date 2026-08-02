@@ -4,18 +4,22 @@ import { domToPng } from 'modern-screenshot'
 import {
   AppData,
   BannedPerson,
+  CardlessAssignment,
+  CardlessPerson,
   PersonEntry,
   VISITOR_COUNT,
   VisitorAccess,
   Worker,
   bannedDisplayName,
   buildEmergencyMessage,
+  cardlessDisplayName,
   comparePresentByName,
   createId,
   displayName,
   endOfTodayMidnight,
   formatDateTime,
   formatTime,
+  isCardlessBlocked,
   isEnteredAfterSevenAm,
   getVisitorSlot,
   isPresent,
@@ -25,6 +29,7 @@ import {
   normalizeData,
   normalizeWhatsAppPhone,
   purgeExpiredWorkers,
+  visitorAffiliatedName,
   WhatsAppStatus,
   whatsappStatusLabel,
   workerDisplayName,
@@ -427,8 +432,19 @@ export default function App() {
   const [showNewWorker, setShowNewWorker] = useState(false)
   const [newWorker, setNewWorker] = useState(emptyNamed)
   const [newWorkerTemporary, setNewWorkerTemporary] = useState(false)
+  const [showNewCardless, setShowNewCardless] = useState(false)
+  const [newCardless, setNewCardless] = useState(emptyNamed)
+  const [newCardlessTemporary, setNewCardlessTemporary] = useState(false)
+  const [newCardlessAssignment, setNewCardlessAssignment] =
+    useState<CardlessAssignment>('unique')
   const [manageMode, setManageMode] = useState<'none' | 'edit' | 'delete'>('none')
   const [editingWorker, setEditingWorker] = useState<Worker | null>(null)
+  const [editingCardless, setEditingCardless] = useState<CardlessPerson | null>(
+    null,
+  )
+  const [selectedCardlessId, setSelectedCardlessId] = useState<string | null>(
+    null,
+  )
   const [activeTab, setActiveTab] = useState<AppTab>('presence')
   const [showBannedModal, setShowBannedModal] = useState(false)
   const [newBanned, setNewBanned] = useState(emptyBanned)
@@ -757,6 +773,24 @@ export default function App() {
   }, [sortedWorkers.length, manageMode])
 
   useEffect(() => {
+    if (
+      sidebarRoster === 'visitors' &&
+      (data?.cardlessPeople.length ?? 0) === 0 &&
+      manageMode !== 'none'
+    ) {
+      setManageMode('none')
+      setEditingCardless(null)
+    }
+  }, [data?.cardlessPeople.length, manageMode, sidebarRoster])
+
+  useEffect(() => {
+    if (!selectedCardlessId || !data) return
+    if (!data.cardlessPeople.some((c) => c.id === selectedCardlessId)) {
+      setSelectedCardlessId(null)
+    }
+  }, [data, selectedCardlessId])
+
+  useEffect(() => {
     const root = workersScrollRef.current
     if (!root || filteredWorkers.length === 0 || sidebarRoster !== 'workers') {
       return
@@ -888,16 +922,25 @@ export default function App() {
   function clearManageMode() {
     setManageMode('none')
     setEditingWorker(null)
+    setEditingCardless(null)
+  }
+
+  function clearCardlessSelection() {
+    setSelectedCardlessId(null)
   }
 
   function onEditModeClick() {
     setManageMode((m) => (m === 'edit' ? 'none' : 'edit'))
     setEditingWorker(null)
+    setEditingCardless(null)
+    clearCardlessSelection()
   }
 
   function onDeleteModeClick() {
     setManageMode((m) => (m === 'delete' ? 'none' : 'delete'))
     setEditingWorker(null)
+    setEditingCardless(null)
+    clearCardlessSelection()
   }
 
   async function addWorkerToSite(worker: Worker) {
@@ -911,6 +954,7 @@ export default function App() {
       id: createId(),
       kind: 'named',
       workerId: worker.id,
+      cardlessPersonId: null,
       firstName: worker.firstName,
       lastName: worker.lastName,
       visitorNumber: null,
@@ -923,31 +967,207 @@ export default function App() {
     )
   }
 
-  async function addVisitorToSite(visitorNumber: number) {
+  async function addVisitorToSite(
+    visitorNumber: number,
+    names?: { firstName: string; lastName: string },
+  ) {
     if (!data) return
     if (isVisitorPresent(data, visitorNumber)) {
       setToast({ message: `ויזיטור ${visitorNumber} כבר באתר` })
       return
     }
+    const firstName = names?.firstName.trim() ?? ''
+    const lastName = names?.lastName.trim() ?? ''
     const entry: PersonEntry = {
       id: createId(),
       kind: 'visitor',
       workerId: null,
-      firstName: '',
-      lastName: '',
+      cardlessPersonId: null,
+      firstName,
+      lastName,
       visitorNumber,
       enteredAt: new Date().toISOString(),
       exitedAt: null,
     }
+    const nameLabel = `${firstName} ${lastName}`.trim()
     await persist(
       { ...data, people: [entry, ...data.people] },
-      `ויזיטור ${visitorNumber} נוסף`,
+      nameLabel
+        ? `ויזיטור ${visitorNumber} · ${nameLabel} נוסף`
+        : `ויזיטור ${visitorNumber} נוסף`,
     )
   }
 
   function resetNewWorkerForm() {
     setNewWorker(emptyNamed)
     setNewWorkerTemporary(false)
+  }
+
+  function resetNewCardlessForm() {
+    setNewCardless(emptyNamed)
+    setNewCardlessTemporary(false)
+    setNewCardlessAssignment('unique')
+  }
+
+  async function createNewCardless(e: FormEvent) {
+    e.preventDefault()
+    if (!data) return
+    const firstName = newCardless.firstName.trim()
+    const lastName = newCardless.lastName.trim()
+    if (!firstName) {
+      setToast({ message: 'שם פרטי חובה' })
+      return
+    }
+
+    const exists = data.cardlessPeople.some(
+      (c) =>
+        c.firstName.toLowerCase() === firstName.toLowerCase() &&
+        c.lastName.toLowerCase() === lastName.toLowerCase(),
+    )
+    if (exists) {
+      setToast({ message: 'השם כבר קיים ברשימה' })
+      return
+    }
+
+    const temporary = newCardlessTemporary
+    const person: CardlessPerson = {
+      id: createId(),
+      firstName,
+      lastName,
+      temporary,
+      expiresAt: temporary ? endOfTodayMidnight() : null,
+      assignment: newCardlessAssignment,
+    }
+    const display = cardlessDisplayName(person)
+    const assignLabel =
+      newCardlessAssignment === 'unique' ? 'יחיד' : 'מרובה'
+    await persist(
+      {
+        ...data,
+        cardlessPeople: [person, ...data.cardlessPeople],
+      },
+      temporary
+        ? `${display} נוסף (${assignLabel} · נמחק בחצות)`
+        : `${display} נוסף (${assignLabel})`,
+    )
+    setShowNewCardless(false)
+    resetNewCardlessForm()
+  }
+
+  async function removeCardlessPerson(person: CardlessPerson) {
+    if (!data) return
+    await persist(
+      {
+        ...data,
+        cardlessPeople: data.cardlessPeople.filter((c) => c.id !== person.id),
+      },
+      `${cardlessDisplayName(person)} הוסר מהרשימה`,
+    )
+  }
+
+  async function onCardlessNameClick(person: CardlessPerson) {
+    if (!data) return
+    if (manageMode === 'edit') {
+      setEditingCardless({ ...person })
+      return
+    }
+    if (manageMode === 'delete') {
+      await removeCardlessPerson(person)
+      if (selectedCardlessId === person.id) clearCardlessSelection()
+      return
+    }
+    if (isCardlessBlocked(data, person)) {
+      setToast({ message: `${cardlessDisplayName(person)} כבר באתר (יחיד)` })
+      return
+    }
+    setSelectedCardlessId((prev) => (prev === person.id ? null : person.id))
+  }
+
+  async function saveEditedCardless(e: FormEvent) {
+    e.preventDefault()
+    if (!data || !editingCardless) return
+    const firstName = editingCardless.firstName.trim()
+    const lastName = editingCardless.lastName.trim()
+    if (!firstName) {
+      setToast({ message: 'שם פרטי חובה' })
+      return
+    }
+
+    const duplicate = data.cardlessPeople.some(
+      (c) =>
+        c.id !== editingCardless.id &&
+        c.firstName.toLowerCase() === firstName.toLowerCase() &&
+        c.lastName.toLowerCase() === lastName.toLowerCase(),
+    )
+    if (duplicate) {
+      setToast({ message: 'שם זה כבר קיים ברשימה' })
+      return
+    }
+
+    const assignment: CardlessAssignment =
+      editingCardless.assignment === 'unique' ||
+      editingCardless.assignment === 'multiple'
+        ? editingCardless.assignment
+        : 'multiple'
+    const temporary = Boolean(editingCardless.temporary)
+    const updated: CardlessPerson = {
+      ...editingCardless,
+      firstName,
+      lastName,
+      assignment,
+      temporary,
+      expiresAt: temporary ? endOfTodayMidnight() : null,
+    }
+    const nextCardless = data.cardlessPeople.map((c) =>
+      c.id === editingCardless.id ? updated : c,
+    )
+    await persist(
+      { ...data, cardlessPeople: nextCardless },
+      'השם עודכן',
+    )
+    setEditingCardless(null)
+    if (assignment === 'unique' && isCardlessBlocked(data, updated)) {
+      clearCardlessSelection()
+    }
+  }
+
+  async function affiliateCardlessToVisitor(
+    person: CardlessPerson,
+    visitorNumber: number,
+  ) {
+    if (!data) return
+    if (isCardlessBlocked(data, person)) {
+      setToast({ message: `${cardlessDisplayName(person)} כבר באתר (יחיד)` })
+      clearCardlessSelection()
+      return
+    }
+    if (!isVisitorNumberOpen(data, visitorNumber)) {
+      setToast({ message: `ויזיטור ${visitorNumber} סגור` })
+      return
+    }
+    if (isVisitorPresent(data, visitorNumber)) {
+      setToast({ message: `ויזיטור ${visitorNumber} כבר באתר` })
+      return
+    }
+    const firstName = person.firstName.trim()
+    const lastName = person.lastName.trim()
+    const entry: PersonEntry = {
+      id: createId(),
+      kind: 'visitor',
+      workerId: null,
+      cardlessPersonId: person.id,
+      firstName,
+      lastName,
+      visitorNumber,
+      enteredAt: new Date().toISOString(),
+      exitedAt: null,
+    }
+    const display = cardlessDisplayName(person)
+    await persist(
+      { ...data, people: [entry, ...data.people] },
+      `ויזיטור ${visitorNumber} · ${display} נוסף`,
+    )
+    clearCardlessSelection()
   }
 
   async function createNewWorker(e: FormEvent) {
@@ -982,6 +1202,7 @@ export default function App() {
       id: createId(),
       kind: 'named',
       workerId: worker.id,
+      cardlessPersonId: null,
       firstName,
       lastName,
       visitorNumber: null,
@@ -1037,8 +1258,16 @@ export default function App() {
       return
     }
 
+    const temporary = Boolean(editingWorker.temporary)
+    const updated: Worker = {
+      ...editingWorker,
+      firstName,
+      lastName,
+      temporary,
+      expiresAt: temporary ? endOfTodayMidnight() : null,
+    }
     const nextWorkers = data.workers.map((w) =>
-      w.id === editingWorker.id ? { ...editingWorker, firstName, lastName } : w,
+      w.id === editingWorker.id ? updated : w,
     )
     const nextPeople = data.people.map((p) =>
       p.workerId === editingWorker.id ? { ...p, firstName, lastName } : p,
@@ -1716,13 +1945,27 @@ export default function App() {
               ? formatTime(person.enteredAt)
               : formatDateTime(person.enteredAt)
 
+            const affiliated =
+              person.kind === 'visitor' ? visitorAffiliatedName(person) : ''
+            const visitorLabel =
+              person.kind === 'visitor' && person.visitorNumber != null
+                ? `ויזיטור ${person.visitorNumber}`
+                : ''
+            const primaryLabel = affiliated
+              ? affiliated
+              : visitorLabel || displayName(person)
+            const subLabel = affiliated ? visitorLabel : ''
+
             return (
             <article key={person.id} className={`person ${accentClass}`.trim()}>
               <div className="person-main">
                 <div className="person-name">
                   <span className="person-index">{index + 1}.</span>
-                  {displayName(person)}
+                  {primaryLabel}
                 </div>
+                {subLabel ? (
+                  <div className="person-subname">{subLabel}</div>
+                ) : null}
                 <div className="person-meta">
                   כניסה{' '}
                   <span className={lateFixed ? 'time-late' : undefined}>
@@ -1845,35 +2088,71 @@ export default function App() {
         <div className="sidebar-header">
           <h2>הוספת כניסה</h2>
           <div className="header-actions">
-            <button
-              type="button"
-              className="btn btn-primary"
-              style={{ width: 'auto' }}
-              onClick={() => {
-                clearManageMode()
-                setShowNewWorker(true)
-              }}
-            >
-              + עובד חדש
-            </button>
-            <button
-              type="button"
-              className={`btn btn-edit ${manageMode === 'edit' ? 'mode-active' : ''}`}
-              onClick={onEditModeClick}
-              disabled={sortedWorkers.length === 0}
-            >
-              <IconEdit />
-              <span>עריכה</span>
-            </button>
-            <button
-              type="button"
-              className={`btn btn-danger ${manageMode === 'delete' ? 'mode-active' : ''}`}
-              onClick={onDeleteModeClick}
-              disabled={sortedWorkers.length === 0}
-            >
-              <IconTrash />
-              <span>מחיקה</span>
-            </button>
+            {sidebarRoster === 'workers' ? (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ width: 'auto' }}
+                  onClick={() => {
+                    clearManageMode()
+                    setShowNewWorker(true)
+                  }}
+                >
+                  + עובד חדש
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-edit ${manageMode === 'edit' ? 'mode-active' : ''}`}
+                  onClick={onEditModeClick}
+                  disabled={sortedWorkers.length === 0}
+                >
+                  <IconEdit />
+                  <span>עריכה</span>
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-danger ${manageMode === 'delete' ? 'mode-active' : ''}`}
+                  onClick={onDeleteModeClick}
+                  disabled={sortedWorkers.length === 0}
+                >
+                  <IconTrash />
+                  <span>מחיקה</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ width: 'auto' }}
+                  onClick={() => {
+                    clearManageMode()
+                    setShowNewCardless(true)
+                  }}
+                >
+                  + שם חדש
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-edit ${manageMode === 'edit' ? 'mode-active' : ''}`}
+                  onClick={onEditModeClick}
+                  disabled={(data?.cardlessPeople.length ?? 0) === 0}
+                >
+                  <IconEdit />
+                  <span>עריכה</span>
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-danger ${manageMode === 'delete' ? 'mode-active' : ''}`}
+                  onClick={onDeleteModeClick}
+                  disabled={(data?.cardlessPeople.length ?? 0) === 0}
+                >
+                  <IconTrash />
+                  <span>מחיקה</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -1885,7 +2164,11 @@ export default function App() {
             className={`sidebar-roster-badge ${
               sidebarRoster === 'workers' ? 'active' : ''
             }`}
-            onClick={() => setSidebarRoster('workers')}
+            onClick={() => {
+              clearManageMode()
+              clearCardlessSelection()
+              setSidebarRoster('workers')
+            }}
           >
             עובדים
           </button>
@@ -1898,6 +2181,7 @@ export default function App() {
             }`}
             onClick={() => {
               clearManageMode()
+              clearCardlessSelection()
               setSidebarRoster('visitors')
             }}
           >
@@ -1905,15 +2189,19 @@ export default function App() {
           </button>
         </div>
 
-        {manageMode !== 'none' && sidebarRoster === 'workers' && (
+        {manageMode !== 'none' && (
           <p
             className={`manage-hint ${
               manageMode === 'edit' ? 'mode-edit' : 'mode-delete'
             }`}
           >
-            {manageMode === 'edit'
-              ? 'מצב עריכה: לחצו על עובד כדי לשנות את שמו'
-              : 'מצב מחיקה: לחצו על עובד כדי למחוק אותו'}
+            {sidebarRoster === 'workers'
+              ? manageMode === 'edit'
+                ? 'מצב עריכה: לחצו על עובד כדי לשנות את שמו'
+                : 'מצב מחיקה: לחצו על עובד כדי למחוק אותו'
+              : manageMode === 'edit'
+                ? 'מצב עריכה: לחצו על שם כדי לשנות אותו'
+                : 'מצב מחיקה: לחצו על שם כדי למחוק אותו'}
           </p>
         )}
 
@@ -2040,8 +2328,16 @@ export default function App() {
         </div>
         )}
 
-        {sidebarRoster === 'visitors' && (
-        <div className="roster-block visitors-block">
+        {sidebarRoster === 'visitors' && data && (
+        <div
+          className={`roster-block visitors-block ${
+            manageMode === 'edit'
+              ? 'mode-edit'
+              : manageMode === 'delete'
+                ? 'mode-delete'
+                : ''
+          } ${selectedCardlessId ? 'is-affiliating' : ''}`}
+        >
           <div className="roster-title-row">
             <h3 className="roster-title">ויזיטורים 1–30</h3>
             <button
@@ -2049,6 +2345,7 @@ export default function App() {
               className="btn btn-ghost btn-visitor-manage"
               onClick={() => {
                 clearManageMode()
+                clearCardlessSelection()
                 setVisitorManageMode('closed')
                 setShowVisitorManage(true)
               }}
@@ -2068,30 +2365,146 @@ export default function App() {
                     : open && slot.access === 'open_temp'
                       ? 'visitor-open-temp'
                       : ''
+                const affiliating = selectedCardlessId != null
+                const selectableForAffiliate =
+                  affiliating && open && !present
+                const dimmedVisitor =
+                  affiliating && !selectableForAffiliate
+                const selectedPerson = affiliating
+                  ? data.cardlessPeople.find((c) => c.id === selectedCardlessId)
+                  : null
                 return (
                   <button
                     key={n}
                     type="button"
-                    className={`pick-btn visitor ${present ? 'present' : ''} ${modeClass}`}
+                    className={`pick-btn visitor ${present ? 'present' : ''} ${modeClass} ${
+                      selectableForAffiliate ? 'is-selectable' : ''
+                    } ${dimmedVisitor ? 'is-dimmed' : ''}`}
                     onClick={() => {
                       clearManageMode()
+                      if (affiliating) {
+                        if (!selectedPerson) {
+                          clearCardlessSelection()
+                          return
+                        }
+                        if (!open || present) {
+                          setToast({
+                            message: present
+                              ? `ויזיטור ${n} כבר באתר`
+                              : `ויזיטור ${n} סגור — בחרו ויזיטור פתוח`,
+                          })
+                          return
+                        }
+                        void affiliateCardlessToVisitor(selectedPerson, n)
+                        return
+                      }
+                      // Sans nom sélectionné : pas d'affiliation depuis la grille
+                      // (entrée anonyme uniquement)
                       void addVisitorToSite(n)
                     }}
-                    disabled={present}
+                    disabled={present || dimmedVisitor}
                     title={
-                      present
-                        ? 'כבר באתר'
-                        : open && slot.access === 'open_temp'
-                          ? `ויזיטור ${n} · פתוח עד חצות`
-                          : open
-                            ? `הוסף ויזיטור ${n}`
-                            : `ויזיטור ${n} · אין הרשאה`
+                      affiliating
+                        ? selectableForAffiliate
+                          ? `שייך ל־${selectedPerson ? cardlessDisplayName(selectedPerson) : 'השם שנבחר'}`
+                          : present
+                            ? 'כבר באתר'
+                            : 'לא ניתן לבחור — בחרו ויזיטור פתוח פנוי'
+                        : present
+                          ? 'כבר באתר'
+                          : open && slot.access === 'open_temp'
+                            ? `ויזיטור ${n} · פתוח עד חצות`
+                            : open
+                              ? `הוסף ויזיטור ${n}`
+                              : `ויזיטור ${n} · אין הרשאה`
                     }
                   >
                     <span className="pick-label">{n}</span>
                   </button>
                 )
               })}
+            </div>
+          </div>
+
+          <div className="cardless-section">
+            <h3 className="roster-title">שמות לשיוך ויזיטור</h3>
+            {data.cardlessPeople.length > 0 ? (
+              <p className="cardless-empty">
+                {selectedCardlessId
+                  ? 'בחרו עכשיו ויזיטור פתוח מהרשת למעלה'
+                  : 'בחרו שם, ואז ויזיטור פתוח מהרשת'}
+              </p>
+            ) : null}
+            <div className="roster-scroll cardless-scroll">
+              {data.cardlessPeople.length === 0 ? (
+                <p className="cardless-empty">
+                  אין שמות. לחצו על «+ שם חדש», בחרו את השם ואז ויזיטור פתוח מהרשת.
+                </p>
+              ) : (
+                <div className="pick-grid workers cardless-pick-grid">
+                  {data.cardlessPeople.map((person) => {
+                    const managing = manageMode !== 'none'
+                    const present = isCardlessBlocked(data, person)
+                    const isSelected = selectedCardlessId === person.id
+                    const isDimmed =
+                      !managing && selectedCardlessId != null && !isSelected
+                    return (
+                      <div
+                        key={person.id}
+                        className={`pick-wrap ${present && !managing ? 'is-present' : ''} ${
+                          isSelected ? 'is-selected' : ''
+                        } ${isDimmed ? 'is-dimmed' : ''}`}
+                      >
+                        <button
+                          type="button"
+                          className={`pick-btn worker ${present && !managing ? 'present' : ''} ${
+                            person.temporary ? 'temporary' : ''
+                          } ${manageMode === 'edit' ? 'mode-edit' : ''} ${
+                            manageMode === 'delete' ? 'mode-delete' : ''
+                          } ${isSelected ? 'is-selected' : ''}`}
+                          onClick={() => void onCardlessNameClick(person)}
+                          disabled={(!managing && present) || isDimmed}
+                          title={
+                            manageMode === 'edit'
+                              ? 'עריכת שם'
+                              : manageMode === 'delete'
+                                ? 'מחיקת שם'
+                                : present
+                                  ? 'כבר באתר'
+                                  : isSelected
+                                    ? 'בטל בחירה'
+                                    : 'בחרו שם ואז ויזיטור מהרשת'
+                          }
+                        >
+                          <span className="pick-label">
+                            {cardlessDisplayName(person)}
+                            <span
+                              className={`cardless-assign-hint ${
+                                person.assignment === 'multiple' ? 'multiple' : ''
+                              }`}
+                            >
+                              {person.assignment === 'unique' ? 'יחיד' : 'מרובה'}
+                            </span>
+                          </span>
+                          <span className="pick-hint">
+                            {manageMode === 'edit'
+                              ? 'עריכה'
+                              : manageMode === 'delete'
+                                ? 'מחיקה'
+                                : present
+                                  ? 'באתר'
+                                  : isSelected
+                                    ? 'נבחר'
+                                    : person.temporary
+                                      ? 'זמני · עד חצות'
+                                      : 'לחצו'}
+                          </span>
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -2585,6 +2998,256 @@ export default function App() {
         </div>
       )}
 
+      {showNewCardless && (
+        <div
+          className="modal-backdrop"
+          onClick={() => {
+            setShowNewCardless(false)
+            resetNewCardlessForm()
+          }}
+        >
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>שם לשיוך ויזיטור</h3>
+            <form onSubmit={createNewCardless}>
+              <div className="row-2">
+                <div className="field">
+                  <label htmlFor="newCardlessFirst">שם פרטי</label>
+                  <input
+                    id="newCardlessFirst"
+                    value={newCardless.firstName}
+                    onChange={(e) =>
+                      setNewCardless((s) => ({
+                        ...s,
+                        firstName: e.target.value,
+                      }))
+                    }
+                    placeholder="יוסי"
+                    autoFocus
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="newCardlessLast">שם משפחה (אופציונלי)</label>
+                  <input
+                    id="newCardlessLast"
+                    value={newCardless.lastName}
+                    onChange={(e) =>
+                      setNewCardless((s) => ({
+                        ...s,
+                        lastName: e.target.value,
+                      }))
+                    }
+                    placeholder="כהן"
+                    autoComplete="off"
+                  />
+                </div>
+              </div>
+              <div className="field">
+                <label>סוג שיוך</label>
+                <div className="type-toggle">
+                  <button
+                    type="button"
+                    className={`type-toggle-btn ${newCardlessAssignment === 'unique' ? 'active' : ''}`}
+                    onClick={() => setNewCardlessAssignment('unique')}
+                  >
+                    עובד יחיד
+                  </button>
+                  <button
+                    type="button"
+                    className={`type-toggle-btn ${newCardlessAssignment === 'multiple' ? 'active' : ''}`}
+                    onClick={() => setNewCardlessAssignment('multiple')}
+                  >
+                    עובד מרובה
+                  </button>
+                </div>
+                <p className="settings-note" style={{ marginTop: 6 }}>
+                  {newCardlessAssignment === 'unique'
+                    ? 'לאחר כניסה לאתר השם ייחסם עד ליציאה'
+                    : 'ניתן לשייך את אותו שם לכמה ויזיטורים'}
+                </p>
+              </div>
+              <div className="field">
+                <label>תוקף השם</label>
+                <div className="type-toggle">
+                  <button
+                    type="button"
+                    className={`type-toggle-btn ${!newCardlessTemporary ? 'active' : ''}`}
+                    onClick={() => setNewCardlessTemporary(false)}
+                  >
+                    קבוע
+                  </button>
+                  <button
+                    type="button"
+                    className={`type-toggle-btn ${newCardlessTemporary ? 'active' : ''}`}
+                    onClick={() => setNewCardlessTemporary(true)}
+                  >
+                    עד חצות
+                  </button>
+                </div>
+                <p className="settings-note" style={{ marginTop: 6 }}>
+                  {newCardlessTemporary
+                    ? 'השם יימחק מרשימת השיוך בחצות'
+                    : 'השם נשאר ברשימת השיוך'}
+                </p>
+              </div>
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    setShowNewCardless(false)
+                    resetNewCardlessForm()
+                  }}
+                >
+                  ביטול
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={{ width: 'auto' }}
+                >
+                  הוספת שם
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {editingCardless && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setEditingCardless(null)}
+        >
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>עריכת שם</h3>
+            <form onSubmit={saveEditedCardless}>
+              <div className="row-2">
+                <div className="field">
+                  <label htmlFor="editCardlessFirst">שם פרטי</label>
+                  <input
+                    id="editCardlessFirst"
+                    value={editingCardless.firstName}
+                    onChange={(e) =>
+                      setEditingCardless({
+                        ...editingCardless,
+                        firstName: e.target.value,
+                      })
+                    }
+                    autoFocus
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="editCardlessLast">שם משפחה (אופציונלי)</label>
+                  <input
+                    id="editCardlessLast"
+                    value={editingCardless.lastName}
+                    onChange={(e) =>
+                      setEditingCardless({
+                        ...editingCardless,
+                        lastName: e.target.value,
+                      })
+                    }
+                    autoComplete="off"
+                  />
+                </div>
+              </div>
+              <div className="field">
+                <label>סוג שיוך</label>
+                <div className="type-toggle">
+                  <button
+                    type="button"
+                    className={`type-toggle-btn ${
+                      editingCardless.assignment === 'unique' ? 'active' : ''
+                    }`}
+                    onClick={() =>
+                      setEditingCardless({
+                        ...editingCardless,
+                        assignment: 'unique',
+                      })
+                    }
+                  >
+                    עובד יחיד
+                  </button>
+                  <button
+                    type="button"
+                    className={`type-toggle-btn ${
+                      editingCardless.assignment === 'multiple' ? 'active' : ''
+                    }`}
+                    onClick={() =>
+                      setEditingCardless({
+                        ...editingCardless,
+                        assignment: 'multiple',
+                      })
+                    }
+                  >
+                    עובד מרובה
+                  </button>
+                </div>
+                <p className="settings-note" style={{ marginTop: 6 }}>
+                  {editingCardless.assignment === 'unique'
+                    ? 'לאחר כניסה לאתר השם ייחסם עד ליציאה'
+                    : 'ניתן לשייך את אותו שם לכמה ויזיטורים'}
+                </p>
+              </div>
+              <div className="field">
+                <label>תוקף השם</label>
+                <div className="type-toggle">
+                  <button
+                    type="button"
+                    className={`type-toggle-btn ${!editingCardless.temporary ? 'active' : ''}`}
+                    onClick={() =>
+                      setEditingCardless({
+                        ...editingCardless,
+                        temporary: false,
+                        expiresAt: null,
+                      })
+                    }
+                  >
+                    קבוע
+                  </button>
+                  <button
+                    type="button"
+                    className={`type-toggle-btn ${editingCardless.temporary ? 'active' : ''}`}
+                    onClick={() =>
+                      setEditingCardless({
+                        ...editingCardless,
+                        temporary: true,
+                        expiresAt: endOfTodayMidnight(),
+                      })
+                    }
+                  >
+                    עד חצות
+                  </button>
+                </div>
+                <p className="settings-note" style={{ marginTop: 6 }}>
+                  {editingCardless.temporary
+                    ? 'השם יימחק מרשימת השיוך בחצות'
+                    : 'השם נשאר ברשימת השיוך'}
+                </p>
+              </div>
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => setEditingCardless(null)}
+                >
+                  ביטול
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={{ width: 'auto' }}
+                >
+                  שמירה
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {editingWorker && (
         <div
           className="modal-backdrop"
@@ -2625,6 +3288,42 @@ export default function App() {
                     autoComplete="off"
                   />
                 </div>
+              </div>
+              <div className="field">
+                <label>סוג עובד</label>
+                <div className="type-toggle">
+                  <button
+                    type="button"
+                    className={`type-toggle-btn ${!editingWorker.temporary ? 'active' : ''}`}
+                    onClick={() =>
+                      setEditingWorker({
+                        ...editingWorker,
+                        temporary: false,
+                        expiresAt: null,
+                      })
+                    }
+                  >
+                    קבוע
+                  </button>
+                  <button
+                    type="button"
+                    className={`type-toggle-btn ${editingWorker.temporary ? 'active' : ''}`}
+                    onClick={() =>
+                      setEditingWorker({
+                        ...editingWorker,
+                        temporary: true,
+                        expiresAt: endOfTodayMidnight(),
+                      })
+                    }
+                  >
+                    זמני
+                  </button>
+                </div>
+                <p className="settings-note" style={{ marginTop: 6 }}>
+                  {editingWorker.temporary
+                    ? 'הכרטיס יימחק בחצות היום'
+                    : 'הכרטיס נשאר ברשימה הקבועה'}
+                </p>
               </div>
               <div className="modal-actions">
                 <button

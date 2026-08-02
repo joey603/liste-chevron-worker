@@ -10,10 +10,26 @@ export type Worker = {
   expiresAt: string | null
 }
 
+/** ייחודי = נחסם ברשימה בזמן שהוא באתר · מרובה = ניתן לשייך לכמה ויזיטורים */
+export type CardlessAssignment = 'unique' | 'multiple'
+
+/** שם ללא כרטיס — ממתין לשיוך ויזיטור */
+export type CardlessPerson = {
+  id: string
+  firstName: string
+  lastName: string
+  /** נמחק בחצות */
+  temporary: boolean
+  expiresAt: string | null
+  assignment: CardlessAssignment
+}
+
 export type PersonEntry = {
   id: string
   kind: EntryKind
   workerId: string | null
+  /** קישור לשם ללא כרטיס (למצב ייחודי) */
+  cardlessPersonId: string | null
   firstName: string
   lastName: string
   visitorNumber: number | null
@@ -95,6 +111,8 @@ export type BannedPerson = {
 export type AppData = {
   settings: AppSettings
   workers: Worker[]
+  /** שמות ללא כרטיס (שיוך ויזיטור) */
+  cardlessPeople: CardlessPerson[]
   people: PersonEntry[]
   banned: BannedPerson[]
 }
@@ -204,9 +222,19 @@ export function bannedDisplayName(b: BannedPerson): string {
   return `${b.firstName} ${b.lastName}`.trim()
 }
 
+export function cardlessDisplayName(c: CardlessPerson): string {
+  return `${c.firstName} ${c.lastName}`.trim()
+}
+
+export function visitorAffiliatedName(p: PersonEntry): string {
+  if (p.kind !== 'visitor') return ''
+  return `${p.firstName} ${p.lastName}`.trim()
+}
+
 export function displayName(p: PersonEntry): string {
   if (p.kind === 'visitor' && p.visitorNumber != null) {
-    return `ויזיטור ${p.visitorNumber}`
+    const name = visitorAffiliatedName(p)
+    return name ? `${name} · ויזיטור ${p.visitorNumber}` : `ויזיטור ${p.visitorNumber}`
   }
   return `${p.firstName} ${p.lastName}`.trim()
 }
@@ -273,6 +301,20 @@ export function isVisitorPresent(data: AppData, visitorNumber: number): boolean 
   return data.people.some(
     (p) => p.kind === 'visitor' && p.visitorNumber === visitorNumber && isPresent(p),
   )
+}
+
+export function isCardlessPresent(data: AppData, cardlessPersonId: string): boolean {
+  return data.people.some(
+    (p) =>
+      p.kind === 'visitor' &&
+      p.cardlessPersonId === cardlessPersonId &&
+      isPresent(p),
+  )
+}
+
+/** שם ייחודי שכבר באתר — לא ניתן לבחור שוב */
+export function isCardlessBlocked(data: AppData, person: CardlessPerson): boolean {
+  return person.assignment === 'unique' && isCardlessPresent(data, person.id)
 }
 
 export function buildWhatsAppMessage(
@@ -382,20 +424,33 @@ export function isWorkerExpired(w: Worker, now = new Date()): boolean {
   return new Date(w.expiresAt).getTime() <= now.getTime()
 }
 
+export function isCardlessExpired(c: CardlessPerson, now = new Date()): boolean {
+  if (!c.temporary || !c.expiresAt) return false
+  return new Date(c.expiresAt).getTime() <= now.getTime()
+}
+
 export function purgeExpiredWorkers(data: AppData, now = new Date()): AppData {
   const workers = data.workers.filter((w) => !isWorkerExpired(w, now))
+  const cardlessPeople = (data.cardlessPeople ?? []).filter(
+    (c) => !isCardlessExpired(c, now),
+  )
   const visitorSlots = normalizeVisitorSlots(data.settings?.visitorSlots, now)
   const prevSlots = data.settings?.visitorSlots
   const slotsChanged =
     !prevSlots ||
     JSON.stringify(visitorSlots) !== JSON.stringify(prevSlots)
 
-  if (workers.length === data.workers.length && !slotsChanged) {
+  if (
+    workers.length === data.workers.length &&
+    cardlessPeople.length === (data.cardlessPeople ?? []).length &&
+    !slotsChanged
+  ) {
     return data
   }
   return {
     ...data,
     workers,
+    cardlessPeople,
     settings: {
       directorPhone: data.settings?.directorPhone ?? '',
       emergencyPhones: normalizeEmergencyPhones(
@@ -448,12 +503,26 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
     temporary: Boolean(w.temporary),
     expiresAt: w.expiresAt ?? null,
   }))
+  const cardlessPeople = (
+    Array.isArray(raw?.cardlessPeople) ? raw.cardlessPeople : []
+  ).map((c) => ({
+    id: c.id,
+    firstName: c.firstName,
+    lastName: c.lastName,
+    temporary: Boolean(c.temporary),
+    expiresAt: c.expiresAt ?? null,
+    assignment:
+      c.assignment === 'unique' || c.assignment === 'multiple'
+        ? c.assignment
+        : ('multiple' as const),
+  }))
   const people = Array.isArray(raw?.people)
     ? raw.people
         .filter((p) => !p.exitedAt)
         .map((p) => ({
           ...p,
           workerId: p.workerId ?? null,
+          cardlessPersonId: p.cardlessPersonId ?? null,
           exitedAt: null,
         }))
     : []
@@ -466,5 +535,11 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
     idNumber: b.idNumber ?? '',
     addedAt: b.addedAt ?? new Date().toISOString(),
   }))
-  return purgeExpiredWorkers({ settings, workers, people, banned })
+  return purgeExpiredWorkers({
+    settings,
+    workers,
+    cardlessPeople,
+    people,
+    banned,
+  })
 }

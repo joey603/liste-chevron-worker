@@ -17,10 +17,19 @@ export type AppData = {
     temporary: boolean
     expiresAt: string | null
   }>
+  cardlessPeople: Array<{
+    id: string
+    firstName: string
+    lastName: string
+    temporary: boolean
+    expiresAt: string | null
+    assignment: 'unique' | 'multiple'
+  }>
   people: Array<{
     id: string
     kind: 'named' | 'visitor'
     workerId: string | null
+    cardlessPersonId: string | null
     firstName: string
     lastName: string
     visitorNumber: number | null

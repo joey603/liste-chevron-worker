@@ -409,12 +409,12 @@ button.app-version {
 }
 
 .sidebar-visitors-scroll {
-  flex: 1;
+  flex: 0 0 auto;
   max-height: none !important;
   min-height: 0;
-  height: 100%;
+  height: auto;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: visible;
 }
 
 .main-panel {
@@ -1891,8 +1891,9 @@ button.emergency-status-button:hover {
 .roster-scroll.sidebar-visitors-scroll {
   max-height: none;
   overflow-x: hidden;
-  overflow-y: auto;
-  flex: 1;
+  overflow-y: visible;
+  flex: 0 0 auto;
+  height: auto;
   min-height: 0;
 }
 
@@ -2572,10 +2573,126 @@ button.emergency-status-button:hover {
   color: var(--chevron-blue-dark);
 }
 
+.person-subname {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: -1px;
+}
+
+.list-capture-document .person-subname {
+  font-size: 0.82rem;
+  color: #445;
+}
+
 .person-meta {
   color: var(--muted);
   font-size: 0.86rem;
 }
+
+.cardless-section {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0, 59, 112, 0.1);
+}
+
+.cardless-section > .roster-title,
+.cardless-section > .cardless-empty {
+  flex-shrink: 0;
+}
+
+.roster-scroll.cardless-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+
+.cardless-empty,
+.cardless-no-visitors {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+.cardless-scroll .cardless-empty {
+  margin: 0;
+  min-height: 72px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 8px;
+}
+
+.cardless-pick-grid {
+  margin-top: 0;
+  grid-template-columns: 1fr;
+}
+
+.cardless-pick-grid .pick-wrap.is-selected .pick-btn.worker {
+  border-color: rgba(0, 87, 168, 0.55);
+  background: rgba(0, 87, 168, 0.1);
+  box-shadow: 0 0 0 2px rgba(0, 87, 168, 0.18);
+}
+
+.cardless-pick-grid .pick-wrap.is-dimmed {
+  opacity: 0.28;
+  filter: brightness(0.55);
+  pointer-events: none;
+}
+
+.cardless-pick-grid .pick-btn.worker .pick-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cardless-pick-grid .pick-btn.worker.is-selected .pick-hint {
+  color: var(--chevron-blue);
+  font-weight: 700;
+}
+
+.visitors-block.is-affiliating .pick-btn.visitor.is-dimmed {
+  opacity: 0.28;
+  filter: brightness(0.45);
+  pointer-events: none;
+  box-shadow: none;
+}
+
+.visitors-block.is-affiliating .pick-btn.visitor.is-selectable {
+  z-index: 1;
+  box-shadow: 0 0 0 2px rgba(0, 87, 168, 0.35);
+}
+
+.visitors-block.is-affiliating .pick-btn.visitor.is-selectable:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.cardless-assign-hint {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--chevron-blue);
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(0, 87, 168, 0.1);
+}
+
+.cardless-assign-hint.multiple {
+  color: #2f6b3a;
+  background: rgba(47, 107, 58, 0.12);
+}
+
 
 .person-meta .time-late {
   color: var(--chevron-red);
