@@ -384,7 +384,6 @@ function setupAutoUpdater(getMainWindow: () => BrowserWindow | null) {
   } else {
     setTimeout(() => void check(), 2500)
   }
-  setInterval(() => void check(), 15 * 60 * 1000)
 }
 
 function wait(ms: number) {

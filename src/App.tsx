@@ -78,6 +78,12 @@ function workerAlphaLetter(worker: Worker): string {
   return (HEBREW_ALPHABET as readonly string[]).includes(letter) ? letter : '#'
 }
 
+function cardlessAlphaLetter(person: CardlessPerson): string {
+  const raw = cardlessDisplayName(person).trim().charAt(0)
+  const letter = HEBREW_FINAL_TO_REGULAR[raw] ?? raw
+  return (HEBREW_ALPHABET as readonly string[]).includes(letter) ? letter : '#'
+}
+
 function Icon({
   children,
   className = '',
@@ -579,6 +585,7 @@ export default function App() {
   )
   const [workerSearch, setWorkerSearch] = useState('')
   const [activeWorkerLetter, setActiveWorkerLetter] = useState<string>('א')
+  const [activeCardlessLetter, setActiveCardlessLetter] = useState<string>('א')
   const [showVisitorManage, setShowVisitorManage] = useState(false)
   const [showEmergencyPhones, setShowEmergencyPhones] = useState(false)
   const [emergencyPhoneDraft, setEmergencyPhoneDraft] = useState('')
@@ -590,6 +597,8 @@ export default function App() {
   const shareRef = useRef<HTMLDivElement>(null)
   const workersScrollRef = useRef<HTMLDivElement>(null)
   const workersAlphaLettersRef = useRef<HTMLDivElement>(null)
+  const cardlessScrollRef = useRef<HTMLDivElement>(null)
+  const cardlessAlphaLettersRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     loadData().then((loaded) => setData(normalizeData(loaded)))
@@ -665,14 +674,11 @@ export default function App() {
     })
 
     void (async () => {
+      // Au démarrage : seulement récupérer une MAJ déjà trouvée par le main
+      // (check réseau fait une fois au lancement côté Electron, ou via le badge version)
       const pending = await api.getPendingUpdate?.()
       if (pending?.version) {
         setUpdateState({ phase: 'available', version: pending.version })
-        return
-      }
-      const result = await api.checkForUpdates?.()
-      if (result?.status === 'available' && result.version) {
-        setUpdateState({ phase: 'available', version: result.version })
       }
     })()
 
@@ -772,6 +778,30 @@ export default function App() {
 
   const workerAlphaLetters = useMemo(() => [...HEBREW_ALPHABET], [])
 
+  const sortedCardlessPeople = useMemo(() => {
+    if (!data) return []
+    return [...data.cardlessPeople].sort((a, b) =>
+      cardlessDisplayName(a).localeCompare(cardlessDisplayName(b), 'he'),
+    )
+  }, [data])
+
+  const cardlessLettersPresent = useMemo(() => {
+    const set = new Set<string>()
+    for (const person of sortedCardlessPeople) {
+      set.add(cardlessAlphaLetter(person))
+    }
+    return set
+  }, [sortedCardlessPeople])
+
+  /** Barre compacte : seulement les lettres présentes dans la liste */
+  const cardlessAlphaLetters = useMemo((): string[] => {
+    const letters: string[] = HEBREW_ALPHABET.filter((letter) =>
+      cardlessLettersPresent.has(letter),
+    )
+    if (cardlessLettersPresent.has('#')) letters.push('#')
+    return letters
+  }, [cardlessLettersPresent])
+
   useEffect(() => {
     if (sortedWorkers.length === 0 && manageMode !== 'none') {
       setManageMode('none')
@@ -796,6 +826,13 @@ export default function App() {
       setSelectedCardlessId(null)
     }
   }, [data, selectedCardlessId])
+
+  useEffect(() => {
+    if (cardlessAlphaLetters.length === 0) return
+    if (!cardlessAlphaLetters.includes(activeCardlessLetter)) {
+      setActiveCardlessLetter(cardlessAlphaLetters[0])
+    }
+  }, [cardlessAlphaLetters, activeCardlessLetter])
 
   useEffect(() => {
     const root = workersScrollRef.current
@@ -825,6 +862,37 @@ export default function App() {
   }, [filteredWorkers, sidebarRoster])
 
   useEffect(() => {
+    const root = cardlessScrollRef.current
+    if (
+      !root ||
+      sortedCardlessPeople.length === 0 ||
+      sidebarRoster !== 'visitors'
+    ) {
+      return
+    }
+
+    const updateActiveLetter = () => {
+      const wraps = root.querySelectorAll<HTMLElement>('[data-alpha-letter]')
+      if (wraps.length === 0) return
+      const rootTop = root.getBoundingClientRect().top
+      let current = wraps[0].dataset.alphaLetter || 'א'
+      for (const wrap of wraps) {
+        const top = wrap.getBoundingClientRect().top - rootTop
+        if (top <= 12) {
+          current = wrap.dataset.alphaLetter || current
+        } else {
+          break
+        }
+      }
+      setActiveCardlessLetter(current)
+    }
+
+    updateActiveLetter()
+    root.addEventListener('scroll', updateActiveLetter, { passive: true })
+    return () => root.removeEventListener('scroll', updateActiveLetter)
+  }, [sortedCardlessPeople, sidebarRoster])
+
+  useEffect(() => {
     const rail = workersAlphaLettersRef.current
     if (!rail || sidebarRoster !== 'workers') return
     const activeBtn = rail.querySelector<HTMLElement>(
@@ -833,6 +901,16 @@ export default function App() {
     if (!activeBtn) return
     activeBtn.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [activeWorkerLetter, sidebarRoster, workerAlphaLetters])
+
+  useEffect(() => {
+    const rail = cardlessAlphaLettersRef.current
+    if (!rail || sidebarRoster !== 'visitors') return
+    const activeBtn = rail.querySelector<HTMLElement>(
+      '.workers-alpha-letter.is-active',
+    )
+    if (!activeBtn) return
+    activeBtn.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [activeCardlessLetter, sidebarRoster, cardlessAlphaLetters])
 
   function scrollWorkersToLetter(letter: string) {
     const root = workersScrollRef.current
@@ -848,6 +926,22 @@ export default function App() {
       behavior: 'smooth',
     })
     setActiveWorkerLetter(letter)
+  }
+
+  function scrollCardlessToLetter(letter: string) {
+    const root = cardlessScrollRef.current
+    if (!root) return
+    const target = root.querySelector<HTMLElement>(
+      `[data-alpha-letter="${letter}"]`,
+    )
+    if (!target) return
+    const rootRect = root.getBoundingClientRect()
+    const targetRect = target.getBoundingClientRect()
+    root.scrollTo({
+      top: Math.max(0, root.scrollTop + (targetRect.top - rootRect.top) - 8),
+      behavior: 'smooth',
+    })
+    setActiveCardlessLetter(letter)
   }
 
   const presentPeople = useMemo(() => {
@@ -2490,77 +2584,124 @@ export default function App() {
                   : 'בחרו שם, ואז ויזיטור פתוח מהרשת'}
               </p>
             ) : null}
-            <div className="roster-scroll cardless-scroll">
-              {data.cardlessPeople.length === 0 ? (
+            {data.cardlessPeople.length === 0 ? (
+              <div className="roster-scroll cardless-scroll">
                 <p className="cardless-empty">
                   אין שמות. לחצו על «+ שם חדש», בחרו את השם ואז ויזיטור פתוח מהרשת.
                 </p>
-              ) : (
-                <div className="pick-grid workers cardless-pick-grid">
-                  {data.cardlessPeople.map((person) => {
-                    const managing = manageMode !== 'none'
-                    const present = isCardlessBlocked(data, person)
-                    const isSelected = selectedCardlessId === person.id
-                    const isDimmed =
-                      !managing && selectedCardlessId != null && !isSelected
-                    return (
-                      <div
-                        key={person.id}
-                        className={`pick-wrap ${present && !managing ? 'is-present' : ''} ${
-                          isSelected ? 'is-selected' : ''
-                        } ${isDimmed ? 'is-dimmed' : ''}`}
-                      >
-                        <button
-                          type="button"
-                          className={`pick-btn worker ${present && !managing ? 'present' : ''} ${
-                            person.temporary ? 'temporary' : ''
-                          } ${manageMode === 'edit' ? 'mode-edit' : ''} ${
-                            manageMode === 'delete' ? 'mode-delete' : ''
-                          } ${isSelected ? 'is-selected' : ''}`}
-                          onClick={() => void onCardlessNameClick(person)}
-                          disabled={(!managing && present) || isDimmed}
-                          title={
-                            manageMode === 'edit'
-                              ? 'עריכת שם'
-                              : manageMode === 'delete'
-                                ? 'מחיקת שם'
-                                : present
-                                  ? 'כבר באתר'
-                                  : isSelected
-                                    ? 'בטל בחירה'
-                                    : 'בחרו שם ואז ויזיטור מהרשת'
-                          }
+              </div>
+            ) : (
+              <div className="workers-list-with-alpha cardless-list-with-alpha">
+                <div
+                  ref={cardlessScrollRef}
+                  className="roster-scroll cardless-scroll"
+                >
+                  <div className="pick-grid workers cardless-pick-grid">
+                    {sortedCardlessPeople.map((person) => {
+                      const managing = manageMode !== 'none'
+                      const present = isCardlessBlocked(data, person)
+                      const isSelected = selectedCardlessId === person.id
+                      const isDimmed =
+                        !managing && selectedCardlessId != null && !isSelected
+                      const letter = cardlessAlphaLetter(person)
+                      return (
+                        <div
+                          key={person.id}
+                          className={`pick-wrap ${present && !managing ? 'is-present' : ''} ${
+                            isSelected ? 'is-selected' : ''
+                          } ${isDimmed ? 'is-dimmed' : ''}`}
+                          data-alpha-letter={letter}
                         >
-                          <span className="pick-label">
-                            {cardlessDisplayName(person)}
-                            <span
-                              className={`cardless-assign-hint ${
-                                person.assignment === 'multiple' ? 'multiple' : ''
-                              }`}
-                            >
-                              {person.assignment === 'unique' ? 'יחיד' : 'מרובה'}
+                          <button
+                            type="button"
+                            className={`pick-btn worker ${present && !managing ? 'present' : ''} ${
+                              person.temporary ? 'temporary' : ''
+                            } ${manageMode === 'edit' ? 'mode-edit' : ''} ${
+                              manageMode === 'delete' ? 'mode-delete' : ''
+                            } ${isSelected ? 'is-selected' : ''}`}
+                            onClick={() => void onCardlessNameClick(person)}
+                            disabled={(!managing && present) || isDimmed}
+                            title={
+                              manageMode === 'edit'
+                                ? 'עריכת שם'
+                                : manageMode === 'delete'
+                                  ? 'מחיקת שם'
+                                  : present
+                                    ? 'כבר באתר'
+                                    : isSelected
+                                      ? 'בטל בחירה'
+                                      : 'בחרו שם ואז ויזיטור מהרשת'
+                            }
+                          >
+                            <span className="pick-label">
+                              {cardlessDisplayName(person)}
+                              <span
+                                className={`cardless-assign-hint ${
+                                  person.assignment === 'multiple' ? 'multiple' : ''
+                                }`}
+                              >
+                                {person.assignment === 'unique' ? 'יחיד' : 'מרובה'}
+                              </span>
                             </span>
-                          </span>
-                          <span className="pick-hint">
-                            {manageMode === 'edit'
-                              ? 'עריכה'
-                              : manageMode === 'delete'
-                                ? 'מחיקה'
-                                : present
-                                  ? 'באתר'
-                                  : isSelected
-                                    ? 'נבחר'
-                                    : person.temporary
-                                      ? 'זמני · עד חצות'
-                                      : 'לחצו'}
-                          </span>
-                        </button>
-                      </div>
-                    )
-                  })}
+                            <span className="pick-hint">
+                              {manageMode === 'edit'
+                                ? 'עריכה'
+                                : manageMode === 'delete'
+                                  ? 'מחיקה'
+                                  : present
+                                    ? 'באתר'
+                                    : isSelected
+                                      ? 'נבחר'
+                                      : person.temporary
+                                        ? 'זמני · עד חצות'
+                                        : 'לחצו'}
+                            </span>
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
-              )}
-            </div>
+                {cardlessAlphaLetters.length > 0 ? (
+                  <nav
+                    className="workers-alpha-rail is-compact"
+                    aria-label="ניווט אלפביתי לשמות ויזיטור"
+                  >
+                    <div
+                      className="workers-alpha-indicator"
+                      aria-live="polite"
+                      title={`מיקום נוכחי: ${activeCardlessLetter}`}
+                    >
+                      {activeCardlessLetter === '#'
+                        ? '•'
+                        : activeCardlessLetter}
+                    </div>
+                    <div
+                      ref={cardlessAlphaLettersRef}
+                      className="workers-alpha-letters"
+                    >
+                      {cardlessAlphaLetters.map((letter) => {
+                        const active = activeCardlessLetter === letter
+                        return (
+                          <button
+                            key={letter}
+                            type="button"
+                            className={`workers-alpha-letter is-available ${
+                              active ? 'is-active' : ''
+                            }`}
+                            onClick={() => scrollCardlessToLetter(letter)}
+                            aria-label={`עבור ל־${letter}`}
+                            aria-current={active ? 'true' : undefined}
+                          >
+                            {letter}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </nav>
+                ) : null}
+              </div>
+            )}
           </div>
         </div>
         )}
