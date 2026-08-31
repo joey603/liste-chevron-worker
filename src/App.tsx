@@ -1,6 +1,23 @@
-import { CSSProperties, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { CSSProperties, FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { domToPng } from 'modern-screenshot'
+import ShiftReportPanel from './ShiftReportPanel'
+import type { ShiftKind, ShiftReport, ShiftReportTexts } from './shiftReport'
+import {
+  getOperationalDayDate,
+  getNextShift,
+  getShiftFromArchive,
+  upsertShiftInArchive,
+} from './shiftReportArchive'
+import { scheduleShiftReportAutoSave, flushShiftReportAutoSave } from './shiftReportAutoSave'
+import { normalizeShiftReportTexts } from './shiftReport'
+import { SHIFT_REPORT_DOCUMENT_TITLE } from './shiftReportDocument'
+import {
+  extractShiftLocalPayload,
+  mergeShiftIntoMain,
+  SHIFT_REPORT_LOCAL_STORAGE_KEY,
+  stripShiftFromMain,
+} from './shiftReportLocalStore'
 import {
   AppData,
   BannedPerson,
@@ -222,7 +239,7 @@ function IconPhone({ size = 16 }: { size?: number }) {
 }
 
 type Toast = { message: string } | null
-type AppTab = 'presence' | 'banned'
+type AppTab = 'presence' | 'banned' | 'cameras' | 'shift'
 type ListSort = 'time_asc' | 'time_desc' | 'name'
 type ListLayout = 'rows' | 'columns'
 type ListKindFilter = 'all' | 'visitors' | 'workers_constant' | 'workers_temporary'
@@ -425,7 +442,18 @@ function browserFallback(): AppData {
 
 async function loadData(): Promise<AppData> {
   if (window.listeApi) return normalizeData(await window.listeApi.getData())
-  return browserFallback()
+  try {
+    const mainRaw = JSON.parse(
+      localStorage.getItem('liste-chevron-data') ?? 'null',
+    )
+    const localRaw = JSON.parse(
+      localStorage.getItem(SHIFT_REPORT_LOCAL_STORAGE_KEY) ?? 'null',
+    )
+    const merged = mergeShiftIntoMain(mainRaw ?? {}, localRaw ?? {})
+    return normalizeData(merged)
+  } catch {
+    return browserFallback()
+  }
 }
 
 async function saveData(data: AppData): Promise<void> {
@@ -433,7 +461,15 @@ async function saveData(data: AppData): Promise<void> {
     await window.listeApi.saveData(data)
     return
   }
-  localStorage.setItem('liste-chevron-data', JSON.stringify(data))
+  const normalized = normalizeData(data)
+  localStorage.setItem(
+    SHIFT_REPORT_LOCAL_STORAGE_KEY,
+    JSON.stringify(extractShiftLocalPayload(normalized)),
+  )
+  localStorage.setItem(
+    'liste-chevron-data',
+    JSON.stringify(stripShiftFromMain(normalized)),
+  )
 }
 
 export default function App() {
@@ -1019,6 +1055,99 @@ export default function App() {
     await saveData(next)
     if (message) setToast({ message })
   }
+
+  const onShiftReportChange = useCallback((next: ShiftReport) => {
+    setData((prev) => {
+      if (!prev) return prev
+      const shiftReportsArchive = upsertShiftInArchive(
+        prev.shiftReportsArchive,
+        next,
+        prev.shiftReportTexts,
+      )
+      const updated = { ...prev, shiftReport: next, shiftReportsArchive }
+      void saveData(updated)
+
+      const nextShift = getNextShift(next.shift)
+      if (nextShift) {
+        const nextShiftReport = shiftReportsArchive[next.date.trim()]?.[nextShift]
+        if (nextShiftReport) {
+          void scheduleShiftReportAutoSave(
+            updated.settings,
+            nextShiftReport,
+            updated.shiftReportTexts,
+          )
+        }
+      }
+
+      return updated
+    })
+  }, [])
+
+  const onShiftContextChange = useCallback(
+    (date: string, shift: ShiftKind, currentReport?: ShiftReport) => {
+      setData((prev) => {
+        if (!prev) return prev
+        let shiftReportsArchive = prev.shiftReportsArchive
+        const reportToSave = currentReport ?? prev.shiftReport
+        if (reportToSave) {
+          void flushShiftReportAutoSave(
+            prev.settings,
+            reportToSave,
+            prev.shiftReportTexts,
+          )
+          shiftReportsArchive = upsertShiftInArchive(
+            shiftReportsArchive,
+            reportToSave,
+            prev.shiftReportTexts,
+          )
+        }
+        const shiftReport = getShiftFromArchive(
+          shiftReportsArchive,
+          date,
+          shift,
+          prev.shiftReportTexts,
+        )
+        const updated = { ...prev, shiftReportsArchive, shiftReport }
+        void saveData(updated)
+        return updated
+      })
+    },
+    [],
+  )
+
+  const onShiftReportSettingsChange = useCallback(
+    (partial: Partial<AppData['settings']>) => {
+      setData((prev) => {
+        if (!prev) return prev
+        const updated = {
+          ...prev,
+          settings: { ...prev.settings, ...partial },
+        }
+        void saveData(updated)
+        return updated
+      })
+    },
+    [],
+  )
+
+  const onShiftReportTextsChange = useCallback((next: ShiftReportTexts) => {
+    setData((prev) => {
+      if (!prev) return prev
+      const updated = {
+        ...prev,
+        shiftReportTexts: normalizeShiftReportTexts(next),
+      }
+      void saveData(updated)
+      if (updated.shiftReport) {
+        void scheduleShiftReportAutoSave(
+          updated.settings,
+          updated.shiftReport,
+          updated.shiftReportTexts,
+        )
+      }
+      return updated
+    })
+  }, [])
 
   function clearManageMode() {
     setManageMode('none')
@@ -2209,7 +2338,7 @@ export default function App() {
         <nav className="app-tabs" aria-label="ניווט ראשי">
           <button
             type="button"
-            className={`app-tab ${activeTab === 'banned' ? 'active' : ''}`}
+            className={`app-tab app-tab-banned ${activeTab === 'banned' ? 'active' : ''}`}
             onClick={() => {
               clearManageMode()
               setActiveTab('banned')
@@ -2227,11 +2356,31 @@ export default function App() {
           >
             רשימת נוכחים
           </button>
+          <button
+            type="button"
+            className={`app-tab ${activeTab === 'cameras' ? 'active' : ''}`}
+            onClick={() => {
+              clearManageMode()
+              setActiveTab('cameras')
+            }}
+          >
+            דוח מצלמות
+          </button>
+          <button
+            type="button"
+            className={`app-tab ${activeTab === 'shift' ? 'active' : ''}`}
+            onClick={() => {
+              clearManageMode()
+              setActiveTab('shift')
+            }}
+          >
+            דוח משמרת
+          </button>
         </nav>
       </header>
 
       <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
-      {activeTab === 'presence' ? (
+      {activeTab === 'presence' && (
         <>
       <aside className="sidebar" aria-hidden={sidebarCollapsed}>
         <div className="sidebar-header">
@@ -2842,7 +2991,9 @@ export default function App() {
         </div>
       </main>
         </>
-      ) : (
+      )}
+
+      {activeTab === 'banned' && (
         <main className="main-panel banned-panel">
           <header className="main-header">
             <div className="brand">
@@ -2918,6 +3069,45 @@ export default function App() {
               </div>
             )}
             {toast && <div className="toast">{toast.message}</div>}
+          </div>
+        </main>
+      )}
+
+      {activeTab === 'cameras' && (
+        <main className="main-panel report-panel">
+          <header className="main-header">
+            <div className="brand">
+              <h1>דוח מצלמות</h1>
+              <p>מעקב ודיווח על מצלמות האתר</p>
+            </div>
+          </header>
+          <div className="panel report-placeholder">
+            <p>המסך הזה ייבנה בקרוב.</p>
+          </div>
+        </main>
+      )}
+
+      {activeTab === 'shift' && (
+        <main className="main-panel report-panel">
+          <header className="main-header">
+            <div className="brand">
+              <h1>דוח משמרת</h1>
+              <p>{SHIFT_REPORT_DOCUMENT_TITLE}</p>
+            </div>
+          </header>
+          <div className="panel shift-report-panel">
+            <ShiftReportPanel
+              value={data?.shiftReport}
+              onChange={onShiftReportChange}
+              texts={data?.shiftReportTexts}
+              onTextsChange={onShiftReportTextsChange}
+              onToast={(message) => setToast({ message })}
+              settings={data?.settings}
+              onSettingsChange={onShiftReportSettingsChange}
+              archive={data?.shiftReportsArchive}
+              onShiftContextChange={onShiftContextChange}
+              getOperationalDayDate={getOperationalDayDate}
+            />
           </div>
         </main>
       )}
