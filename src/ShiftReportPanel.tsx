@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { createPortal } from 'react-dom'
 import {
   SHIFT_LABELS,
   SHIFT_NOTE_YELLOW_HIGHLIGHT,
@@ -338,7 +339,7 @@ export default function ShiftReportPanel({
   useEffect(() => {
     suppressDebounceRef.current = true
     setReport(normalizeShiftReport(value, normalizeShiftReportTexts(textsProp)))
-  }, [value, textsProp])
+  }, [value])
 
   useEffect(() => {
     if (suppressDebounceRef.current) {
@@ -794,75 +795,76 @@ export default function ShiftReportPanel({
   }
 
   return (
-    <div className="shift-report" dir="rtl">
-      <div className="shift-report-toolbar">
-        <button
-          type="button"
-          className="btn btn-success"
-          style={{ width: 'auto' }}
-          onClick={resetTemplate}
-        >
-          דוח חדש
-        </button>
-        <button
-          type="button"
-          className="btn btn-preview"
-          style={{ marginInlineStart: 0 }}
-          onClick={() => setShowPreview(true)}
-        >
-          <svg
-            className="btn-preview-icon"
-            viewBox="0 0 24 24"
-            width="18"
-            height="18"
-            aria-hidden="true"
-          >
-            <path
-              d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinejoin="round"
-            />
-            <circle
-              cx="12"
-              cy="12"
-              r="2.6"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-            />
-          </svg>
-          <span>תצוגה מקדימה</span>
-        </button>
-        {SHOW_WORD_EXPORT ? (
+    <div className="shift-report-page">
+      <header className="main-header">
+        <div className="brand">
+          <h1>דוח משמרת</h1>
+          <p>{SHIFT_REPORT_DOCUMENT_TITLE}</p>
+        </div>
+        <div className="main-header-actions">
           <button
             type="button"
-            className="btn btn-primary"
+            className="btn btn-success"
             style={{ width: 'auto' }}
-            onClick={() => void exportWord()}
-            disabled={exporting}
+            onClick={resetTemplate}
           >
-            {exporting ? 'מייצא…' : 'ייצוא ל־Word'}
+            דוח חדש
           </button>
-        ) : null}
-        <button
-          type="button"
-          className="btn btn-ghost"
-          style={{ width: 'auto' }}
-          onClick={() => setShowSettings((v) => !v)}
-        >
-          הגדרות שמירה
-        </button>
-        <span className="shift-toolbar-sep" aria-hidden />
-        <ShiftDayStatusRow
-          date={report.date}
-          archive={archive}
-          current={report}
-          onSelectShift={handleShiftChange}
-        />
-      </div>
+          <button
+            type="button"
+            className="btn btn-preview"
+            style={{ marginInlineStart: 0 }}
+            onClick={() => setShowPreview(true)}
+          >
+            <svg
+              className="btn-preview-icon"
+              viewBox="0 0 24 24"
+              width="18"
+              height="18"
+              aria-hidden="true"
+            >
+              <path
+                d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinejoin="round"
+              />
+              <circle
+                cx="12"
+                cy="12"
+                r="2.6"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+              />
+            </svg>
+            <span>תצוגה מקדימה</span>
+          </button>
+          {SHOW_WORD_EXPORT ? (
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ width: 'auto' }}
+              onClick={() => void exportWord()}
+              disabled={exporting}
+            >
+              {exporting ? 'מייצא…' : 'ייצוא ל־Word'}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className={`btn btn-ghost${showSettings ? ' active' : ''}`}
+            style={{ width: 'auto' }}
+            onClick={() => setShowSettings((v) => !v)}
+          >
+            הגדרות שמירה
+          </button>
+        </div>
+      </header>
 
+      <div className="panel shift-report-panel">
+        <div className="shift-report" dir="rtl">
       {showSettings ? (
         <section className="shift-section shift-settings-card">
           <h3>שמירה אוטומטית ודוא״ל יומי</h3>
@@ -1014,6 +1016,12 @@ export default function ShiftReportPanel({
       </section>
 
       <section className="shift-section shift-meta-card">
+        <ShiftDayStatusRow
+          date={report.date}
+          archive={archive}
+          current={report}
+          onSelectShift={handleShiftChange}
+        />
         <div className="shift-meta-grid">
           <label className="shift-field">
             <span>תאריך</span>
@@ -1535,63 +1543,81 @@ export default function ShiftReportPanel({
           </div>
         )}
       </section>
-
-      {showPreview ? (
-        <div
-          className="modal-backdrop modal-backdrop-preview"
-          onClick={() => setShowPreview(false)}
-        >
-          <div
-            className="preview-share-wrap shift-preview-wrap"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="preview-layout-bar">
-              <span className="preview-layout-label">תצוגה מקדימה · דוח משמרת</span>
-              <div className="preview-layout-controls">
-                {SHOW_WORD_EXPORT ? (
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    style={{ width: 'auto' }}
-                    onClick={() => void exportWord()}
-                    disabled={exporting}
-                  >
-                    {exporting ? 'מייצא…' : 'ייצוא ל־Word'}
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  className="btn btn-preview btn-preview-close"
-                  style={{ marginInlineStart: 0 }}
-                  onClick={() => setShowPreview(false)}
-                >
-                  סגור
-                </button>
-              </div>
-            </div>
-            <div className="shift-preview-shell">
-              <ShiftReportPreviewDocument report={report} texts={textsForOutput()} />
-            </div>
-          </div>
         </div>
-      ) : null}
-      {showEmailLog ? (
-        <EmailSendLogModal
-          entries={emailLogEntries}
-          loading={loadingEmailLog}
-          onClose={() => setShowEmailLog(false)}
-        />
-      ) : null}
-      {alreadySentInfo ? (
-        <EmailAlreadySentModal
-          sentAt={alreadySentInfo.sentAt}
-          messageId={alreadySentInfo.messageId}
-          to={alreadySentInfo.to}
-          resending={sendingEmail}
-          onClose={() => setAlreadySentInfo(null)}
-          onResend={() => void sendReportEmail({ force: true })}
-        />
-      ) : null}
+      </div>
+
+      {showPreview
+        ? createPortal(
+            <div
+              className="modal-backdrop modal-backdrop-preview"
+              onClick={() => setShowPreview(false)}
+            >
+              <div
+                className="preview-share-wrap shift-preview-wrap"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="preview-layout-bar">
+                  <span className="preview-layout-label">
+                    תצוגה מקדימה · דוח משמרת
+                  </span>
+                  <div className="preview-layout-controls">
+                    {SHOW_WORD_EXPORT ? (
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        style={{ width: 'auto' }}
+                        onClick={() => void exportWord()}
+                        disabled={exporting}
+                      >
+                        {exporting ? 'מייצא…' : 'ייצוא ל־Word'}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="btn btn-preview btn-preview-close"
+                      style={{ marginInlineStart: 0 }}
+                      onClick={() => setShowPreview(false)}
+                    >
+                      סגור
+                    </button>
+                  </div>
+                </div>
+                <div className="shift-preview-shell">
+                  <ShiftReportPreviewDocument
+                    report={report}
+                    texts={textsForOutput()}
+                  />
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {showEmailLog
+        ? createPortal(
+            <EmailSendLogModal
+              entries={emailLogEntries}
+              loading={loadingEmailLog}
+              onClose={() => setShowEmailLog(false)}
+            />,
+            document.body,
+          )
+        : null}
+
+      {alreadySentInfo
+        ? createPortal(
+            <EmailAlreadySentModal
+              sentAt={alreadySentInfo.sentAt}
+              messageId={alreadySentInfo.messageId}
+              to={alreadySentInfo.to}
+              resending={sendingEmail}
+              onClose={() => setAlreadySentInfo(null)}
+              onResend={() => void sendReportEmail({ force: true })}
+            />,
+            document.body,
+          )
+        : null}
     </div>
   )
 }

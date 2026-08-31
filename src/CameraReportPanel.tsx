@@ -4,6 +4,7 @@ import {
   useState,
   type ChangeEvent,
 } from 'react'
+import { createPortal } from 'react-dom'
 import {
   getCameraDayStatus,
   type CameraReportsArchive,
@@ -378,56 +379,57 @@ export default function CameraReportPanel({
   const draftScans = report.scans
 
   return (
-    <div className="shift-report camera-report">
-      <div className="shift-report-toolbar">
-        <button
-          type="button"
-          className="btn btn-preview"
-          style={{ marginInlineStart: 0 }}
-          onClick={() => setShowPreview(true)}
-        >
-          <svg
-            className="btn-preview-icon"
-            viewBox="0 0 24 24"
-            width="18"
-            height="18"
-            aria-hidden="true"
+    <div className="shift-report-page">
+      <header className="main-header">
+        <div className="brand">
+          <h1>דוח מצלמות</h1>
+          <p>סריקות מצלמות לפי משמרת — בוקר, צוהריים, לילה</p>
+        </div>
+        <div className="main-header-actions">
+          <button
+            type="button"
+            className="btn btn-preview"
+            style={{ marginInlineStart: 0 }}
+            onClick={() => setShowPreview(true)}
           >
-            <path
-              d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinejoin="round"
-            />
-            <circle
-              cx="12"
-              cy="12"
-              r="2.6"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-            />
-          </svg>
-          <span>תצוגה מקדימה</span>
-        </button>
-        <span className="shift-toolbar-sep" aria-hidden />
-        <button
-          type="button"
-          className={`btn btn-ghost${showSettings ? ' active' : ''}`}
-          style={{ width: 'auto' }}
-          onClick={() => setShowSettings((v) => !v)}
-        >
-          הגדרות שמירה
-        </button>
-        <span className="shift-toolbar-sep" aria-hidden />
-        <CameraDayStatusRow
-          date={report.date}
-          archive={archive}
-          current={report}
-          onSelectShift={handleShiftChange}
-        />
-      </div>
+            <svg
+              className="btn-preview-icon"
+              viewBox="0 0 24 24"
+              width="18"
+              height="18"
+              aria-hidden="true"
+            >
+              <path
+                d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinejoin="round"
+              />
+              <circle
+                cx="12"
+                cy="12"
+                r="2.6"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+              />
+            </svg>
+            <span>תצוגה מקדימה</span>
+          </button>
+          <button
+            type="button"
+            className={`btn btn-ghost${showSettings ? ' active' : ''}`}
+            style={{ width: 'auto' }}
+            onClick={() => setShowSettings((v) => !v)}
+          >
+            הגדרות שמירה
+          </button>
+        </div>
+      </header>
+
+      <div className="panel shift-report-panel">
+        <div className="shift-report camera-report">
 
       {showSettings ? (
         <section className="shift-section shift-settings-card">
@@ -570,6 +572,12 @@ export default function CameraReportPanel({
       </section>
 
       <section className="shift-section shift-meta-card">
+        <CameraDayStatusRow
+          date={report.date}
+          archive={archive}
+          current={report}
+          onSelectShift={handleShiftChange}
+        />
         <div className="shift-meta-grid">
           <label className="shift-field">
             <span>תאריך</span>
@@ -692,51 +700,60 @@ export default function CameraReportPanel({
           </p>
         ) : null}
       </section>
-
-      {showPreview ? (
-        <div
-          className="modal-backdrop modal-backdrop-preview"
-          onClick={() => setShowPreview(false)}
-        >
-          <div
-            className="preview-share-wrap shift-preview-wrap"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="preview-layout-bar">
-              <span className="preview-layout-label">
-                תצוגה מקדימה · יומן מצלמות (Excel)
-              </span>
-              <div className="preview-layout-controls">
-                <button
-                  type="button"
-                  className="btn btn-preview btn-preview-close"
-                  style={{ marginInlineStart: 0 }}
-                  onClick={() => setShowPreview(false)}
-                >
-                  סגור
-                </button>
-              </div>
-            </div>
-            <div className="shift-preview-shell camera-xls-preview-shell">
-              <CameraReportExcelPreview
-                report={report}
-                archive={archive}
-                onDaySelect={handlePreviewDaySelect}
-              />
-            </div>
-          </div>
         </div>
-      ) : null}
-      {alreadySentInfo ? (
-        <EmailAlreadySentModal
-          sentAt={alreadySentInfo.sentAt}
-          messageId={alreadySentInfo.messageId}
-          to={alreadySentInfo.to}
-          resending={sendingEmail}
-          onClose={() => setAlreadySentInfo(null)}
-          onResend={() => void sendMonthlyEmail({ force: true })}
-        />
-      ) : null}
+      </div>
+
+      {showPreview
+        ? createPortal(
+            <div
+              className="modal-backdrop modal-backdrop-preview"
+              onClick={() => setShowPreview(false)}
+            >
+              <div
+                className="preview-share-wrap shift-preview-wrap"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="preview-layout-bar">
+                  <span className="preview-layout-label">
+                    תצוגה מקדימה · יומן מצלמות (Excel)
+                  </span>
+                  <div className="preview-layout-controls">
+                    <button
+                      type="button"
+                      className="btn btn-preview btn-preview-close"
+                      style={{ marginInlineStart: 0 }}
+                      onClick={() => setShowPreview(false)}
+                    >
+                      סגור
+                    </button>
+                  </div>
+                </div>
+                <div className="shift-preview-shell camera-xls-preview-shell">
+                  <CameraReportExcelPreview
+                    report={report}
+                    archive={archive}
+                    onDaySelect={handlePreviewDaySelect}
+                  />
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {alreadySentInfo
+        ? createPortal(
+            <EmailAlreadySentModal
+              sentAt={alreadySentInfo.sentAt}
+              messageId={alreadySentInfo.messageId}
+              to={alreadySentInfo.to}
+              resending={sendingEmail}
+              onClose={() => setAlreadySentInfo(null)}
+              onResend={() => void sendMonthlyEmail({ force: true })}
+            />,
+            document.body,
+          )
+        : null}
     </div>
   )
 }

@@ -15,13 +15,13 @@ import {
   flushCameraReportAutoSave,
   scheduleCameraReportAutoSave,
 } from './cameraReportAutoSave'
+import { scheduleShiftReportAutoSave } from './shiftReportAutoSave'
 import {
   getNextShift,
   getShiftFromArchive,
   upsertShiftInArchive,
 } from './shiftReportArchive'
 import { normalizeShiftReportTexts } from './shiftReport'
-import { SHIFT_REPORT_DOCUMENT_TITLE } from './shiftReportDocument'
 import {
   extractShiftLocalPayload,
   mergeShiftIntoMain,
@@ -3196,13 +3196,6 @@ export default function App() {
 
       {activeTab === 'cameras' && (
         <main className="main-panel report-panel">
-          <header className="main-header">
-            <div className="brand">
-              <h1>דוח מצלמות</h1>
-              <p>סריקות מצלמות לפי משמרת — בוקר, צוהריים, לילה</p>
-            </div>
-          </header>
-          <div className="panel shift-report-panel">
             <CameraReportPanel
               value={
                 data?.cameraReport
@@ -3222,19 +3215,11 @@ export default function App() {
               onShiftContextChange={onCameraContextChange}
               guardNameSuggestions={cameraGuardPickerNames}
             />
-          </div>
         </main>
       )}
 
       {activeTab === 'shift' && (
         <main className="main-panel report-panel">
-          <header className="main-header">
-            <div className="brand">
-              <h1>דוח משמרת</h1>
-              <p>{SHIFT_REPORT_DOCUMENT_TITLE}</p>
-            </div>
-          </header>
-          <div className="panel shift-report-panel">
             <ShiftReportPanel
               value={data?.shiftReport}
               onChange={onShiftReportChange}
@@ -3247,7 +3232,6 @@ export default function App() {
               onShiftContextChange={onShiftContextChange}
               getOperationalDayDate={getOperationalDayDate}
             />
-          </div>
         </main>
       )}
       </div>
