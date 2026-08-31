@@ -2,6 +2,7 @@ import {
   app,
   BrowserWindow,
   clipboard,
+  dialog,
   ipcMain,
   nativeImage,
   net,
@@ -14,6 +15,154 @@ import fs from 'node:fs'
 import os from 'node:os'
 import { execFile } from 'node:child_process'
 import { autoUpdater } from 'electron-updater'
+import nodemailer from 'nodemailer'
+import {
+  ensureShiftReportSaveDir,
+  shiftReportDocxPathsForDay,
+} from './shiftReportPaths'
+import {
+  hasLegacyShiftInMain,
+  mergeShiftIntoMain,
+  persistShiftReportLocalFromAppData,
+  readShiftReportLocal,
+  shiftReportLocalPath,
+  stripShiftFromMain,
+} from './shiftReportLocalStore'
+
+let lastShiftEmailDate = ''
+
+function formatArchiveDate(d: Date): string {
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const yyyy = d.getFullYear()
+  return `${dd}.${mm}.${yyyy}`
+}
+
+async function sendShiftReportsEmail(payload: {
+  date: string
+  directorEmail: string
+  smtpHost: string
+  smtpPort: number
+  smtpUser: string
+  smtpPass: string
+  attachments: Array<{ name: string; bytes: number[] }>
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const transporter = createSmtpTransporter(payload)
+    await transporter.sendMail({
+      from: payload.smtpUser,
+      to: payload.directorEmail,
+      subject: `דוחות משמרת ${payload.date}`,
+      text: `מצורפים דוחות המשמרת ליום ${payload.date} (בוקר, צוהריים, לילה).`,
+      attachments: payload.attachments.map((a) => ({
+        filename: a.name,
+        content: Buffer.from(a.bytes),
+      })),
+    })
+    return { ok: true }
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'email_failed',
+    }
+  }
+}
+
+function createSmtpTransporter(payload: {
+  smtpHost: string
+  smtpPort: number
+  smtpUser: string
+  smtpPass: string
+}) {
+  return nodemailer.createTransport({
+    host: payload.smtpHost,
+    port: payload.smtpPort,
+    secure: payload.smtpPort === 465,
+    requireTLS: payload.smtpPort === 587,
+    auth: {
+      user: payload.smtpUser,
+      pass: payload.smtpPass,
+    },
+  })
+}
+
+async function sendShiftReportTestEmail(payload: {
+  directorEmail: string
+  smtpHost: string
+  smtpPort: number
+  smtpUser: string
+  smtpPass: string
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const transporter = createSmtpTransporter(payload)
+    await transporter.verify()
+    await transporter.sendMail({
+      from: payload.smtpUser,
+      to: payload.directorEmail,
+      subject: 'בדיקת דוא״ל — דוח משמרת',
+      text:
+        'זוהי הודעת בדיקה מ־Liste Chevron.\n' +
+        'אם קיבלתם אותה, הגדרות ה-SMTP תקינות.',
+    })
+    return { ok: true }
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'email_test_failed',
+    }
+  }
+}
+
+function trySendDailyShiftReports() {
+  const data = readData()
+  const email = data.settings.directorEmail?.trim()
+  const smtpHost = data.settings.shiftReportSmtpHost?.trim()
+  const smtpUser = data.settings.shiftReportSmtpUser?.trim()
+  const smtpPass = data.settings.shiftReportSmtpPass ?? ''
+  const folder = data.settings.shiftReportSaveFolder?.trim()
+  if (!email || !smtpHost || !smtpUser || !smtpPass || !folder) return
+
+  const now = new Date()
+  const targetTime = data.settings.shiftReportEmailTime?.trim() || '07:00'
+  const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+  if (hhmm !== targetTime) return
+
+  const reportDay = new Date(now)
+  reportDay.setDate(reportDay.getDate() - 1)
+  const dateKey = formatArchiveDate(reportDay)
+  if (lastShiftEmailDate === dateKey) return
+
+  const archive = data.shiftReportsArchive as
+    | Record<string, Record<string, unknown>>
+    | undefined
+  const day = archive?.[dateKey]
+  if (!day) return
+
+  const shifts = shiftReportDocxPathsForDay(dateKey)
+  const attachments: Array<{ name: string; bytes: number[] }> = []
+  for (const item of shifts) {
+    const dir = ensureShiftReportSaveDir(folder, item.relativeDir)
+    const docxPath = path.join(dir, item.fileName)
+    if (!fs.existsSync(docxPath)) continue
+    attachments.push({
+      name: item.fileName,
+      bytes: [...fs.readFileSync(docxPath)],
+    })
+  }
+  if (attachments.length === 0) return
+
+  void sendShiftReportsEmail({
+    date: dateKey,
+    directorEmail: email,
+    smtpHost,
+    smtpPort: data.settings.shiftReportSmtpPort ?? 587,
+    smtpUser,
+    smtpPass,
+    attachments,
+  }).then((result) => {
+    if (result.ok) lastShiftEmailDate = dateKey
+  })
+}
 
 type EntryKind = 'named' | 'visitor'
 
@@ -63,6 +212,13 @@ type AppSettings = {
   emergencyPhones: ContactPhone[]
   siteName: string
   visitorSlots: Record<string, VisitorSlot>
+  shiftReportSaveFolder?: string
+  directorEmail?: string
+  shiftReportEmailTime?: string
+  shiftReportSmtpHost?: string
+  shiftReportSmtpPort?: number
+  shiftReportSmtpUser?: string
+  shiftReportSmtpPass?: string
 }
 
 type AppData = {
@@ -71,6 +227,9 @@ type AppData = {
   cardlessPeople: CardlessPerson[]
   people: PersonEntry[]
   banned: BannedPerson[]
+  shiftReport?: unknown
+  shiftReportTexts?: unknown
+  shiftReportsArchive?: Record<string, unknown>
 }
 
 type BannedPerson = {
@@ -237,6 +396,36 @@ function normalize(raw: Partial<AppData>): AppData {
     emergencyPhones,
     directorPhone: emergencyPhones[0]?.phone ?? '',
     visitorSlots: normalizeVisitorSlots(raw.settings?.visitorSlots, now),
+    shiftReportSaveFolder:
+      typeof raw.settings?.shiftReportSaveFolder === 'string'
+        ? raw.settings.shiftReportSaveFolder.trim()
+        : '',
+    directorEmail:
+      typeof raw.settings?.directorEmail === 'string'
+        ? raw.settings.directorEmail.trim()
+        : '',
+    shiftReportEmailTime:
+      typeof raw.settings?.shiftReportEmailTime === 'string' &&
+      raw.settings.shiftReportEmailTime.trim()
+        ? raw.settings.shiftReportEmailTime.trim()
+        : '07:00',
+    shiftReportSmtpHost:
+      typeof raw.settings?.shiftReportSmtpHost === 'string'
+        ? raw.settings.shiftReportSmtpHost.trim()
+        : '',
+    shiftReportSmtpPort:
+      typeof raw.settings?.shiftReportSmtpPort === 'number' &&
+      Number.isFinite(raw.settings.shiftReportSmtpPort)
+        ? raw.settings.shiftReportSmtpPort
+        : 587,
+    shiftReportSmtpUser:
+      typeof raw.settings?.shiftReportSmtpUser === 'string'
+        ? raw.settings.shiftReportSmtpUser.trim()
+        : '',
+    shiftReportSmtpPass:
+      typeof raw.settings?.shiftReportSmtpPass === 'string'
+        ? raw.settings.shiftReportSmtpPass
+        : '',
   }
 
   return {
@@ -261,26 +450,57 @@ function normalize(raw: Partial<AppData>): AppData {
           addedAt: b.addedAt ?? new Date().toISOString(),
         }))
       : [],
+    shiftReport: raw.shiftReport,
+    shiftReportTexts: raw.shiftReportTexts,
+    shiftReportsArchive:
+      raw.shiftReportsArchive &&
+      typeof raw.shiftReportsArchive === 'object' &&
+      !Array.isArray(raw.shiftReportsArchive)
+        ? raw.shiftReportsArchive
+        : {},
   }
 }
 
-function readData(): AppData {
+function readMainDataFile(): Partial<AppData> {
   const file = dataPath()
   try {
     if (!fs.existsSync(file)) {
       const data = defaultData()
-      fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf-8')
+      fs.writeFileSync(file, JSON.stringify(stripShiftFromMain(data), null, 2), 'utf-8')
       return data
     }
-    const raw = fs.readFileSync(file, 'utf-8')
-    return normalize(JSON.parse(raw) as Partial<AppData>)
+    return JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<AppData>
   } catch {
     return defaultData()
   }
 }
 
+function readData(): AppData {
+  const rawMain = readMainDataFile()
+  const shiftLocal = readShiftReportLocal(rawMain)
+  const merged = mergeShiftIntoMain(rawMain, shiftLocal)
+  const data = normalize(merged)
+
+  if (hasLegacyShiftInMain(rawMain)) {
+    persistShiftReportLocalFromAppData(data)
+    fs.writeFileSync(
+      dataPath(),
+      JSON.stringify(stripShiftFromMain(data), null, 2),
+      'utf-8',
+    )
+  }
+
+  return data
+}
+
 function writeData(data: AppData) {
-  fs.writeFileSync(dataPath(), JSON.stringify(data, null, 2), 'utf-8')
+  const normalized = normalize(data)
+  persistShiftReportLocalFromAppData(normalized)
+  fs.writeFileSync(
+    dataPath(),
+    JSON.stringify(stripShiftFromMain(normalized), null, 2),
+    'utf-8',
+  )
 }
 
 function sendToWindows(channel: string, payload?: unknown) {
@@ -308,18 +528,28 @@ function setupAutoUpdater(getMainWindow: () => BrowserWindow | null) {
     }
   }
 
+  const pendingUpdateResult = (update: PendingUpdate) => ({
+    status: 'available' as const,
+    version: update.version,
+    currentVersion: update.currentVersion,
+  })
+
+  const readPendingUpdate = (): PendingUpdate | null => pendingUpdate
+
   ipcMain.handle('update:check', async () => {
     if (!app.isPackaged) {
       return { status: 'up-to-date' as const, version: app.getVersion() }
     }
-    if (pendingUpdate) {
-      sendToWindows('update:available', pendingUpdate)
-      return { status: 'available' as const, ...pendingUpdate }
+    const initial = readPendingUpdate()
+    if (initial) {
+      sendToWindows('update:available', initial)
+      return pendingUpdateResult(initial)
     }
     lastUpdateError = null
     await check()
-    if (pendingUpdate) {
-      return { status: 'available' as const, ...pendingUpdate }
+    const afterCheck = readPendingUpdate()
+    if (afterCheck) {
+      return pendingUpdateResult(afterCheck)
     }
     if (lastUpdateError) {
       return { status: 'error' as const, message: lastUpdateError }
@@ -1723,9 +1953,14 @@ app.whenReady().then(() => {
   ipcMain.handle('data:get', () => readData())
 
   ipcMain.handle('data:save', (_event, data: AppData) => {
-    writeData(normalize(data))
+    writeData(data)
     return true
   })
+
+  ipcMain.handle('shiftReport:localPath', () => ({
+    ok: true as const,
+    path: shiftReportLocalPath(),
+  }))
 
   ipcMain.handle('whatsapp:open', async () => {
     await openWhatsAppAndPaste()
@@ -1762,6 +1997,100 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle(
+    'file:saveBytes',
+    async (
+      _event,
+      payload: { defaultName: string; bytes: number[]; filters?: { name: string; extensions: string[] }[] },
+    ) => {
+      const result = await dialog.showSaveDialog({
+        defaultPath: payload.defaultName,
+        filters: payload.filters ?? [
+          { name: 'Word', extensions: ['docx'] },
+        ],
+      })
+      if (result.canceled || !result.filePath) {
+        return { ok: false as const, canceled: true as const }
+      }
+      fs.writeFileSync(result.filePath, Buffer.from(payload.bytes))
+      return { ok: true as const, path: result.filePath }
+    },
+  )
+
+  ipcMain.handle('folder:pick', async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory', 'createDirectory'],
+    })
+    if (result.canceled || !result.filePaths[0]) {
+      return { ok: false as const, canceled: true as const }
+    }
+    return { ok: true as const, path: result.filePaths[0] }
+  })
+
+  ipcMain.handle(
+    'shiftReport:saveFiles',
+    async (
+      _event,
+      payload: {
+        folder: string
+        relativeDir: string
+        docxFileName: string
+        jsonFileName: string
+        json: string
+        docxBytes: number[]
+      },
+    ) => {
+      try {
+        const dir = ensureShiftReportSaveDir(payload.folder, payload.relativeDir)
+        fs.writeFileSync(
+          path.join(dir, payload.jsonFileName),
+          payload.json,
+          'utf-8',
+        )
+        fs.writeFileSync(
+          path.join(dir, payload.docxFileName),
+          Buffer.from(payload.docxBytes),
+        )
+        return { ok: true as const }
+      } catch (err) {
+        return {
+          ok: false as const,
+          error: err instanceof Error ? err.message : 'save_failed',
+        }
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'shiftReport:testEmail',
+    async (
+      _event,
+      payload: {
+        directorEmail: string
+        smtpHost: string
+        smtpPort: number
+        smtpUser: string
+        smtpPass: string
+      },
+    ) => sendShiftReportTestEmail(payload),
+  )
+
+  ipcMain.handle(
+    'shiftReport:sendEmail',
+    async (
+      _event,
+      payload: {
+        date: string
+        directorEmail: string
+        smtpHost: string
+        smtpPort: number
+        smtpUser: string
+        smtpPass: string
+        attachments: Array<{ name: string; bytes: number[] }>
+      },
+    ) => sendShiftReportsEmail(payload),
+  )
+
+  ipcMain.handle(
     'whatsapp:shareImage',
     async (_event, dataUrl: string) => {
       if (process.platform === 'win32') {
@@ -1791,6 +2120,7 @@ app.whenReady().then(() => {
 
   mainWindow = createWindow()
   setupAutoUpdater(() => mainWindow)
+  setInterval(trySendDailyShiftReports, 60_000)
 
   // Précharger WhatsApp Web en arrière-plan (Windows) pour un statut fiable
   if (process.platform === 'win32') {

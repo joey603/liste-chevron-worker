@@ -1,3 +1,10 @@
+import type { ShiftReport, ShiftReportTexts } from './shiftReport'
+import {
+  normalizeShiftReport,
+  normalizeShiftReportTexts,
+} from './shiftReport'
+import type { ShiftReportsArchive } from './shiftReportArchive'
+
 export type EntryKind = 'named' | 'visitor'
 
 export type Worker = {
@@ -60,6 +67,17 @@ export type AppSettings = {
   siteName: string
   /** מצב לכל ויזיטור 1–30 */
   visitorSlots: Record<string, VisitorSlot>
+  /** תיקייה לשמירה אוטומטית של דוחות משמרת */
+  shiftReportSaveFolder?: string
+  /** אימייל מנהל לקבלת 3 הדוחות היומיים */
+  directorEmail?: string
+  /** שעת שליחה יומית (HH:MM) */
+  shiftReportEmailTime?: string
+  /** SMTP לשליחת דוחות */
+  shiftReportSmtpHost?: string
+  shiftReportSmtpPort?: number
+  shiftReportSmtpUser?: string
+  shiftReportSmtpPass?: string
 }
 
 export const VISITOR_COUNT = 30
@@ -124,6 +142,12 @@ export type AppData = {
   cardlessPeople: CardlessPerson[]
   people: PersonEntry[]
   banned: BannedPerson[]
+  /** טיוטת דוח משמרת נוכחית */
+  shiftReport?: ShiftReport
+  /** טקסטים קבועים לדוח משמרת (תזכורות / תקלות / הערות) */
+  shiftReportTexts?: ShiftReportTexts
+  /** ארכיון דוחות לפי תאריך → משמרת */
+  shiftReportsArchive?: ShiftReportsArchive
 }
 
 export type WhatsAppSendResult = {
@@ -174,6 +198,12 @@ export function whatsappStatusLabel(status: WhatsAppStatus): string | null {
 export type ListeApi = {
   getData: () => Promise<AppData>
   saveData: (data: AppData) => Promise<boolean>
+  getShiftReportLocalPath?: () => Promise<{ ok: boolean; path?: string }>
+  saveBytes?: (payload: {
+    defaultName: string
+    bytes: number[]
+    filters?: { name: string; extensions: string[] }[]
+  }) => Promise<{ ok: boolean; canceled?: boolean; path?: string }>
   copyImage: (dataUrl: string) => Promise<boolean>
   openWhatsApp: () => Promise<boolean>
   shareImageToWhatsApp: (dataUrl: string) => Promise<
@@ -207,6 +237,31 @@ export type ListeApi = {
   } | null>
   downloadUpdate: () => Promise<boolean>
   installUpdate: () => Promise<boolean>
+  pickFolder?: () => Promise<{ ok: boolean; canceled?: boolean; path?: string }>
+  saveShiftReportFiles?: (payload: {
+    folder: string
+    relativeDir: string
+    docxFileName: string
+    jsonFileName: string
+    json: string
+    docxBytes: number[]
+  }) => Promise<{ ok: boolean; error?: string }>
+  sendShiftReportTestEmail?: (payload: {
+    directorEmail: string
+    smtpHost: string
+    smtpPort: number
+    smtpUser: string
+    smtpPass: string
+  }) => Promise<{ ok: boolean; error?: string }>
+  sendShiftReportsEmail?: (payload: {
+    date: string
+    directorEmail: string
+    smtpHost: string
+    smtpPort: number
+    smtpUser: string
+    smtpPass: string
+    attachments: Array<{ name: string; bytes: number[] }>
+  }) => Promise<{ ok: boolean; error?: string }>
   onUpdateAvailable: (
     cb: (info: { version: string; currentVersion: string }) => void,
   ) => () => void
@@ -534,6 +589,36 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
     ),
     siteName: rawSettings?.siteName ?? 'אתר Chevron',
     visitorSlots: normalizeVisitorSlots(rawSettings?.visitorSlots),
+    shiftReportSaveFolder:
+      typeof rawSettings?.shiftReportSaveFolder === 'string'
+        ? rawSettings.shiftReportSaveFolder.trim()
+        : '',
+    directorEmail:
+      typeof rawSettings?.directorEmail === 'string'
+        ? rawSettings.directorEmail.trim()
+        : '',
+    shiftReportEmailTime:
+      typeof rawSettings?.shiftReportEmailTime === 'string' &&
+      rawSettings.shiftReportEmailTime.trim()
+        ? rawSettings.shiftReportEmailTime.trim()
+        : '07:00',
+    shiftReportSmtpHost:
+      typeof rawSettings?.shiftReportSmtpHost === 'string'
+        ? rawSettings.shiftReportSmtpHost.trim()
+        : '',
+    shiftReportSmtpPort:
+      typeof rawSettings?.shiftReportSmtpPort === 'number' &&
+      Number.isFinite(rawSettings.shiftReportSmtpPort)
+        ? rawSettings.shiftReportSmtpPort
+        : 587,
+    shiftReportSmtpUser:
+      typeof rawSettings?.shiftReportSmtpUser === 'string'
+        ? rawSettings.shiftReportSmtpUser.trim()
+        : '',
+    shiftReportSmtpPass:
+      typeof rawSettings?.shiftReportSmtpPass === 'string'
+        ? rawSettings.shiftReportSmtpPass
+        : '',
   }
   settings.directorPhone = settings.emergencyPhones[0]?.phone ?? ''
   const workers = (Array.isArray(raw?.workers) ? raw.workers : []).map((w) => ({
@@ -581,5 +666,16 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
     cardlessPeople,
     people,
     banned,
+    shiftReport: normalizeShiftReport(
+      raw?.shiftReport,
+      normalizeShiftReportTexts(raw?.shiftReportTexts),
+    ),
+    shiftReportTexts: normalizeShiftReportTexts(raw?.shiftReportTexts),
+    shiftReportsArchive:
+      raw?.shiftReportsArchive &&
+      typeof raw.shiftReportsArchive === 'object' &&
+      !Array.isArray(raw.shiftReportsArchive)
+        ? raw.shiftReportsArchive
+        : {},
   })
 }

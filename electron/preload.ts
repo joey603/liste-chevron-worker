@@ -66,6 +66,43 @@ export type UpdateProgressInfo = {
 const api = {
   getData: (): Promise<AppData> => ipcRenderer.invoke('data:get'),
   saveData: (data: AppData): Promise<boolean> => ipcRenderer.invoke('data:save', data),
+  getShiftReportLocalPath: (): Promise<{ ok: boolean; path?: string }> =>
+    ipcRenderer.invoke('shiftReport:localPath'),
+  saveBytes: (payload: {
+    defaultName: string
+    bytes: number[]
+    filters?: { name: string; extensions: string[] }[]
+  }): Promise<{ ok: boolean; canceled?: boolean; path?: string }> =>
+    ipcRenderer.invoke('file:saveBytes', payload),
+  pickFolder: (): Promise<{ ok: boolean; canceled?: boolean; path?: string }> =>
+    ipcRenderer.invoke('folder:pick'),
+  saveShiftReportFiles: (payload: {
+    folder: string
+    relativeDir: string
+    docxFileName: string
+    jsonFileName: string
+    json: string
+    docxBytes: number[]
+  }): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('shiftReport:saveFiles', payload),
+  sendShiftReportTestEmail: (payload: {
+    directorEmail: string
+    smtpHost: string
+    smtpPort: number
+    smtpUser: string
+    smtpPass: string
+  }): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('shiftReport:testEmail', payload),
+  sendShiftReportsEmail: (payload: {
+    date: string
+    directorEmail: string
+    smtpHost: string
+    smtpPort: number
+    smtpUser: string
+    smtpPass: string
+    attachments: Array<{ name: string; bytes: number[] }>
+  }): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('shiftReport:sendEmail', payload),
   copyImage: (dataUrl: string): Promise<boolean> =>
     ipcRenderer.invoke('clipboard:writeImage', dataUrl),
   openWhatsApp: (): Promise<boolean> => ipcRenderer.invoke('whatsapp:open'),
