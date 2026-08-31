@@ -4,6 +4,10 @@ import {
   normalizeShiftReportTexts,
 } from './shiftReport'
 import type { ShiftReportsArchive } from './shiftReportArchive'
+import type { CameraReport } from './cameraReport'
+import { normalizeCameraReport } from './cameraReport'
+import type { CameraReportsArchive } from './cameraReportArchive'
+import { formatShiftDate } from './shiftReport'
 
 export type EntryKind = 'named' | 'visitor'
 
@@ -69,10 +73,14 @@ export type AppSettings = {
   visitorSlots: Record<string, VisitorSlot>
   /** תיקייה לשמירה אוטומטית של דוחות משמרת */
   shiftReportSaveFolder?: string
+  /** תיקייה לשמירה אוטומטית של דוחות מצלמות */
+  cameraReportSaveFolder?: string
   /** אימייל מנהל לקבלת 3 הדוחות היומיים */
   directorEmail?: string
   /** שעת שליחה יומית (HH:MM) */
   shiftReportEmailTime?: string
+  /** שעת שליחה חודשית — 1 בחודש, קובץ החודש הקודם (HH:MM) */
+  cameraReportEmailTime?: string
   /** SMTP לשליחת דוחות */
   shiftReportSmtpHost?: string
   shiftReportSmtpPort?: number
@@ -148,6 +156,10 @@ export type AppData = {
   shiftReportTexts?: ShiftReportTexts
   /** ארכיון דוחות לפי תאריך → משמרת */
   shiftReportsArchive?: ShiftReportsArchive
+  /** טיוטת דוח מצלמות נוכחית */
+  cameraReport?: CameraReport
+  /** ארכיון דוחות מצלמות לפי תאריך → משמרת */
+  cameraReportsArchive?: CameraReportsArchive
 }
 
 export type WhatsAppSendResult = {
@@ -245,6 +257,15 @@ export type ListeApi = {
     jsonFileName: string
     json: string
     docxBytes: number[]
+  }) => Promise<{ ok: boolean; error?: string }>
+  saveCameraReportWorkbook?: (payload: {
+    folder: string
+    relativeDir: string
+    fileName: string
+    year: number
+    month: number
+    archive: Record<string, unknown>
+    currentReport: Record<string, unknown>
   }) => Promise<{ ok: boolean; error?: string }>
   sendShiftReportTestEmail?: (payload: {
     directorEmail: string
@@ -593,6 +614,10 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
       typeof rawSettings?.shiftReportSaveFolder === 'string'
         ? rawSettings.shiftReportSaveFolder.trim()
         : '',
+    cameraReportSaveFolder:
+      typeof rawSettings?.cameraReportSaveFolder === 'string'
+        ? rawSettings.cameraReportSaveFolder.trim()
+        : '',
     directorEmail:
       typeof rawSettings?.directorEmail === 'string'
         ? rawSettings.directorEmail.trim()
@@ -601,6 +626,11 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
       typeof rawSettings?.shiftReportEmailTime === 'string' &&
       rawSettings.shiftReportEmailTime.trim()
         ? rawSettings.shiftReportEmailTime.trim()
+        : '07:00',
+    cameraReportEmailTime:
+      typeof rawSettings?.cameraReportEmailTime === 'string' &&
+      rawSettings.cameraReportEmailTime.trim()
+        ? rawSettings.cameraReportEmailTime.trim()
         : '07:00',
     shiftReportSmtpHost:
       typeof rawSettings?.shiftReportSmtpHost === 'string'
@@ -676,6 +706,18 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
       typeof raw.shiftReportsArchive === 'object' &&
       !Array.isArray(raw.shiftReportsArchive)
         ? raw.shiftReportsArchive
+        : {},
+    cameraReport: normalizeCameraReport(
+      raw?.cameraReport ?? {
+        date: formatShiftDate(),
+        shift: 'morning',
+      },
+    ),
+    cameraReportsArchive:
+      raw?.cameraReportsArchive &&
+      typeof raw.cameraReportsArchive === 'object' &&
+      !Array.isArray(raw.cameraReportsArchive)
+        ? raw.cameraReportsArchive
         : {},
   })
 }

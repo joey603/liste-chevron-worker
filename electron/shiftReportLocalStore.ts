@@ -5,8 +5,10 @@ import { app } from 'electron'
 /** Données sensibles / modifiables du דוח משמרת — jamais dans le repo git. */
 export type ShiftReportLocalSettings = {
   shiftReportSaveFolder?: string
+  cameraReportSaveFolder?: string
   directorEmail?: string
   shiftReportEmailTime?: string
+  cameraReportEmailTime?: string
   shiftReportSmtpHost?: string
   shiftReportSmtpPort?: number
   shiftReportSmtpUser?: string
@@ -17,6 +19,8 @@ export type ShiftReportLocalPayload = {
   shiftReport?: unknown
   shiftReportTexts?: unknown
   shiftReportsArchive?: Record<string, unknown>
+  cameraReport?: unknown
+  cameraReportsArchive?: Record<string, unknown>
   settings?: ShiftReportLocalSettings
 }
 
@@ -24,6 +28,8 @@ type AppDataLike = {
   shiftReport?: unknown
   shiftReportTexts?: unknown
   shiftReportsArchive?: Record<string, unknown>
+  cameraReport?: unknown
+  cameraReportsArchive?: Record<string, unknown>
   settings?: ShiftReportLocalSettings & Record<string, unknown>
 }
 
@@ -39,11 +45,15 @@ function extractShiftPayload(source: AppDataLike): ShiftReportLocalPayload {
     shiftReport: source.shiftReport,
     shiftReportTexts: source.shiftReportTexts,
     shiftReportsArchive: source.shiftReportsArchive,
+    cameraReport: source.cameraReport,
+    cameraReportsArchive: source.cameraReportsArchive,
     settings: settings
       ? {
           shiftReportSaveFolder: settings.shiftReportSaveFolder,
+          cameraReportSaveFolder: settings.cameraReportSaveFolder,
           directorEmail: settings.directorEmail,
           shiftReportEmailTime: settings.shiftReportEmailTime,
+          cameraReportEmailTime: settings.cameraReportEmailTime,
           shiftReportSmtpHost: settings.shiftReportSmtpHost,
           shiftReportSmtpPort: settings.shiftReportSmtpPort,
           shiftReportSmtpUser: settings.shiftReportSmtpUser,
@@ -56,6 +66,13 @@ function extractShiftPayload(source: AppDataLike): ShiftReportLocalPayload {
 function hasShiftContent(payload: ShiftReportLocalPayload): boolean {
   if (payload.shiftReport != null) return true
   if (payload.shiftReportTexts != null) return true
+  if (payload.cameraReport != null) return true
+  if (
+    payload.cameraReportsArchive &&
+    Object.keys(payload.cameraReportsArchive).length > 0
+  ) {
+    return true
+  }
   if (
     payload.shiftReportsArchive &&
     Object.keys(payload.shiftReportsArchive).length > 0
@@ -66,6 +83,7 @@ function hasShiftContent(payload: ShiftReportLocalPayload): boolean {
   if (!s) return false
   return Boolean(
     s.shiftReportSaveFolder?.trim() ||
+      s.cameraReportSaveFolder?.trim() ||
       s.directorEmail?.trim() ||
       s.shiftReportSmtpHost?.trim() ||
       s.shiftReportSmtpUser?.trim() ||
@@ -78,11 +96,15 @@ export function stripShiftFromMain<T extends AppDataLike>(raw: T): T {
   delete next.shiftReport
   delete next.shiftReportTexts
   delete next.shiftReportsArchive
+  delete next.cameraReport
+  delete next.cameraReportsArchive
   if (next.settings) {
     const settings = { ...next.settings }
     delete settings.shiftReportSaveFolder
+    delete settings.cameraReportSaveFolder
     delete settings.directorEmail
     delete settings.shiftReportEmailTime
+    delete settings.cameraReportEmailTime
     delete settings.shiftReportSmtpHost
     delete settings.shiftReportSmtpPort
     delete settings.shiftReportSmtpUser
@@ -104,6 +126,10 @@ export function mergeShiftIntoMain<T extends AppDataLike>(
   if (local.shiftReportsArchive !== undefined) {
     next.shiftReportsArchive = local.shiftReportsArchive
   }
+  if (local.cameraReport !== undefined) next.cameraReport = local.cameraReport
+  if (local.cameraReportsArchive !== undefined) {
+    next.cameraReportsArchive = local.cameraReportsArchive
+  }
   if (local.settings) {
     next.settings = {
       ...next.settings,
@@ -120,8 +146,14 @@ export function hasLegacyShiftInMain(raw: AppDataLike): boolean {
       (raw.shiftReportsArchive &&
         typeof raw.shiftReportsArchive === 'object' &&
         Object.keys(raw.shiftReportsArchive).length > 0) ||
+      raw.cameraReport != null ||
+      (raw.cameraReportsArchive &&
+        typeof raw.cameraReportsArchive === 'object' &&
+        Object.keys(raw.cameraReportsArchive).length > 0) ||
       raw.settings?.shiftReportSaveFolder ||
+      raw.settings?.cameraReportSaveFolder ||
       raw.settings?.directorEmail ||
+      raw.settings?.cameraReportEmailTime ||
       raw.settings?.shiftReportSmtpHost ||
       raw.settings?.shiftReportSmtpUser ||
       raw.settings?.shiftReportSmtpPass,

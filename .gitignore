@@ -11,5 +11,6 @@ release/
 # Données locales (ne jamais committer)
 shift-report-local.json
 liste-data.json
+camera-monthly-email-sent.json
 assets/shift-report-source.doc
 dossier sans titre/

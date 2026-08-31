@@ -6,8 +6,8 @@ import { getShiftReportSaveLocation } from './shiftReportPaths'
 import type { ShiftReport, ShiftReportTexts } from './shiftReport'
 import type { AppSettings } from './types'
 
-/** Court délai pour regrouper les frappes rapides sans retarder la sauvegarde. */
-const AUTO_SAVE_DELAY_MS = 300
+/** Court délai pour regrouper les frappes ; export Word coûteux. */
+const AUTO_SAVE_DELAY_MS = 900
 
 type PendingSave = {
   settings: AppSettings

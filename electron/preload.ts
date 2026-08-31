@@ -85,6 +85,16 @@ const api = {
     docxBytes: number[]
   }): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('shiftReport:saveFiles', payload),
+  saveCameraReportWorkbook: (payload: {
+    folder: string
+    relativeDir: string
+    fileName: string
+    year: number
+    month: number
+    archive: Record<string, unknown>
+    currentReport: Record<string, unknown>
+  }): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('cameraReport:saveWorkbook', payload),
   sendShiftReportTestEmail: (payload: {
     directorEmail: string
     smtpHost: string

@@ -21,6 +21,17 @@ import {
   shiftReportDocxPathsForDay,
 } from './shiftReportPaths'
 import {
+  buildMonthlyCameraReportFromDisk,
+  cameraReportMonthlyWorkbookFileName,
+  getPreviousCalendarMonth,
+  monthlyCameraReportKey,
+  readMonthlyCameraWorkbookFile,
+} from './cameraReportMonthly'
+import {
+  buildCameraMonthlyWorkbookBuffer,
+  writeCameraMonthlyWorkbook,
+} from './cameraReportWorkbook'
+import {
   hasLegacyShiftInMain,
   mergeShiftIntoMain,
   persistShiftReportLocalFromAppData,
@@ -30,6 +41,36 @@ import {
 } from './shiftReportLocalStore'
 
 let lastShiftEmailDate = ''
+let lastCameraMonthlyEmailKey = ''
+
+const cameraMonthlyEmailStatePath = () =>
+  path.join(app.getPath('userData'), 'camera-monthly-email-sent.json')
+
+function loadCameraMonthlyEmailState(): void {
+  try {
+    const p = cameraMonthlyEmailStatePath()
+    if (!fs.existsSync(p)) return
+    const raw = JSON.parse(fs.readFileSync(p, 'utf-8')) as {
+      lastKey?: string
+    }
+    if (typeof raw.lastKey === 'string') lastCameraMonthlyEmailKey = raw.lastKey
+  } catch {
+    /* ignore */
+  }
+}
+
+function persistCameraMonthlyEmailState(key: string): void {
+  lastCameraMonthlyEmailKey = key
+  try {
+    fs.writeFileSync(
+      cameraMonthlyEmailStatePath(),
+      JSON.stringify({ lastKey: key }, null, 2),
+      'utf-8',
+    )
+  } catch {
+    /* ignore */
+  }
+}
 
 function formatArchiveDate(d: Date): string {
   const dd = String(d.getDate()).padStart(2, '0')
@@ -111,6 +152,109 @@ async function sendShiftReportTestEmail(payload: {
       error: err instanceof Error ? err.message : 'email_test_failed',
     }
   }
+}
+
+async function sendCameraMonthlyReportEmail(payload: {
+  monthKey: string
+  hebrewMonth: string
+  year: number
+  directorEmail: string
+  smtpHost: string
+  smtpPort: number
+  smtpUser: string
+  smtpPass: string
+  attachmentName: string
+  attachmentBytes: Buffer
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const transporter = createSmtpTransporter(payload)
+    await transporter.sendMail({
+      from: payload.smtpUser,
+      to: payload.directorEmail,
+      subject: `יומן מצלמות ${payload.hebrewMonth} ${payload.year}`,
+      text:
+        `מצורף יומן המצלמות המלא לחודש ${payload.hebrewMonth} ${payload.year}.\n` +
+        `(נשלח אוטומטית ב-1 לחודש — החודש הקודם.)`,
+      attachments: [
+        {
+          filename: payload.attachmentName,
+          content: payload.attachmentBytes,
+        },
+      ],
+    })
+    return { ok: true }
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'email_failed',
+    }
+  }
+}
+
+function trySendMonthlyCameraReports() {
+  const data = readData()
+  const email = data.settings.directorEmail?.trim()
+  const smtpHost = data.settings.shiftReportSmtpHost?.trim()
+  const smtpUser = data.settings.shiftReportSmtpUser?.trim()
+  const smtpPass = data.settings.shiftReportSmtpPass ?? ''
+  const folder =
+    data.settings.cameraReportSaveFolder?.trim() ||
+    data.settings.shiftReportSaveFolder?.trim()
+  if (!email || !smtpHost || !smtpUser || !smtpPass || !folder) return
+
+  const now = new Date()
+  if (now.getDate() !== 1) return
+
+  const targetTime =
+    data.settings.cameraReportEmailTime?.trim() ||
+    data.settings.shiftReportEmailTime?.trim() ||
+    '07:00'
+  const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+  if (hhmm !== targetTime) return
+
+  const { month, year } = getPreviousCalendarMonth(now)
+  const monthKey = monthlyCameraReportKey(year, month)
+  if (lastCameraMonthlyEmailKey === monthKey) return
+
+  void (async () => {
+    const fileName = cameraReportMonthlyWorkbookFileName(year, month)
+    let bytes = readMonthlyCameraWorkbookFile(folder, year, month)
+    let hebrewMonth = String(month)
+
+    if (!bytes) {
+      const built = buildMonthlyCameraReportFromDisk(folder, year, month)
+      if (!built) return
+      hebrewMonth = built.hebrewMonth
+      try {
+        bytes = await buildCameraMonthlyWorkbookBuffer({
+          year,
+          month,
+          archive: built.days,
+        })
+      } catch {
+        return
+      }
+    } else {
+      hebrewMonth =
+        buildMonthlyCameraReportFromDisk(folder, year, month)?.hebrewMonth ??
+        fileName.match(/יומן מצלמות (\S+)/)?.[1] ??
+        String(month)
+    }
+
+    const result = await sendCameraMonthlyReportEmail({
+      monthKey,
+      hebrewMonth,
+      year,
+      directorEmail: email,
+      smtpHost,
+      smtpPort: data.settings.shiftReportSmtpPort ?? 587,
+      smtpUser,
+      smtpPass,
+      attachmentName: fileName,
+      attachmentBytes: bytes,
+    })
+    if (result.ok) persistCameraMonthlyEmailState(monthKey)
+  })()
 }
 
 function trySendDailyShiftReports() {
@@ -213,8 +357,10 @@ type AppSettings = {
   siteName: string
   visitorSlots: Record<string, VisitorSlot>
   shiftReportSaveFolder?: string
+  cameraReportSaveFolder?: string
   directorEmail?: string
   shiftReportEmailTime?: string
+  cameraReportEmailTime?: string
   shiftReportSmtpHost?: string
   shiftReportSmtpPort?: number
   shiftReportSmtpUser?: string
@@ -230,6 +376,8 @@ type AppData = {
   shiftReport?: unknown
   shiftReportTexts?: unknown
   shiftReportsArchive?: Record<string, unknown>
+  cameraReport?: unknown
+  cameraReportsArchive?: Record<string, unknown>
 }
 
 type BannedPerson = {
@@ -400,6 +548,10 @@ function normalize(raw: Partial<AppData>): AppData {
       typeof raw.settings?.shiftReportSaveFolder === 'string'
         ? raw.settings.shiftReportSaveFolder.trim()
         : '',
+    cameraReportSaveFolder:
+      typeof raw.settings?.cameraReportSaveFolder === 'string'
+        ? raw.settings.cameraReportSaveFolder.trim()
+        : '',
     directorEmail:
       typeof raw.settings?.directorEmail === 'string'
         ? raw.settings.directorEmail.trim()
@@ -408,6 +560,11 @@ function normalize(raw: Partial<AppData>): AppData {
       typeof raw.settings?.shiftReportEmailTime === 'string' &&
       raw.settings.shiftReportEmailTime.trim()
         ? raw.settings.shiftReportEmailTime.trim()
+        : '07:00',
+    cameraReportEmailTime:
+      typeof raw.settings?.cameraReportEmailTime === 'string' &&
+      raw.settings.cameraReportEmailTime.trim()
+        ? raw.settings.cameraReportEmailTime.trim()
         : '07:00',
     shiftReportSmtpHost:
       typeof raw.settings?.shiftReportSmtpHost === 'string'
@@ -457,6 +614,13 @@ function normalize(raw: Partial<AppData>): AppData {
       typeof raw.shiftReportsArchive === 'object' &&
       !Array.isArray(raw.shiftReportsArchive)
         ? raw.shiftReportsArchive
+        : {},
+    cameraReport: raw.cameraReport,
+    cameraReportsArchive:
+      raw.cameraReportsArchive &&
+      typeof raw.cameraReportsArchive === 'object' &&
+      !Array.isArray(raw.cameraReportsArchive)
+        ? raw.cameraReportsArchive
         : {},
   }
 }
@@ -2061,6 +2225,39 @@ app.whenReady().then(() => {
   )
 
   ipcMain.handle(
+    'cameraReport:saveWorkbook',
+    async (
+      _event,
+      payload: {
+        folder: string
+        relativeDir: string
+        fileName: string
+        year: number
+        month: number
+        archive: Record<string, Record<string, unknown>>
+        currentReport: Record<string, unknown>
+      },
+    ) => {
+      try {
+        const dir = ensureShiftReportSaveDir(payload.folder, payload.relativeDir)
+        const filePath = path.join(dir, payload.fileName)
+        await writeCameraMonthlyWorkbook(filePath, {
+          year: payload.year,
+          month: payload.month,
+          archive: payload.archive,
+          currentReport: payload.currentReport,
+        })
+        return { ok: true as const }
+      } catch (err) {
+        return {
+          ok: false as const,
+          error: err instanceof Error ? err.message : 'save_failed',
+        }
+      }
+    },
+  )
+
+  ipcMain.handle(
     'shiftReport:testEmail',
     async (
       _event,
@@ -2120,7 +2317,9 @@ app.whenReady().then(() => {
 
   mainWindow = createWindow()
   setupAutoUpdater(() => mainWindow)
+  loadCameraMonthlyEmailState()
   setInterval(trySendDailyShiftReports, 60_000)
+  setInterval(trySendMonthlyCameraReports, 60_000)
 
   // Précharger WhatsApp Web en arrière-plan (Windows) pour un statut fiable
   if (process.platform === 'win32') {

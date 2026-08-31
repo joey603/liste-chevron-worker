@@ -1999,6 +1999,483 @@ button.emergency-status-button:hover {
   text-align: right;
 }
 
+.camera-scan-table .col-time {
+  width: 180px;
+}
+
+.camera-scan-table .col-actions {
+  width: 88px;
+}
+
+.camera-scan-table input[type='time'] {
+  width: 100%;
+  max-width: 140px;
+  padding: 8px 10px;
+  border: 1px solid rgba(0, 87, 168, 0.2);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.camera-scan-empty {
+  padding: 20px 12px !important;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.camera-guard-hours-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px 14px;
+  align-items: end;
+}
+
+.camera-shift-hours-field {
+  grid-column: auto;
+}
+
+.camera-shift-hours-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.camera-shift-hours-edit input[type='time'] {
+  flex: 0 1 118px;
+  min-width: 0;
+}
+
+.camera-shift-hours-sep {
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.camera-shift-hours-reset {
+  width: auto !important;
+  min-width: 0;
+  padding: 6px 8px !important;
+  font-size: 0.78rem;
+}
+
+.camera-scan-summary {
+  margin: 8px 0 0;
+  font-size: 0.84rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.camera-xls-preview-shell {
+  background: #bdbdbd;
+  padding: 10px;
+}
+
+.camera-xls-preview {
+  --cx-left-w: 148px;
+  --cx-right-w: 168px;
+  --cx-row-h: 18px;
+  --cx-head-h: 22px;
+  --cx-roster-row-h: 28px;
+  --cx-panel-h: 72px;
+  --cx-pad-y: 1px;
+  --cx-pad-x: 3px;
+  --cx-gap: 4px;
+  --cx-font: 11px;
+  --cx-font-sm: 10px;
+  --cx-font-day: 34px;
+  --cx-border: #8ea9db;
+  --cx-border-blue: #2f5597;
+  --cx-border-dark: #404040;
+  --cx-border-legend: #d9d9d9;
+  --cx-blue: #4472c4;
+  --cx-stripe: #dce6f1;
+  --cx-grey-dark: #595959;
+  --cx-blue-light: #5b9bd5;
+  --cx-roster-head: #d9e1f2;
+  --cx-roster-shift: #f9f9f9;
+  --cx-roster-active: #e2efda;
+  --cx-link: #0563c1;
+  --cx-tab-green: #217346;
+  --cx-tab-dark: #1a5c38;
+  --cx-tab-light: #1e6b41;
+  --cx-tab-text: rgba(255, 255, 255, 0.82);
+  --cx-tab-disabled: 0.35;
+
+  background: #fff;
+  border: 1px solid var(--cx-border);
+  font-family: Calibri, Arial, sans-serif;
+  font-size: var(--cx-font);
+  color: #000;
+  min-width: min(1100px, 96vw);
+  display: flex;
+  flex-direction: column;
+}
+
+.camera-xls-workspace {
+  display: grid;
+  grid-template-columns: var(--cx-left-w) 1fr var(--cx-right-w);
+  align-items: stretch;
+  min-height: 620px;
+}
+
+.camera-xls-left {
+  border-inline-end: 1px solid var(--cx-border);
+  background: #fff;
+  padding: var(--cx-gap) 3px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--cx-gap);
+}
+
+.camera-xls-datebox {
+  background: var(--cx-grey-dark);
+  color: #fff;
+  text-align: center;
+  padding: 4px 3px 6px;
+  border: 1px solid var(--cx-border-dark);
+}
+
+.camera-xls-date-text {
+  font-size: var(--cx-font-sm);
+  margin-bottom: 1px;
+  line-height: 1.1;
+}
+
+.camera-xls-date-num {
+  font-size: var(--cx-font-day);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--cx-blue-light);
+}
+
+.camera-xls-date-weekday {
+  font-size: var(--cx-font);
+  font-weight: 700;
+  margin-top: 2px;
+  line-height: 1.1;
+}
+
+.camera-xls-roster {
+  border: 1px solid var(--cx-border);
+}
+
+.camera-xls-roster-title {
+  background: var(--cx-roster-head);
+  font-weight: 700;
+  padding: var(--cx-pad-y) var(--cx-pad-x);
+  border-bottom: 1px solid var(--cx-border);
+  font-size: var(--cx-font-sm);
+  line-height: 1.2;
+}
+
+.camera-xls-roster-row {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  border-bottom: 1px solid var(--cx-border);
+  min-height: var(--cx-roster-row-h);
+}
+
+.camera-xls-roster-row:last-child {
+  border-bottom: none;
+}
+
+.camera-xls-roster-row.is-active .camera-xls-roster-name {
+  background: var(--cx-roster-active);
+  font-weight: 700;
+}
+
+.camera-xls-roster-shift {
+  padding: var(--cx-pad-y) 2px;
+  font-weight: 700;
+  border-inline-end: 1px solid var(--cx-border);
+  background: var(--cx-roster-shift);
+  font-size: var(--cx-font-sm);
+}
+
+.camera-xls-roster-name {
+  padding: var(--cx-pad-y) var(--cx-pad-x);
+  font-size: var(--cx-font-sm);
+}
+
+.camera-xls-legend-block {
+  border: 1px solid var(--cx-border);
+  margin-top: auto;
+}
+
+.camera-xls-legend-title {
+  background: var(--cx-roster-head);
+  font-weight: 700;
+  padding: var(--cx-pad-y) var(--cx-pad-x);
+  border-bottom: 1px solid var(--cx-border);
+  font-size: var(--cx-font-sm);
+}
+
+.camera-xls-legend-item {
+  padding: var(--cx-pad-y) var(--cx-pad-x);
+  border-bottom: 1px solid var(--cx-border-legend);
+  font-size: var(--cx-font-sm);
+  line-height: 1.2;
+}
+
+.camera-xls-legend-item:last-child {
+  border-bottom: none;
+}
+
+.camera-xls-legend-item.is-shift {
+  background: #bdd7ee;
+}
+
+.camera-xls-legend-item.is-emergency {
+  background: #ffc7ce;
+}
+
+.camera-xls-legend-item.is-patrol {
+  background: #c6efce;
+}
+
+.camera-xls-legend-item.is-drill {
+  background: #ffe699;
+}
+
+.camera-xls-legend-item.is-scan {
+  background: #e2efda;
+}
+
+.camera-xls-mail {
+  font-size: var(--cx-font-sm);
+  font-weight: 700;
+  color: var(--cx-link);
+  text-decoration: underline;
+  padding: var(--cx-pad-y) var(--cx-pad-x);
+  line-height: 1.2;
+}
+
+.camera-xls-monthly-btn {
+  background: var(--cx-blue);
+  color: #fff;
+  text-align: center;
+  padding: 4px 5px;
+  font-weight: 700;
+  font-size: var(--cx-font);
+  border: 1px solid var(--cx-border-blue);
+  line-height: 1.2;
+}
+
+.camera-xls-center {
+  overflow: auto;
+  background: #fff;
+}
+
+.camera-xls-log {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.camera-xls-log th,
+.camera-xls-log td {
+  border: 1px solid var(--cx-border);
+  padding: var(--cx-pad-y) var(--cx-pad-x);
+  text-align: center;
+  vertical-align: middle;
+  line-height: 1.15;
+  height: var(--cx-row-h);
+}
+
+.camera-xls-log-head th {
+  background: #000;
+  color: #fff;
+  font-weight: 700;
+  font-size: var(--cx-font);
+  height: var(--cx-head-h);
+}
+
+.camera-xls-log-subhead th {
+  background: #fff;
+  color: #000;
+  font-weight: 700;
+  font-size: var(--cx-font-sm);
+}
+
+.camera-xls-log th:nth-child(1),
+.camera-xls-log td:nth-child(1) {
+  width: 14%;
+}
+
+.camera-xls-log th:nth-child(2),
+.camera-xls-log td:nth-child(2),
+.camera-xls-log th:nth-child(3),
+.camera-xls-log td:nth-child(3) {
+  width: 8%;
+}
+
+.camera-xls-log th:nth-child(4),
+.camera-xls-log td:nth-child(4) {
+  width: 12%;
+}
+
+.camera-xls-log th:nth-child(5),
+.camera-xls-log td:nth-child(5) {
+  width: 14%;
+}
+
+.camera-xls-log th:nth-child(6),
+.camera-xls-log td:nth-child(6) {
+  width: 44%;
+  text-align: right;
+}
+
+.camera-xls-log-row.is-alt td {
+  background: var(--cx-stripe);
+}
+
+.camera-xls-log-row.has-data td {
+  background: #fff;
+  font-weight: 600;
+}
+
+.camera-xls-shift-banner td {
+  background: var(--cx-blue) !important;
+  color: #fff !important;
+  font-weight: 700 !important;
+  border-color: var(--cx-border-blue) !important;
+}
+
+.camera-xls-right {
+  border-inline-start: 1px solid var(--cx-border);
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+}
+
+.camera-xls-events-head {
+  background: #000;
+  color: #fff;
+  text-align: center;
+  font-weight: 700;
+  padding: 4px 3px;
+  font-size: var(--cx-font);
+  height: var(--cx-head-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.camera-xls-event-panel {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  border-bottom: 1px solid var(--cx-border);
+  height: var(--cx-panel-h);
+  min-height: var(--cx-panel-h);
+  max-height: var(--cx-panel-h);
+  overflow: hidden;
+}
+
+.camera-xls-event-label {
+  writing-mode: horizontal-tb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: var(--cx-font-sm);
+  text-align: center;
+  padding: var(--cx-pad-y) 2px;
+  border-inline-end: 1px solid var(--cx-border);
+}
+
+.camera-xls-event-grid {
+  background:
+    linear-gradient(var(--cx-border) 1px, transparent 1px) 0 0 / 100% var(--cx-row-h),
+    #fff;
+  height: 100%;
+}
+
+.camera-xls-event-panel.is-emergency .camera-xls-event-label {
+  background: #ffc7ce;
+}
+
+.camera-xls-event-panel.is-drill .camera-xls-event-label {
+  background: #ffe699;
+}
+
+.camera-xls-event-panel.is-patrol .camera-xls-event-label {
+  background: #c6efce;
+}
+
+.camera-xls-event-panel.is-shore .camera-xls-event-label {
+  background: #fff;
+}
+
+.camera-xls-tabbar {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 1px;
+  padding: 0;
+  background: var(--cx-tab-green);
+  border-top: 1px solid var(--cx-tab-dark);
+}
+
+.camera-xls-tab {
+  flex: 0 0 auto;
+  min-width: 28px;
+  padding: 2px 7px 1px;
+  background: var(--cx-tab-light);
+  color: var(--cx-tab-text);
+  border: 1px solid var(--cx-tab-dark);
+  border-bottom: none;
+  font-size: var(--cx-font-sm);
+  font-weight: 600;
+  text-align: center;
+  font-family: inherit;
+  cursor: default;
+  line-height: 1.2;
+}
+
+button.camera-xls-tab {
+  cursor: pointer;
+}
+
+button.camera-xls-tab:hover:not(.is-disabled):not(.is-active) {
+  background: #24804c;
+}
+
+.camera-xls-tab.is-disabled {
+  opacity: var(--cx-tab-disabled);
+  pointer-events: none;
+}
+
+.camera-xls-tab.is-active {
+  background: #fff;
+  color: var(--cx-tab-green);
+}
+
+@media (max-width: 980px) {
+  .camera-xls-workspace {
+    grid-template-columns: 130px 1fr;
+    grid-template-rows: auto auto;
+  }
+
+  .camera-xls-right {
+    grid-column: 1 / -1;
+    border-inline-start: none;
+    border-top: 1px solid #8ea9db;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .camera-xls-events-head {
+    width: 100%;
+  }
+
+  .camera-xls-event-panel {
+    flex: 1 1 45%;
+    min-height: 56px;
+  }
+}
+
 .shift-table .col-qty input {
   text-align: center;
   padding: 6px 4px;
@@ -2432,6 +2909,10 @@ button.emergency-status-button:hover {
 
 @media (max-width: 720px) {
   .shift-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .camera-guard-hours-row {
     grid-template-columns: 1fr;
   }
 

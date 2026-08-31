@@ -2,14 +2,24 @@ import { CSSProperties, FormEvent, ReactNode, useCallback, useEffect, useMemo, u
 import { createPortal } from 'react-dom'
 import { domToPng } from 'modern-screenshot'
 import ShiftReportPanel from './ShiftReportPanel'
+import CameraReportPanel from './CameraReportPanel'
 import type { ShiftKind, ShiftReport, ShiftReportTexts } from './shiftReport'
+import type { CameraReport } from './cameraReport'
 import {
+  applyCameraGuardFromShift,
+  getCameraFromArchive,
   getOperationalDayDate,
+  upsertCameraInArchive,
+} from './cameraReportArchive'
+import {
+  flushCameraReportAutoSave,
+  scheduleCameraReportAutoSave,
+} from './cameraReportAutoSave'
+import {
   getNextShift,
   getShiftFromArchive,
   upsertShiftInArchive,
 } from './shiftReportArchive'
-import { scheduleShiftReportAutoSave, flushShiftReportAutoSave } from './shiftReportAutoSave'
 import { normalizeShiftReportTexts } from './shiftReport'
 import { SHIFT_REPORT_DOCUMENT_TITLE } from './shiftReportDocument'
 import {
@@ -796,6 +806,15 @@ export default function App() {
     )
   }, [data])
 
+  const cameraGuardPickerNames = useMemo(() => {
+    if (!data) return []
+    const fromTexts = data.shiftReportTexts?.guardNames ?? []
+    const fromWorkers = sortedWorkers.map(workerDisplayName).filter(Boolean)
+    return [...new Set([...fromTexts, ...fromWorkers])].sort((a, b) =>
+      a.localeCompare(b, 'he'),
+    )
+  }, [data, sortedWorkers])
+
   const filteredWorkers = useMemo(() => {
     const query = workerSearch.trim().toLowerCase()
     if (!query) return sortedWorkers
@@ -1059,23 +1078,61 @@ export default function App() {
   const onShiftReportChange = useCallback((next: ShiftReport) => {
     setData((prev) => {
       if (!prev) return prev
+      const dayKey = next.date.trim()
+      const nextShift = getNextShift(next.shift)
+      const prevNextGuardOut =
+        nextShift != null
+          ? prev.shiftReportsArchive?.[dayKey]?.[nextShift]?.guardOut ?? ''
+          : ''
       const shiftReportsArchive = upsertShiftInArchive(
         prev.shiftReportsArchive,
         next,
         prev.shiftReportTexts,
       )
-      const updated = { ...prev, shiftReport: next, shiftReportsArchive }
+      const guardSync = applyCameraGuardFromShift(
+        prev.cameraReportsArchive,
+        prev.cameraReport,
+        dayKey,
+        next.shift,
+        next.guardIn,
+      )
+      const updated = {
+        ...prev,
+        shiftReport: next,
+        shiftReportsArchive,
+        cameraReportsArchive: guardSync.cameraReportsArchive,
+        cameraReport: guardSync.cameraReport ?? prev.cameraReport,
+      }
       void saveData(updated)
 
-      const nextShift = getNextShift(next.shift)
-      if (nextShift) {
-        const nextShiftReport = shiftReportsArchive[next.date.trim()]?.[nextShift]
-        if (nextShiftReport) {
-          void scheduleShiftReportAutoSave(
-            updated.settings,
-            nextShiftReport,
-            updated.shiftReportTexts,
+      if (next.guardIn.trim()) {
+        const camReport =
+          guardSync.cameraReport ??
+          getCameraFromArchive(
+            guardSync.cameraReportsArchive,
+            dayKey,
+            next.shift,
+            shiftReportsArchive,
           )
+        void scheduleCameraReportAutoSave(
+          updated.settings,
+          camReport,
+          guardSync.cameraReportsArchive,
+        )
+      }
+
+      if (nextShift) {
+        const nextGuardOut =
+          shiftReportsArchive[dayKey]?.[nextShift]?.guardOut ?? ''
+        if (nextGuardOut !== prevNextGuardOut) {
+          const nextShiftReport = shiftReportsArchive[dayKey]?.[nextShift]
+          if (nextShiftReport) {
+            void scheduleShiftReportAutoSave(
+              updated.settings,
+              nextShiftReport,
+              updated.shiftReportTexts,
+            )
+          }
         }
       }
 
@@ -1148,6 +1205,70 @@ export default function App() {
       return updated
     })
   }, [])
+
+  const onCameraReportChange = useCallback((next: CameraReport) => {
+    setData((prev) => {
+      if (!prev) return prev
+      const cameraReportsArchive = upsertCameraInArchive(
+        prev.cameraReportsArchive,
+        next,
+      )
+      const updated = { ...prev, cameraReport: next, cameraReportsArchive }
+      void saveData(updated)
+      void scheduleCameraReportAutoSave(
+        updated.settings,
+        next,
+        cameraReportsArchive,
+      )
+      return updated
+    })
+  }, [])
+
+  const onCameraContextChange = useCallback(
+    (date: string, shift: ShiftKind, currentReport?: CameraReport) => {
+      setData((prev) => {
+        if (!prev) return prev
+        let cameraReportsArchive = prev.cameraReportsArchive
+        const reportToSave = currentReport ?? prev.cameraReport
+        if (reportToSave) {
+          cameraReportsArchive = upsertCameraInArchive(
+            cameraReportsArchive,
+            reportToSave,
+          )
+          void flushCameraReportAutoSave(
+            prev.settings,
+            reportToSave,
+            cameraReportsArchive,
+          )
+        }
+        const cameraReport = getCameraFromArchive(
+          cameraReportsArchive,
+          date,
+          shift,
+          prev.shiftReportsArchive,
+        )
+        const updated = { ...prev, cameraReportsArchive, cameraReport }
+        void saveData(updated)
+        return updated
+      })
+    },
+    [],
+  )
+
+  const onCameraReportSettingsChange = useCallback(
+    (partial: Partial<AppData['settings']>) => {
+      setData((prev) => {
+        if (!prev) return prev
+        const updated = {
+          ...prev,
+          settings: { ...prev.settings, ...partial },
+        }
+        void saveData(updated)
+        return updated
+      })
+    },
+    [],
+  )
 
   function clearManageMode() {
     setManageMode('none')
@@ -3078,11 +3199,29 @@ export default function App() {
           <header className="main-header">
             <div className="brand">
               <h1>דוח מצלמות</h1>
-              <p>מעקב ודיווח על מצלמות האתר</p>
+              <p>סריקות מצלמות לפי משמרת — בוקר, צוהריים, לילה</p>
             </div>
           </header>
-          <div className="panel report-placeholder">
-            <p>המסך הזה ייבנה בקרוב.</p>
+          <div className="panel shift-report-panel">
+            <CameraReportPanel
+              value={
+                data?.cameraReport
+                  ? getCameraFromArchive(
+                      data.cameraReportsArchive,
+                      data.cameraReport.date,
+                      data.cameraReport.shift,
+                      data.shiftReportsArchive,
+                    )
+                  : undefined
+              }
+              onChange={onCameraReportChange}
+              onToast={(message) => setToast({ message })}
+              settings={data?.settings}
+              onSettingsChange={onCameraReportSettingsChange}
+              archive={data?.cameraReportsArchive}
+              onShiftContextChange={onCameraContextChange}
+              guardNameSuggestions={cameraGuardPickerNames}
+            />
           </div>
         </main>
       )}
