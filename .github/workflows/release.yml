@@ -46,10 +46,30 @@ jobs:
         id: version
         shell: bash
         run: |
-          npm version patch -m "chore: release %s"
+          git fetch --tags origin
+
+          bump_patch_no_tag() {
+            npm version patch --no-git-tag-version
+            npm install --package-lock-only
+          }
+
+          bump_patch_no_tag
           VERSION=$(node -p "require('./package.json').version")
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          TAG="v${VERSION}"
+
+          while git rev-parse "$TAG" >/dev/null 2>&1; do
+            echo "Tag ${TAG} already exists, bumping again..."
+            bump_patch_no_tag
+            VERSION=$(node -p "require('./package.json').version")
+            TAG="v${VERSION}"
+          done
+
+          git add package.json package-lock.json
+          git commit -m "chore: release ${VERSION}"
+          git tag -a "$TAG" -m "chore: release ${VERSION}"
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Push version commit and tag
         shell: bash
