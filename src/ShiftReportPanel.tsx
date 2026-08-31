@@ -23,11 +23,13 @@ import {
 import { SHIFT_REPORT_DOCUMENT_TITLE } from './shiftReportDocument'
 import ShiftRichListEditor from './ShiftRichListEditor'
 import GuardNameField from './GuardNameField'
+import EmailAlreadySentModal from './EmailAlreadySentModal'
+import EmailSendLogModal from './EmailSendLogModal'
 import {
   flushShiftReportAutoSave,
   scheduleShiftReportAutoSave,
 } from './shiftReportAutoSave'
-import type { AppSettings } from './types'
+import type { AppSettings, ShiftEmailSentLogItem } from './types'
 import { buildShiftReportDocumentModel } from './shiftReportDocument'
 import type { ShiftReportsArchive } from './shiftReportArchive'
 import { getShiftDayStatus, getShiftFromArchive } from './shiftReportArchive'
@@ -241,7 +243,17 @@ export default function ShiftReportPanel({
   const [texts, setTexts] = useState(() => normalizeShiftReportTexts(textsProp))
   const [exporting, setExporting] = useState(false)
   const [testingEmail, setTestingEmail] = useState(false)
-  const [localDataPath, setLocalDataPath] = useState('')
+  const [sendingEmail, setSendingEmail] = useState(false)
+  const [alreadySentInfo, setAlreadySentInfo] = useState<{
+    sentAt?: string
+    messageId?: string
+    to?: string
+  } | null>(null)
+  const [showEmailLog, setShowEmailLog] = useState(false)
+  const [emailLogEntries, setEmailLogEntries] = useState<ShiftEmailSentLogItem[]>(
+    [],
+  )
+  const [loadingEmailLog, setLoadingEmailLog] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [editSection, setEditSection] = useState<EditSection>(null)
   const [draft, setDraft] = useState<SectionDraft>(() =>
@@ -301,12 +313,6 @@ export default function ShiftReportPanel({
 
   const outputTextsRef = useRef(outputTexts)
   outputTextsRef.current = outputTexts
-
-  useEffect(() => {
-    void window.listeApi?.getShiftReportLocalPath?.().then((result) => {
-      if (result?.ok && result.path) setLocalDataPath(result.path)
-    })
-  }, [])
 
   useEffect(() => {
     if (!settings) return
@@ -468,6 +474,82 @@ export default function ShiftReportPanel({
       onToast?.('שליחת בדיקה נכשלה')
     } finally {
       setTestingEmail(false)
+    }
+  }
+
+  function emailSendErrorMessage(error?: string): string {
+    switch (error) {
+      case 'missing_config':
+        return 'יש למלא אימייל מנהל, SMTP, סיסמה ותיקיית שמירה'
+      case 'no_report_data':
+        return 'אין נתוני דוח ליום זה'
+      case 'no_attachments':
+        return 'לא נמצאו קבצי Word — שמרו את הדוחות קודם'
+      default:
+        return error ?? 'שגיאה'
+    }
+  }
+
+  async function sendReportEmail(options?: { force?: boolean }) {
+    if (sendingEmail) return
+    const directorEmail = settings?.directorEmail?.trim()
+    const smtpHost = settings?.shiftReportSmtpHost?.trim()
+    const smtpUser = settings?.shiftReportSmtpUser?.trim()
+    const smtpPass = settings?.shiftReportSmtpPass ?? ''
+    if (!directorEmail || !smtpHost || !smtpUser || !smtpPass) {
+      onToast?.('יש למלא אימייל מנהל, שרת SMTP, משתמש וסיסמה')
+      return
+    }
+    if (!settings?.shiftReportSaveFolder?.trim()) {
+      onToast?.('יש לבחור תיקיית שמירה')
+      return
+    }
+    if (!window.listeApi?.sendShiftReportEmail) {
+      onToast?.('שליחת דוא״ל אינה זמינה')
+      return
+    }
+    setSendingEmail(true)
+    try {
+      const result = await window.listeApi.sendShiftReportEmail({
+        date: report.date,
+        force: options?.force,
+      })
+      if (result.alreadySent && !options?.force) {
+        setAlreadySentInfo({
+          sentAt: result.sentAt,
+          messageId: result.messageId,
+          to: result.to ?? directorEmail,
+        })
+        return
+      }
+      if (result.ok) {
+        setAlreadySentInfo(null)
+        onToast?.('דוא״ל נשלח בהצלחה')
+        return
+      }
+      onToast?.(`שליחה נכשלה: ${emailSendErrorMessage(result.error)}`)
+    } catch {
+      onToast?.('שליחה נכשלה')
+    } finally {
+      setSendingEmail(false)
+    }
+  }
+
+  async function openEmailSendLog() {
+    if (!window.listeApi?.getShiftReportEmailSentLog) {
+      onToast?.('יומן השליחות אינו זמין')
+      return
+    }
+    setShowEmailLog(true)
+    setLoadingEmailLog(true)
+    try {
+      const entries = await window.listeApi.getShiftReportEmailSentLog()
+      setEmailLogEntries(entries)
+    } catch {
+      onToast?.('טעינת יומן השליחות נכשלה')
+      setShowEmailLog(false)
+    } finally {
+      setLoadingEmailLog(false)
     }
   }
 
@@ -784,20 +866,6 @@ export default function ShiftReportPanel({
       {showSettings ? (
         <section className="shift-section shift-settings-card">
           <h3>שמירה אוטומטית ודוא״ל יומי</h3>
-          <p className="shift-settings-note">
-            כל משמרת (בוקר, צוהריים, לילה) נשמרת לפי אותו תאריך יומן — גם משמרת
-            לילה אחרי חצות שייכת לאותו יום (למשל 28.09 כולל לילה).
-            הקבצים (Word + JSON) נשמרים אוטומטית בזמן אמת בכל שינוי בדוח.
-            שליחת המייל לרב מוצא מתבצעת רק בשעה שנקבעה למטה.
-            תוכן הדוח (תזכורות, תקלות, הערות, גיבוי משמרות, SMTP) נשמר
-            בקובץ מקומי נפרד — לא בפרויקט Git.
-            {localDataPath ? (
-              <>
-                {' '}
-                <code className="shift-local-path">{localDataPath}</code>
-              </>
-            ) : null}
-          </p>
           <GuardNamesManager
             names={texts.guardNames}
             onChange={updateGuardNames}
@@ -848,6 +916,21 @@ export default function ShiftReportPanel({
               />
             </label>
             <label className="shift-field">
+              <span>מצב שליחה</span>
+              <select
+                value={settings?.shiftReportEmailMode ?? 'auto'}
+                onChange={(e) =>
+                  onSettingsChange?.({
+                    shiftReportEmailMode:
+                      e.target.value === 'manual' ? 'manual' : 'auto',
+                  })
+                }
+              >
+                <option value="auto">אוטומטית (בשעה שנקבעה)</option>
+                <option value="manual">ידנית בלבד</option>
+              </select>
+            </label>
+            <label className="shift-field">
               <span>שרת SMTP</span>
               <input
                 type="text"
@@ -896,10 +979,27 @@ export default function ShiftReportPanel({
               type="button"
               className="btn btn-primary"
               style={{ width: 'auto' }}
+              onClick={() => void sendReportEmail()}
+              disabled={sendingEmail}
+            >
+              {sendingEmail ? 'שולח…' : 'שלח דוחות במייל'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ width: 'auto' }}
               onClick={() => void testEmailSettings()}
               disabled={testingEmail}
             >
               {testingEmail ? 'שולח בדיקה…' : 'בדיקת דוא״ל'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ width: 'auto' }}
+              onClick={() => void openEmailSendLog()}
+            >
+              יומן שליחות
             </button>
             <span className="shift-settings-test-hint">
               שולח הודעת בדיקה לכתובת המנהל (Gmail: smtp.gmail.com, פורט 587)
@@ -1474,6 +1574,23 @@ export default function ShiftReportPanel({
             </div>
           </div>
         </div>
+      ) : null}
+      {showEmailLog ? (
+        <EmailSendLogModal
+          entries={emailLogEntries}
+          loading={loadingEmailLog}
+          onClose={() => setShowEmailLog(false)}
+        />
+      ) : null}
+      {alreadySentInfo ? (
+        <EmailAlreadySentModal
+          sentAt={alreadySentInfo.sentAt}
+          messageId={alreadySentInfo.messageId}
+          to={alreadySentInfo.to}
+          resending={sendingEmail}
+          onClose={() => setAlreadySentInfo(null)}
+          onResend={() => void sendReportEmail({ force: true })}
+        />
       ) : null}
     </div>
   )

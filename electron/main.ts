@@ -39,37 +39,25 @@ import {
   shiftReportLocalPath,
   stripShiftFromMain,
 } from './shiftReportLocalStore'
+import {
+  cameraMonthlyEmailStatus,
+  getCameraMonthlyEmailSent,
+  getShiftEmailSent,
+  isShiftReportEmailAlreadySent,
+  recordCameraMonthlyEmailSent,
+  recordShiftEmailSent,
+  shiftEmailStatus,
+  listShiftEmailSentLog,
+} from './emailSentLog'
+import { normalizeShiftReportDateKey } from './shiftReportPaths'
 
-let lastShiftEmailDate = ''
-let lastCameraMonthlyEmailKey = ''
-
-const cameraMonthlyEmailStatePath = () =>
-  path.join(app.getPath('userData'), 'camera-monthly-email-sent.json')
-
-function loadCameraMonthlyEmailState(): void {
-  try {
-    const p = cameraMonthlyEmailStatePath()
-    if (!fs.existsSync(p)) return
-    const raw = JSON.parse(fs.readFileSync(p, 'utf-8')) as {
-      lastKey?: string
-    }
-    if (typeof raw.lastKey === 'string') lastCameraMonthlyEmailKey = raw.lastKey
-  } catch {
-    /* ignore */
-  }
-}
-
-function persistCameraMonthlyEmailState(key: string): void {
-  lastCameraMonthlyEmailKey = key
-  try {
-    fs.writeFileSync(
-      cameraMonthlyEmailStatePath(),
-      JSON.stringify({ lastKey: key }, null, 2),
-      'utf-8',
-    )
-  } catch {
-    /* ignore */
-  }
+type EmailSendResult = {
+  ok: boolean
+  alreadySent?: boolean
+  sentAt?: string
+  messageId?: string
+  to?: string
+  error?: string
 }
 
 function formatArchiveDate(d: Date): string {
@@ -87,10 +75,10 @@ async function sendShiftReportsEmail(payload: {
   smtpUser: string
   smtpPass: string
   attachments: Array<{ name: string; bytes: number[] }>
-}): Promise<{ ok: boolean; error?: string }> {
+}): Promise<{ ok: boolean; messageId?: string; error?: string }> {
   try {
     const transporter = createSmtpTransporter(payload)
-    await transporter.sendMail({
+    const info = await transporter.sendMail({
       from: payload.smtpUser,
       to: payload.directorEmail,
       subject: `דוחות משמרת ${payload.date}`,
@@ -100,7 +88,7 @@ async function sendShiftReportsEmail(payload: {
         content: Buffer.from(a.bytes),
       })),
     })
-    return { ok: true }
+    return { ok: true, messageId: info.messageId }
   } catch (err) {
     return {
       ok: false,
@@ -165,10 +153,10 @@ async function sendCameraMonthlyReportEmail(payload: {
   smtpPass: string
   attachmentName: string
   attachmentBytes: Buffer
-}): Promise<{ ok: boolean; error?: string }> {
+}): Promise<{ ok: boolean; messageId?: string; error?: string }> {
   try {
     const transporter = createSmtpTransporter(payload)
-    await transporter.sendMail({
+    const info = await transporter.sendMail({
       from: payload.smtpUser,
       to: payload.directorEmail,
       subject: `יומן מצלמות ${payload.hebrewMonth} ${payload.year}`,
@@ -182,13 +170,203 @@ async function sendCameraMonthlyReportEmail(payload: {
         },
       ],
     })
-    return { ok: true }
+    return { ok: true, messageId: info.messageId }
   } catch (err) {
     return {
       ok: false,
       error: err instanceof Error ? err.message : 'email_failed',
     }
   }
+}
+
+function normalizeEmailSendMode(raw: unknown): 'auto' | 'manual' {
+  return raw === 'manual' ? 'manual' : 'auto'
+}
+
+function getEmailConfig(data: AppData): {
+  email: string
+  smtpHost: string
+  smtpUser: string
+  smtpPass: string
+  smtpPort: number
+} | null {
+  const email = data.settings.directorEmail?.trim()
+  const smtpHost = data.settings.shiftReportSmtpHost?.trim()
+  const smtpUser = data.settings.shiftReportSmtpUser?.trim()
+  const smtpPass = data.settings.shiftReportSmtpPass ?? ''
+  const smtpPort = data.settings.shiftReportSmtpPort ?? 587
+  if (!email || !smtpHost || !smtpUser || !smtpPass) return null
+  return { email, smtpHost, smtpUser, smtpPass, smtpPort }
+}
+
+function buildShiftAttachmentsForDate(
+  folder: string,
+  dateKey: string,
+): Array<{ name: string; bytes: number[] }> {
+  const shifts = shiftReportDocxPathsForDay(dateKey)
+  const attachments: Array<{ name: string; bytes: number[] }> = []
+  for (const item of shifts) {
+    const dir = ensureShiftReportSaveDir(folder, item.relativeDir)
+    const docxPath = path.join(dir, item.fileName)
+    if (!fs.existsSync(docxPath)) continue
+    attachments.push({
+      name: item.fileName,
+      bytes: [...fs.readFileSync(docxPath)],
+    })
+  }
+  return attachments
+}
+
+function resolveShiftArchiveDay(
+  archive: Record<string, Record<string, unknown>> | undefined,
+  dateKey: string,
+): Record<string, unknown> | undefined {
+  if (!archive) return undefined
+  const normalized = normalizeShiftReportDateKey(dateKey)
+  if (normalized && archive[normalized]) return archive[normalized]
+  const trimmed = dateKey.trim()
+  if (archive[trimmed]) return archive[trimmed]
+  return undefined
+}
+
+async function sendShiftReportForDate(
+  dateKey: string,
+  options?: { force?: boolean },
+): Promise<EmailSendResult> {
+  const normalizedDate = normalizeShiftReportDateKey(dateKey)
+  if (!normalizedDate) {
+    return { ok: false, error: 'invalid_date' }
+  }
+
+  const existing = getShiftEmailSent(normalizedDate)
+  if (existing && !options?.force) {
+    return {
+      ok: false,
+      alreadySent: true,
+      sentAt: existing.sentAt,
+      messageId: existing.messageId,
+      to: existing.to || undefined,
+    }
+  }
+
+  const data = readData()
+  const cfg = getEmailConfig(data)
+  const folder = data.settings.shiftReportSaveFolder?.trim()
+  if (!cfg || !folder) {
+    return { ok: false, error: 'missing_config' }
+  }
+
+  const archive = data.shiftReportsArchive as
+    | Record<string, Record<string, unknown>>
+    | undefined
+  if (!resolveShiftArchiveDay(archive, normalizedDate)) {
+    return { ok: false, error: 'no_report_data' }
+  }
+
+  const attachments = buildShiftAttachmentsForDate(folder, normalizedDate)
+  if (attachments.length === 0) {
+    return { ok: false, error: 'no_attachments' }
+  }
+
+  const result = await sendShiftReportsEmail({
+    date: normalizedDate,
+    directorEmail: cfg.email,
+    smtpHost: cfg.smtpHost,
+    smtpPort: cfg.smtpPort,
+    smtpUser: cfg.smtpUser,
+    smtpPass: cfg.smtpPass,
+    attachments,
+  })
+
+  if (!result.ok) {
+    return { ok: false, error: result.error }
+  }
+
+  const sentAt = new Date().toISOString()
+  recordShiftEmailSent(normalizedDate, {
+    sentAt,
+    messageId: result.messageId,
+    to: cfg.email,
+  })
+  return { ok: true, sentAt, messageId: result.messageId }
+}
+
+async function sendCameraMonthlyForMonth(
+  year: number,
+  month: number,
+  options?: { force?: boolean },
+): Promise<EmailSendResult> {
+  const monthKey = monthlyCameraReportKey(year, month)
+  const existing = getCameraMonthlyEmailSent(monthKey)
+  if (existing && !options?.force) {
+    return {
+      ok: false,
+      alreadySent: true,
+      sentAt: existing.sentAt,
+      messageId: existing.messageId,
+      to: existing.to || undefined,
+    }
+  }
+
+  const data = readData()
+  const cfg = getEmailConfig(data)
+  const folder =
+    data.settings.cameraReportSaveFolder?.trim() ||
+    data.settings.shiftReportSaveFolder?.trim()
+  if (!cfg || !folder) {
+    return { ok: false, error: 'missing_config' }
+  }
+
+  const fileName = cameraReportMonthlyWorkbookFileName(year, month)
+  let bytes = readMonthlyCameraWorkbookFile(folder, year, month)
+  let hebrewMonth = String(month)
+
+  if (!bytes) {
+    const built = buildMonthlyCameraReportFromDisk(folder, year, month)
+    if (!built) {
+      return { ok: false, error: 'no_workbook' }
+    }
+    hebrewMonth = built.hebrewMonth
+    try {
+      bytes = await buildCameraMonthlyWorkbookBuffer({
+        year,
+        month,
+        archive: built.days,
+      })
+    } catch {
+      return { ok: false, error: 'workbook_build_failed' }
+    }
+  } else {
+    hebrewMonth =
+      buildMonthlyCameraReportFromDisk(folder, year, month)?.hebrewMonth ??
+      fileName.match(/יומן מצלמות (\S+)/)?.[1] ??
+      String(month)
+  }
+
+  const result = await sendCameraMonthlyReportEmail({
+    monthKey,
+    hebrewMonth,
+    year,
+    directorEmail: cfg.email,
+    smtpHost: cfg.smtpHost,
+    smtpPort: cfg.smtpPort,
+    smtpUser: cfg.smtpUser,
+    smtpPass: cfg.smtpPass,
+    attachmentName: fileName,
+    attachmentBytes: bytes,
+  })
+
+  if (!result.ok) {
+    return { ok: false, error: result.error }
+  }
+
+  const sentAt = new Date().toISOString()
+  recordCameraMonthlyEmailSent(monthKey, {
+    sentAt,
+    messageId: result.messageId,
+    to: cfg.email,
+  })
+  return { ok: true, sentAt, messageId: result.messageId }
 }
 
 function trySendMonthlyCameraReports() {
@@ -201,6 +379,9 @@ function trySendMonthlyCameraReports() {
     data.settings.cameraReportSaveFolder?.trim() ||
     data.settings.shiftReportSaveFolder?.trim()
   if (!email || !smtpHost || !smtpUser || !smtpPass || !folder) return
+  if (normalizeEmailSendMode(data.settings.cameraReportEmailMode) === 'manual') {
+    return
+  }
 
   const now = new Date()
   if (now.getDate() !== 1) return
@@ -214,47 +395,9 @@ function trySendMonthlyCameraReports() {
 
   const { month, year } = getPreviousCalendarMonth(now)
   const monthKey = monthlyCameraReportKey(year, month)
-  if (lastCameraMonthlyEmailKey === monthKey) return
+  if (getCameraMonthlyEmailSent(monthKey)) return
 
-  void (async () => {
-    const fileName = cameraReportMonthlyWorkbookFileName(year, month)
-    let bytes = readMonthlyCameraWorkbookFile(folder, year, month)
-    let hebrewMonth = String(month)
-
-    if (!bytes) {
-      const built = buildMonthlyCameraReportFromDisk(folder, year, month)
-      if (!built) return
-      hebrewMonth = built.hebrewMonth
-      try {
-        bytes = await buildCameraMonthlyWorkbookBuffer({
-          year,
-          month,
-          archive: built.days,
-        })
-      } catch {
-        return
-      }
-    } else {
-      hebrewMonth =
-        buildMonthlyCameraReportFromDisk(folder, year, month)?.hebrewMonth ??
-        fileName.match(/יומן מצלמות (\S+)/)?.[1] ??
-        String(month)
-    }
-
-    const result = await sendCameraMonthlyReportEmail({
-      monthKey,
-      hebrewMonth,
-      year,
-      directorEmail: email,
-      smtpHost,
-      smtpPort: data.settings.shiftReportSmtpPort ?? 587,
-      smtpUser,
-      smtpPass,
-      attachmentName: fileName,
-      attachmentBytes: bytes,
-    })
-    if (result.ok) persistCameraMonthlyEmailState(monthKey)
-  })()
+  void sendCameraMonthlyForMonth(year, month)
 }
 
 function trySendDailyShiftReports() {
@@ -265,6 +408,9 @@ function trySendDailyShiftReports() {
   const smtpPass = data.settings.shiftReportSmtpPass ?? ''
   const folder = data.settings.shiftReportSaveFolder?.trim()
   if (!email || !smtpHost || !smtpUser || !smtpPass || !folder) return
+  if (normalizeEmailSendMode(data.settings.shiftReportEmailMode) === 'manual') {
+    return
+  }
 
   const now = new Date()
   const targetTime = data.settings.shiftReportEmailTime?.trim() || '07:00'
@@ -274,38 +420,9 @@ function trySendDailyShiftReports() {
   const reportDay = new Date(now)
   reportDay.setDate(reportDay.getDate() - 1)
   const dateKey = formatArchiveDate(reportDay)
-  if (lastShiftEmailDate === dateKey) return
+  if (isShiftReportEmailAlreadySent(dateKey)) return
 
-  const archive = data.shiftReportsArchive as
-    | Record<string, Record<string, unknown>>
-    | undefined
-  const day = archive?.[dateKey]
-  if (!day) return
-
-  const shifts = shiftReportDocxPathsForDay(dateKey)
-  const attachments: Array<{ name: string; bytes: number[] }> = []
-  for (const item of shifts) {
-    const dir = ensureShiftReportSaveDir(folder, item.relativeDir)
-    const docxPath = path.join(dir, item.fileName)
-    if (!fs.existsSync(docxPath)) continue
-    attachments.push({
-      name: item.fileName,
-      bytes: [...fs.readFileSync(docxPath)],
-    })
-  }
-  if (attachments.length === 0) return
-
-  void sendShiftReportsEmail({
-    date: dateKey,
-    directorEmail: email,
-    smtpHost,
-    smtpPort: data.settings.shiftReportSmtpPort ?? 587,
-    smtpUser,
-    smtpPass,
-    attachments,
-  }).then((result) => {
-    if (result.ok) lastShiftEmailDate = dateKey
-  })
+  void sendShiftReportForDate(dateKey)
 }
 
 type EntryKind = 'named' | 'visitor'
@@ -360,7 +477,9 @@ type AppSettings = {
   cameraReportSaveFolder?: string
   directorEmail?: string
   shiftReportEmailTime?: string
+  shiftReportEmailMode?: 'auto' | 'manual'
   cameraReportEmailTime?: string
+  cameraReportEmailMode?: 'auto' | 'manual'
   shiftReportSmtpHost?: string
   shiftReportSmtpPort?: number
   shiftReportSmtpUser?: string
@@ -566,6 +685,12 @@ function normalize(raw: Partial<AppData>): AppData {
       raw.settings.cameraReportEmailTime.trim()
         ? raw.settings.cameraReportEmailTime.trim()
         : '07:00',
+    shiftReportEmailMode: normalizeEmailSendMode(
+      raw.settings?.shiftReportEmailMode,
+    ),
+    cameraReportEmailMode: normalizeEmailSendMode(
+      raw.settings?.cameraReportEmailMode,
+    ),
     shiftReportSmtpHost:
       typeof raw.settings?.shiftReportSmtpHost === 'string'
         ? raw.settings.shiftReportSmtpHost.trim()
@@ -2288,6 +2413,38 @@ app.whenReady().then(() => {
   )
 
   ipcMain.handle(
+    'shiftReport:emailStatus',
+    (_event, payload: { date: string }) =>
+      shiftEmailStatus(String(payload?.date ?? '').trim()),
+  )
+
+  ipcMain.handle('shiftReport:emailSentLog', () => listShiftEmailSentLog())
+
+  ipcMain.handle(
+    'shiftReport:sendReportEmail',
+    async (_event, payload: { date: string; force?: boolean }) =>
+      sendShiftReportForDate(String(payload?.date ?? '').trim(), {
+        force: Boolean(payload?.force),
+      }),
+  )
+
+  ipcMain.handle(
+    'cameraReport:monthlyEmailStatus',
+    (_event, payload: { year: number; month: number }) =>
+      cameraMonthlyEmailStatus(
+        monthlyCameraReportKey(payload.year, payload.month),
+      ),
+  )
+
+  ipcMain.handle(
+    'cameraReport:sendMonthlyEmail',
+    async (_event, payload: { year: number; month: number; force?: boolean }) =>
+      sendCameraMonthlyForMonth(payload.year, payload.month, {
+        force: Boolean(payload?.force),
+      }),
+  )
+
+  ipcMain.handle(
     'whatsapp:shareImage',
     async (_event, dataUrl: string) => {
       if (process.platform === 'win32') {
@@ -2317,7 +2474,6 @@ app.whenReady().then(() => {
 
   mainWindow = createWindow()
   setupAutoUpdater(() => mainWindow)
-  loadCameraMonthlyEmailState()
   setInterval(trySendDailyShiftReports, 60_000)
   setInterval(trySendMonthlyCameraReports, 60_000)
 

@@ -24,6 +24,7 @@ import {
 import { getCameraReportSaveFolder } from './cameraReportPaths'
 import CameraReportExcelPreview from './CameraReportExcelPreview'
 import GuardNameField from './GuardNameField'
+import EmailAlreadySentModal from './EmailAlreadySentModal'
 import { SHIFT_LABELS, type ShiftKind } from './shiftReport'
 import { parseShiftReportDate } from './shiftReportPaths'
 import { createId } from './types'
@@ -116,6 +117,12 @@ export default function CameraReportPanel({
   const [showSettings, setShowSettings] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [testingEmail, setTestingEmail] = useState(false)
+  const [sendingEmail, setSendingEmail] = useState(false)
+  const [alreadySentInfo, setAlreadySentInfo] = useState<{
+    sentAt?: string
+    messageId?: string
+    to?: string
+  } | null>(null)
   const saveTimer = useRef<number | null>(null)
   const onChangeRef = useRef(onChange)
   const reportRef = useRef(report)
@@ -295,6 +302,70 @@ export default function CameraReportPanel({
     }
   }
 
+  function emailSendErrorMessage(error?: string): string {
+    switch (error) {
+      case 'missing_config':
+        return 'יש למלא אימייל מנהל, SMTP, סיסמה ותיקיית שמירה'
+      case 'no_workbook':
+        return 'לא נמצא קובץ Excel לחודש זה'
+      case 'workbook_build_failed':
+        return 'יצירת קובץ Excel נכשלה'
+      default:
+        return error ?? 'שגיאה'
+    }
+  }
+
+  async function sendMonthlyEmail(options?: { force?: boolean }) {
+    if (sendingEmail) return
+    const parsed = parseShiftReportDate(report.date)
+    if (!parsed) {
+      onToast?.('תאריך לא תקין')
+      return
+    }
+    const directorEmail = settings?.directorEmail?.trim()
+    const smtpHost = settings?.shiftReportSmtpHost?.trim()
+    const smtpUser = settings?.shiftReportSmtpUser?.trim()
+    const smtpPass = settings?.shiftReportSmtpPass ?? ''
+    if (!directorEmail || !smtpHost || !smtpUser || !smtpPass) {
+      onToast?.('יש למלא אימייל מנהל, שרת SMTP, משתמש וסיסמה')
+      return
+    }
+    if (!getCameraReportSaveFolder(settings)) {
+      onToast?.('יש לבחור תיקיית שמירה')
+      return
+    }
+    if (!window.listeApi?.sendCameraMonthlyEmail) {
+      onToast?.('שליחת דוא״ל אינה זמינה')
+      return
+    }
+    setSendingEmail(true)
+    try {
+      const result = await window.listeApi.sendCameraMonthlyEmail({
+        year: parsed.year,
+        month: parsed.month,
+        force: options?.force,
+      })
+      if (result.alreadySent && !options?.force) {
+        setAlreadySentInfo({
+          sentAt: result.sentAt,
+          messageId: result.messageId,
+          to: result.to ?? directorEmail,
+        })
+        return
+      }
+      if (result.ok) {
+        setAlreadySentInfo(null)
+        onToast?.('דוא״ל נשלח בהצלחה')
+        return
+      }
+      onToast?.(`שליחה נכשלה: ${emailSendErrorMessage(result.error)}`)
+    } catch {
+      onToast?.('שליחה נכשלה')
+    } finally {
+      setSendingEmail(false)
+    }
+  }
+
   useEffect(() => {
     return () => {
       flushPendingSave()
@@ -413,6 +484,21 @@ export default function CameraReportPanel({
               />
             </label>
             <label className="shift-field">
+              <span>מצב שליחה</span>
+              <select
+                value={settings?.cameraReportEmailMode ?? 'auto'}
+                onChange={(e) =>
+                  onSettingsChange?.({
+                    cameraReportEmailMode:
+                      e.target.value === 'manual' ? 'manual' : 'auto',
+                  })
+                }
+              >
+                <option value="auto">אוטומטית (1 בחודש בשעה שנקבעה)</option>
+                <option value="manual">ידנית בלבד</option>
+              </select>
+            </label>
+            <label className="shift-field">
               <span>שרת SMTP</span>
               <input
                 type="text"
@@ -457,6 +543,15 @@ export default function CameraReportPanel({
             </label>
           </div>
           <div className="shift-settings-test-row">
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ width: 'auto' }}
+              onClick={() => void sendMonthlyEmail()}
+              disabled={sendingEmail}
+            >
+              {sendingEmail ? 'שולח…' : 'שלח יומן במייל'}
+            </button>
             <button
               type="button"
               className="btn btn-primary"
@@ -631,6 +726,16 @@ export default function CameraReportPanel({
             </div>
           </div>
         </div>
+      ) : null}
+      {alreadySentInfo ? (
+        <EmailAlreadySentModal
+          sentAt={alreadySentInfo.sentAt}
+          messageId={alreadySentInfo.messageId}
+          to={alreadySentInfo.to}
+          resending={sendingEmail}
+          onClose={() => setAlreadySentInfo(null)}
+          onResend={() => void sendMonthlyEmail({ force: true })}
+        />
       ) : null}
     </div>
   )

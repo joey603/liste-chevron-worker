@@ -4,7 +4,9 @@ export type ShiftReportLocalSettings = {
   cameraReportSaveFolder?: string
   directorEmail?: string
   shiftReportEmailTime?: string
+  shiftReportEmailMode?: 'auto' | 'manual'
   cameraReportEmailTime?: string
+  cameraReportEmailMode?: 'auto' | 'manual'
   shiftReportSmtpHost?: string
   shiftReportSmtpPort?: number
   shiftReportSmtpUser?: string
@@ -43,7 +45,9 @@ export function extractShiftLocalPayload(source: AppDataLike): ShiftReportLocalP
           cameraReportSaveFolder: settings.cameraReportSaveFolder,
           directorEmail: settings.directorEmail,
           shiftReportEmailTime: settings.shiftReportEmailTime,
+          shiftReportEmailMode: settings.shiftReportEmailMode,
           cameraReportEmailTime: settings.cameraReportEmailTime,
+          cameraReportEmailMode: settings.cameraReportEmailMode,
           shiftReportSmtpHost: settings.shiftReportSmtpHost,
           shiftReportSmtpPort: settings.shiftReportSmtpPort,
           shiftReportSmtpUser: settings.shiftReportSmtpUser,
@@ -94,7 +98,9 @@ export function stripShiftFromMain<T extends AppDataLike>(raw: T): T {
     delete settings.cameraReportSaveFolder
     delete settings.directorEmail
     delete settings.shiftReportEmailTime
+    delete settings.shiftReportEmailMode
     delete settings.cameraReportEmailTime
+    delete settings.cameraReportEmailMode
     delete settings.shiftReportSmtpHost
     delete settings.shiftReportSmtpPort
     delete settings.shiftReportSmtpUser

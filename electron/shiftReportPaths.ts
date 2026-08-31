@@ -37,6 +37,10 @@ function parseShiftReportDate(dateStr: string) {
   return { day, month, year, formatted: `${dd}.${mm}.${year}` }
 }
 
+export function normalizeShiftReportDateKey(dateStr: string): string | null {
+  return parseShiftReportDate(dateStr)?.formatted ?? null
+}
+
 function hebrewMonthName(month: number): string {
   return HEBREW_MONTHS[month - 1] ?? String(month)
 }

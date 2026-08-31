@@ -4628,6 +4628,21 @@ button.camera-xls-tab:hover:not(.is-disabled):not(.is-active) {
   margin-top: 8px;
 }
 
+.email-send-log-modal {
+  width: min(640px, 100%);
+}
+
+.email-send-log-table-wrap {
+  max-height: min(360px, 50vh);
+  overflow: auto;
+  margin: 12px 0;
+}
+
+.email-send-log-table th,
+.email-send-log-table td {
+  white-space: nowrap;
+}
+
 .divider {
   height: 1px;
   background: var(--line);

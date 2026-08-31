@@ -111,8 +111,21 @@ const api = {
     smtpUser: string
     smtpPass: string
     attachments: Array<{ name: string; bytes: number[] }>
-  }): Promise<{ ok: boolean; error?: string }> =>
+  }): Promise<{ ok: boolean; messageId?: string; error?: string }> =>
     ipcRenderer.invoke('shiftReport:sendEmail', payload),
+  getShiftReportEmailStatus: (payload: { date: string }) =>
+    ipcRenderer.invoke('shiftReport:emailStatus', payload),
+  getShiftReportEmailSentLog: () =>
+    ipcRenderer.invoke('shiftReport:emailSentLog'),
+  sendShiftReportEmail: (payload: { date: string; force?: boolean }) =>
+    ipcRenderer.invoke('shiftReport:sendReportEmail', payload),
+  getCameraMonthlyEmailStatus: (payload: { year: number; month: number }) =>
+    ipcRenderer.invoke('cameraReport:monthlyEmailStatus', payload),
+  sendCameraMonthlyEmail: (payload: {
+    year: number
+    month: number
+    force?: boolean
+  }) => ipcRenderer.invoke('cameraReport:sendMonthlyEmail', payload),
   copyImage: (dataUrl: string): Promise<boolean> =>
     ipcRenderer.invoke('clipboard:writeImage', dataUrl),
   openWhatsApp: (): Promise<boolean> => ipcRenderer.invoke('whatsapp:open'),

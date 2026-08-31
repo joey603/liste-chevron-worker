@@ -79,8 +79,12 @@ export type AppSettings = {
   directorEmail?: string
   /** שעת שליחה יומית (HH:MM) */
   shiftReportEmailTime?: string
+  /** אוטומטי או ידני — דוח משמרת */
+  shiftReportEmailMode?: EmailSendMode
   /** שעת שליחה חודשית — 1 בחודש, קובץ החודש הקודם (HH:MM) */
   cameraReportEmailTime?: string
+  /** אוטומטי או ידני — דוח מצלמות */
+  cameraReportEmailMode?: EmailSendMode
   /** SMTP לשליחת דוחות */
   shiftReportSmtpHost?: string
   shiftReportSmtpPort?: number
@@ -89,6 +93,35 @@ export type AppSettings = {
 }
 
 export const VISITOR_COUNT = 30
+
+export type EmailSendMode = 'auto' | 'manual'
+
+export type EmailSendResult = {
+  ok: boolean
+  alreadySent?: boolean
+  sentAt?: string
+  messageId?: string
+  to?: string
+  error?: string
+}
+
+export type EmailSentStatus = {
+  sent: boolean
+  sentAt?: string
+  messageId?: string
+  to?: string
+}
+
+export type ShiftEmailSentLogItem = {
+  date: string
+  sentAt: string
+  messageId?: string
+  to: string
+}
+
+export function normalizeEmailSendMode(raw: unknown): EmailSendMode {
+  return raw === 'manual' ? 'manual' : 'auto'
+}
 
 export function defaultVisitorSlots(): Record<string, VisitorSlot> {
   const slots: Record<string, VisitorSlot> = {}
@@ -282,7 +315,24 @@ export type ListeApi = {
     smtpUser: string
     smtpPass: string
     attachments: Array<{ name: string; bytes: number[] }>
-  }) => Promise<{ ok: boolean; error?: string }>
+  }) => Promise<{ ok: boolean; messageId?: string; error?: string }>
+  getShiftReportEmailStatus?: (payload: {
+    date: string
+  }) => Promise<EmailSentStatus>
+  getShiftReportEmailSentLog?: () => Promise<ShiftEmailSentLogItem[]>
+  sendShiftReportEmail?: (payload: {
+    date: string
+    force?: boolean
+  }) => Promise<EmailSendResult>
+  getCameraMonthlyEmailStatus?: (payload: {
+    year: number
+    month: number
+  }) => Promise<EmailSentStatus>
+  sendCameraMonthlyEmail?: (payload: {
+    year: number
+    month: number
+    force?: boolean
+  }) => Promise<EmailSendResult>
   onUpdateAvailable: (
     cb: (info: { version: string; currentVersion: string }) => void,
   ) => () => void
@@ -632,6 +682,10 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
       rawSettings.cameraReportEmailTime.trim()
         ? rawSettings.cameraReportEmailTime.trim()
         : '07:00',
+    shiftReportEmailMode: normalizeEmailSendMode(rawSettings?.shiftReportEmailMode),
+    cameraReportEmailMode: normalizeEmailSendMode(
+      rawSettings?.cameraReportEmailMode,
+    ),
     shiftReportSmtpHost:
       typeof rawSettings?.shiftReportSmtpHost === 'string'
         ? rawSettings.shiftReportSmtpHost.trim()
