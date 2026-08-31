@@ -15,7 +15,10 @@ import {
   flushCameraReportAutoSave,
   scheduleCameraReportAutoSave,
 } from './cameraReportAutoSave'
-import { scheduleShiftReportAutoSave } from './shiftReportAutoSave'
+import {
+  flushShiftReportAutoSave,
+  scheduleShiftReportAutoSave,
+} from './shiftReportAutoSave'
 import {
   getNextShift,
   getShiftFromArchive,
