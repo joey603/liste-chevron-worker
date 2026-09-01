@@ -393,6 +393,7 @@ export default function CameraReportPanel({
 
   const sortedScans = sortScansByTime(
     report.scans.filter((s) => s.start.trim() || s.end.trim()),
+    { shiftStart: report.shiftStart, shiftEnd: report.shiftEnd },
   )
   const draftScans = report.scans
 

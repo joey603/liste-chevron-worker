@@ -128,7 +128,10 @@ export function buildCameraDaySheetModel(
 
     if (!report || !shouldShowCameraShiftBanner(report)) continue
 
-    const events = sortScansByTime(report.scans.filter(isValidScan)).map(
+    const events = sortScansByTime(report.scans.filter(isValidScan), {
+      shiftStart: report.shiftStart,
+      shiftEnd: report.shiftEnd,
+    }).map(
       (scan) => ({
         id: `${shift}-${scan.id}`,
         guardName,

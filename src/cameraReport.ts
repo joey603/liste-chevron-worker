@@ -37,12 +37,51 @@ export function isValidScanTime(time: string): boolean {
 export function addMinutesToScanTime(start: string, minutes: number): string {
   const normalized = normalizeScanTime(start)
   if (!isValidScanTime(normalized)) return ''
+  return minutesToScanTime(timeToMinutes(normalized) + minutes)
+}
+
+function timeToMinutes(time: string): number {
+  const normalized = normalizeScanTime(time)
+  if (!isValidScanTime(normalized)) return 0
   const [h, m] = normalized.split(':').map(Number)
-  const total = h * 60 + m + minutes
-  const wrapped = ((total % (24 * 60)) + 24 * 60) % (24 * 60)
+  return h * 60 + m
+}
+
+function minutesToScanTime(totalMinutes: number): string {
+  const wrapped = ((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60)
   const hh = String(Math.floor(wrapped / 60)).padStart(2, '0')
   const mm = String(wrapped % 60).padStart(2, '0')
   return `${hh}:${mm}`
+}
+
+function shiftCrossesMidnight(shiftStart: string, shiftEnd: string): boolean {
+  if (!isValidScanTime(shiftStart) || !isValidScanTime(shiftEnd)) return false
+  return timeToMinutes(shiftEnd) <= timeToMinutes(shiftStart)
+}
+
+/** Position sur la timeline de la garde (heures après minuit = lendemain pour garde de nuit). */
+export function scanTimelineMinutes(
+  time: string,
+  shiftStart: string,
+  shiftEnd: string,
+): number {
+  const minutes = timeToMinutes(time)
+  if (!isValidScanTime(time)) return minutes
+  if (shiftCrossesMidnight(shiftStart, shiftEnd) && minutes < timeToMinutes(shiftStart)) {
+    return minutes + 24 * 60
+  }
+  return minutes
+}
+
+export function addMinutesOnShiftTimeline(
+  time: string,
+  minutes: number,
+  shiftStart: string,
+  shiftEnd: string,
+): string {
+  if (!isValidScanTime(time)) return ''
+  const base = scanTimelineMinutes(time, shiftStart, shiftEnd)
+  return minutesToScanTime(base + minutes)
 }
 
 export function isValidScan(entry: CameraScanEntry): boolean {
@@ -145,8 +184,23 @@ export function normalizeCameraReport(
   }
 }
 
-export function sortScansByTime(scans: CameraScanEntry[]): CameraScanEntry[] {
-  return [...scans].sort((a, b) => a.start.localeCompare(b.start))
+export function sortScansByTime(
+  scans: CameraScanEntry[],
+  context?: Pick<CameraReport, 'shiftStart' | 'shiftEnd'>,
+): CameraScanEntry[] {
+  if (
+    !context ||
+    !isValidScanTime(context.shiftStart) ||
+    !isValidScanTime(context.shiftEnd)
+  ) {
+    return [...scans].sort((a, b) => a.start.localeCompare(b.start))
+  }
+  const { shiftStart, shiftEnd } = context
+  return [...scans].sort(
+    (a, b) =>
+      scanTimelineMinutes(a.start, shiftStart, shiftEnd) -
+      scanTimelineMinutes(b.start, shiftStart, shiftEnd),
+  )
 }
 
 export function formatScanRange(entry: CameraScanEntry): string {
@@ -191,21 +245,26 @@ export function formatShiftDefaultHours(shift: ShiftKind): string {
 
 export function createNextScanEntry(
   id: string,
-  report: Pick<CameraReport, 'shiftStart' | 'scans'>,
+  report: Pick<CameraReport, 'shiftStart' | 'shiftEnd' | 'scans'>,
 ): CameraScanEntry {
-  const sorted = sortScansByTime([...report.scans])
+  const { shiftStart, shiftEnd } = report
+  const sorted = sortScansByTime([...report.scans], { shiftStart, shiftEnd })
   const last = sorted[sorted.length - 1]
 
   let anchor = ''
   if (last) {
     if (isValidScanTime(last.end)) anchor = last.end
     else if (isValidScanTime(last.start)) anchor = last.start
-  } else if (isValidScanTime(report.shiftStart)) {
-    anchor = report.shiftStart
+  } else if (isValidScanTime(shiftStart)) {
+    anchor = shiftStart
   }
 
-  const start = anchor ? addMinutesToScanTime(anchor, 60) : ''
-  const end = start ? addMinutesToScanTime(start, 5) : ''
+  if (!anchor) return createEmptyScanEntry(id)
+
+  const start = addMinutesOnShiftTimeline(anchor, 60, shiftStart, shiftEnd)
+  const end = start
+    ? addMinutesOnShiftTimeline(start, 5, shiftStart, shiftEnd)
+    : ''
 
   return { id, start, end }
 }
