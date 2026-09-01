@@ -42,7 +42,7 @@ export default function GuardNameField({
             className="shift-guard-picker-btn"
             aria-expanded={open}
             aria-haspopup="listbox"
-            title="בחר עובד מהרשימה"
+            title="בחר מאבטח מהרשימה"
             onClick={() => setOpen((v) => !v)}
           >
             <span aria-hidden>▾</span>
@@ -73,7 +73,7 @@ export default function GuardNameField({
                 ))
               ) : (
                 <p className="shift-guard-empty">
-                  אין שמות — הוסיפו בהגדרות דוח משמרת או ברשימת העובדים
+                  אין שמות — הוסיפו בהגדרות שמירה
                 </p>
               )}
             </div>

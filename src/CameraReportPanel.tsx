@@ -47,7 +47,6 @@ type Props = {
   ) => void
   texts?: ShiftReportTexts | null
   onTextsChange?: (next: ShiftReportTexts) => void
-  guardNameSuggestions?: string[]
 }
 
 function CameraDayStatusRow({
@@ -116,7 +115,6 @@ export default function CameraReportPanel({
   onShiftContextChange,
   texts: textsProp,
   onTextsChange,
-  guardNameSuggestions = [],
 }: Props) {
   const [report, setReport] = useState<CameraReport>(() =>
     normalizeCameraReport(value),
@@ -214,11 +212,13 @@ export default function CameraReportPanel({
     switchContext(report.date, shift)
   }
 
-  function updateGuardNames(guardNames: string[]) {
+  const guardNames = normalizeShiftReportTexts(textsProp).guardNames
+
+  function updateGuardNames(nextGuardNames: string[]) {
     if (!onTextsChange) return
     const nextTexts = normalizeShiftReportTexts({
       ...normalizeShiftReportTexts(textsProp),
-      guardNames,
+      guardNames: nextGuardNames,
     })
     onTextsChange(nextTexts)
   }
@@ -475,12 +475,10 @@ export default function CameraReportPanel({
       {showSettings ? (
         <section className="shift-section shift-settings-card">
           <h3>שמירה אוטומטית — דוח מצלמות</h3>
-          {onTextsChange ? (
-            <GuardNamesManager
-              names={normalizeShiftReportTexts(textsProp).guardNames}
-              onChange={updateGuardNames}
-            />
-          ) : null}
+          <GuardNamesManager
+            names={guardNames}
+            onChange={updateGuardNames}
+          />
           <div className="shift-settings-grid">
             <label className="shift-field shift-settings-path">
               <span>תיקיית שמירה</span>
@@ -650,7 +648,7 @@ export default function CameraReportPanel({
             <GuardNameField
               label="שם המאבטח/ת"
               value={report.guardName}
-              names={guardNameSuggestions}
+              names={guardNames}
               placeholder="שם המדווח"
               onChange={(guardName) => patch({ guardName })}
             />

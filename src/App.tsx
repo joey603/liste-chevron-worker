@@ -809,15 +809,6 @@ export default function App() {
     )
   }, [data])
 
-  const cameraGuardPickerNames = useMemo(() => {
-    if (!data) return []
-    const fromTexts = data.shiftReportTexts?.guardNames ?? []
-    const fromWorkers = sortedWorkers.map(workerDisplayName).filter(Boolean)
-    return [...new Set([...fromTexts, ...fromWorkers])].sort((a, b) =>
-      a.localeCompare(b, 'he'),
-    )
-  }, [data, sortedWorkers])
-
   const filteredWorkers = useMemo(() => {
     const query = workerSearch.trim().toLowerCase()
     if (!query) return sortedWorkers
@@ -3218,7 +3209,6 @@ export default function App() {
               onShiftContextChange={onCameraContextChange}
               texts={data?.shiftReportTexts}
               onTextsChange={onShiftReportTextsChange}
-              guardNameSuggestions={cameraGuardPickerNames}
             />
         </main>
       )}
