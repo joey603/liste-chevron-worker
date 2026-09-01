@@ -25,9 +25,10 @@ import {
 import { getCameraReportSaveFolder } from './cameraReportPaths'
 import CameraReportExcelPreview from './CameraReportExcelPreview'
 import GuardNameField from './GuardNameField'
+import GuardNamesManager from './GuardNamesManager'
 import ShiftReportDateField from './ShiftReportDateField'
 import EmailAlreadySentModal from './EmailAlreadySentModal'
-import { SHIFT_LABELS, type ShiftKind } from './shiftReport'
+import { SHIFT_LABELS, normalizeShiftReportTexts, type ShiftKind, type ShiftReportTexts } from './shiftReport'
 import { parseShiftReportDate, getNextDayReportContext, shiftDateToDate } from './shiftReportPaths'
 import { createId } from './types'
 import type { AppSettings } from './types'
@@ -44,6 +45,8 @@ type Props = {
     shift: ShiftKind,
     currentReport?: CameraReport,
   ) => void
+  texts?: ShiftReportTexts | null
+  onTextsChange?: (next: ShiftReportTexts) => void
   guardNameSuggestions?: string[]
 }
 
@@ -111,6 +114,8 @@ export default function CameraReportPanel({
   onSettingsChange,
   archive,
   onShiftContextChange,
+  texts: textsProp,
+  onTextsChange,
   guardNameSuggestions = [],
 }: Props) {
   const [report, setReport] = useState<CameraReport>(() =>
@@ -207,6 +212,15 @@ export default function CameraReportPanel({
 
   function handleShiftChange(shift: ShiftKind) {
     switchContext(report.date, shift)
+  }
+
+  function updateGuardNames(guardNames: string[]) {
+    if (!onTextsChange) return
+    const nextTexts = normalizeShiftReportTexts({
+      ...normalizeShiftReportTexts(textsProp),
+      guardNames,
+    })
+    onTextsChange(nextTexts)
   }
 
   function resetTemplate() {
@@ -461,6 +475,12 @@ export default function CameraReportPanel({
       {showSettings ? (
         <section className="shift-section shift-settings-card">
           <h3>שמירה אוטומטית — דוח מצלמות</h3>
+          {onTextsChange ? (
+            <GuardNamesManager
+              names={normalizeShiftReportTexts(textsProp).guardNames}
+              onChange={updateGuardNames}
+            />
+          ) : null}
           <div className="shift-settings-grid">
             <label className="shift-field shift-settings-path">
               <span>תיקיית שמירה</span>

@@ -3216,6 +3216,8 @@ export default function App() {
               onSettingsChange={onCameraReportSettingsChange}
               archive={data?.cameraReportsArchive}
               onShiftContextChange={onCameraContextChange}
+              texts={data?.shiftReportTexts}
+              onTextsChange={onShiftReportTextsChange}
               guardNameSuggestions={cameraGuardPickerNames}
             />
         </main>
