@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   SHIFT_LABELS,
@@ -24,6 +24,7 @@ import {
 import { SHIFT_REPORT_DOCUMENT_TITLE } from './shiftReportDocument'
 import ShiftRichListEditor from './ShiftRichListEditor'
 import GuardNameField from './GuardNameField'
+import ShiftReportDateField from './ShiftReportDateField'
 import EmailAlreadySentModal from './EmailAlreadySentModal'
 import EmailSendLogModal from './EmailSendLogModal'
 import {
@@ -34,7 +35,7 @@ import type { AppSettings, ShiftEmailSentLogItem } from './types'
 import { buildShiftReportDocumentModel } from './shiftReportDocument'
 import type { ShiftReportsArchive } from './shiftReportArchive'
 import { getShiftDayStatus, getShiftFromArchive } from './shiftReportArchive'
-import { parseShiftReportDate, shiftDateToDate } from './shiftReportPaths'
+import { getNextDayReportContext, shiftDateToDate } from './shiftReportPaths'
 
 const SHOW_WORD_EXPORT = false
 
@@ -241,7 +242,6 @@ export default function ShiftReportPanel({
   const [report, setReport] = useState<ShiftReport>(() =>
     normalizeShiftReport(value),
   )
-  const [dateDraft, setDateDraft] = useState(() => report.date)
   const [showSettings, setShowSettings] = useState(false)
   const [texts, setTexts] = useState(() => normalizeShiftReportTexts(textsProp))
   const [exporting, setExporting] = useState(false)
@@ -339,10 +339,6 @@ export default function ShiftReportPanel({
   }, [textsProp])
 
   useEffect(() => {
-    setDateDraft(report.date)
-  }, [report.date])
-
-  useEffect(() => {
     suppressDebounceRef.current = true
     setReport(normalizeShiftReport(value, normalizeShiftReportTexts(textsProp)))
   }, [value])
@@ -397,7 +393,7 @@ export default function ShiftReportPanel({
 
   function resetTemplate() {
     const ok = window.confirm(
-      'לאפס את הדוח לתבנית חדשה (אותו תאריך ואותה משמרת)?',
+      'לאפס את הדוח לתבנית חדשה ולעבור ליום הבא (אותה משמרת)?',
     )
     if (!ok) return
     flushPendingReportSave()
@@ -409,7 +405,11 @@ export default function ShiftReportPanel({
         outputTextsRef.current,
       )
     }
-    const { date, shift } = reportRef.current
+    const { shift } = reportRef.current
+    const { date } = getNextDayReportContext(
+      reportRef.current.date,
+      reportRef.current.shift,
+    )
     const next = {
       ...createEmptyShiftReport(shiftDateToDate(date), texts),
       shift,
@@ -446,16 +446,6 @@ export default function ShiftReportPanel({
       return
     }
     patch({ date })
-  }
-
-  function commitDateDraft() {
-    const parsed = parseShiftReportDate(dateDraft)
-    if (!parsed) {
-      setDateDraft(report.date)
-      onToast?.('תאריך לא תקין')
-      return
-    }
-    handleDateChange(parsed.formatted)
   }
 
   function handleShiftChange(shift: ShiftKind) {
@@ -1051,24 +1041,11 @@ export default function ShiftReportPanel({
           onSelectShift={handleShiftChange}
         />
         <div className="shift-meta-grid">
-          <label className="shift-field">
-            <span>תאריך</span>
-            <input
-              type="text"
-              value={dateDraft}
-              onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                setDateDraft(e.target.value)
-              }
-              onBlur={commitDateDraft}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  commitDateDraft()
-                }
-              }}
-              placeholder="DD.MM.YYYY"
-            />
-          </label>
+          <ShiftReportDateField
+            value={report.date}
+            onCommit={handleDateChange}
+            onInvalid={() => onToast?.('תאריך לא תקין')}
+          />
           <GuardNameField
             label="שומר/ת נכנס"
             value={report.guardIn}

@@ -2,7 +2,6 @@ import {
   useEffect,
   useRef,
   useState,
-  type ChangeEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
 import {
@@ -26,9 +25,10 @@ import {
 import { getCameraReportSaveFolder } from './cameraReportPaths'
 import CameraReportExcelPreview from './CameraReportExcelPreview'
 import GuardNameField from './GuardNameField'
+import ShiftReportDateField from './ShiftReportDateField'
 import EmailAlreadySentModal from './EmailAlreadySentModal'
 import { SHIFT_LABELS, type ShiftKind } from './shiftReport'
-import { parseShiftReportDate, shiftDateToDate } from './shiftReportPaths'
+import { parseShiftReportDate, getNextDayReportContext, shiftDateToDate } from './shiftReportPaths'
 import { createId } from './types'
 import type { AppSettings } from './types'
 
@@ -116,7 +116,6 @@ export default function CameraReportPanel({
   const [report, setReport] = useState<CameraReport>(() =>
     normalizeCameraReport(value),
   )
-  const [dateDraft, setDateDraft] = useState(() => report.date)
   const [showSettings, setShowSettings] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [testingEmail, setTestingEmail] = useState(false)
@@ -135,10 +134,6 @@ export default function CameraReportPanel({
   useEffect(() => {
     setReport(normalizeCameraReport(value))
   }, [value])
-
-  useEffect(() => {
-    setDateDraft(report.date)
-  }, [report.date])
 
   function clearPendingSave() {
     if (saveTimer.current != null) {
@@ -202,16 +197,6 @@ export default function CameraReportPanel({
     switchContext(date.replace(/\//g, '.'), report.shift)
   }
 
-  function commitDateDraft() {
-    const parsed = parseShiftReportDate(dateDraft)
-    if (!parsed) {
-      setDateDraft(report.date)
-      onToast?.('תאריך לא תקין')
-      return
-    }
-    handleDateChange(parsed.formatted)
-  }
-
   function handlePreviewDaySelect(day: number) {
     const parsed = parseShiftReportDate(report.date)
     if (!parsed) return
@@ -226,12 +211,16 @@ export default function CameraReportPanel({
 
   function resetTemplate() {
     const ok = window.confirm(
-      'לאפס את דוח המצלמות לתבנית חדשה (אותו תאריך ואותה משמרת)?',
+      'לאפס את דוח המצלמות לתבנית חדשה ולעבור ליום הבא (אותה משמרת)?',
     )
     if (!ok) return
     flushPendingSave()
     onChangeRef.current(reportRef.current)
-    const { date, shift } = reportRef.current
+    const { shift } = reportRef.current
+    const { date } = getNextDayReportContext(
+      reportRef.current.date,
+      reportRef.current.shift,
+    )
     const next = createEmptyCameraReport(shiftDateToDate(date), shift, date)
     setReport(next)
     onChangeRef.current(next)
@@ -616,24 +605,11 @@ export default function CameraReportPanel({
           onSelectShift={handleShiftChange}
         />
         <div className="shift-meta-grid">
-          <label className="shift-field">
-            <span>תאריך</span>
-            <input
-              type="text"
-              value={dateDraft}
-              onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                setDateDraft(e.target.value)
-              }
-              onBlur={commitDateDraft}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  commitDateDraft()
-                }
-              }}
-              placeholder="DD.MM.YYYY"
-            />
-          </label>
+          <ShiftReportDateField
+            value={report.date}
+            onCommit={handleDateChange}
+            onInvalid={() => onToast?.('תאריך לא תקין')}
+          />
           <label className="shift-field">
             <span>משמרת</span>
             <select

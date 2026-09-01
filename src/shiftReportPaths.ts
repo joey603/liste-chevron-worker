@@ -1,4 +1,4 @@
-import { SHIFT_LABELS, type ShiftKind, type ShiftReport } from './shiftReport'
+import { SHIFT_LABELS, formatShiftDate, type ShiftKind, type ShiftReport } from './shiftReport'
 
 export const HEBREW_MONTHS = [
   'ינואר',
@@ -51,6 +51,19 @@ export function shiftDateToDate(dateStr: string, fallback = new Date()): Date {
   const parsed = parseShiftReportDate(dateStr)
   if (!parsed) return fallback
   return new Date(parsed.year, parsed.month - 1, parsed.day)
+}
+
+/** Jour suivant, même משמרת — pour דוח חדש. */
+export function getNextDayReportContext(
+  date: string,
+  shift: ShiftKind,
+): { date: string; shift: ShiftKind } {
+  const parsed = parseShiftReportDate(date)
+  if (!parsed) {
+    return { date: date.trim(), shift }
+  }
+  const nextDay = new Date(parsed.year, parsed.month - 1, parsed.day + 1)
+  return { date: formatShiftDate(nextDay), shift }
 }
 
 export function hebrewMonthName(month: number): string {
