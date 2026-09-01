@@ -25,11 +25,11 @@ export function getNextShiftContext(
     return { date: date.trim(), shift: nextShift }
   }
   const parsed = parseShiftReportDate(date)
-  if (!parsed) {
-    return { date: getOperationalDayDate(new Date(), 'morning'), shift: 'morning' }
+  if (parsed) {
+    const nextDay = new Date(parsed.year, parsed.month - 1, parsed.day + 1)
+    return { date: formatShiftDate(nextDay), shift: 'morning' }
   }
-  const nextDay = new Date(parsed.year, parsed.month - 1, parsed.day + 1)
-  return { date: formatShiftDate(nextDay), shift: 'morning' }
+  return { date: date.trim(), shift: 'morning' }
 }
 
 /**

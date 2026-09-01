@@ -33,7 +33,8 @@ import {
 import type { AppSettings, ShiftEmailSentLogItem } from './types'
 import { buildShiftReportDocumentModel } from './shiftReportDocument'
 import type { ShiftReportsArchive } from './shiftReportArchive'
-import { getShiftDayStatus, getNextShiftContext, getShiftFromArchive } from './shiftReportArchive'
+import { getShiftDayStatus, getShiftFromArchive } from './shiftReportArchive'
+import { parseShiftReportDate, shiftDateToDate } from './shiftReportPaths'
 
 const SHOW_WORD_EXPORT = false
 
@@ -240,6 +241,7 @@ export default function ShiftReportPanel({
   const [report, setReport] = useState<ShiftReport>(() =>
     normalizeShiftReport(value),
   )
+  const [dateDraft, setDateDraft] = useState(() => report.date)
   const [showSettings, setShowSettings] = useState(false)
   const [texts, setTexts] = useState(() => normalizeShiftReportTexts(textsProp))
   const [exporting, setExporting] = useState(false)
@@ -337,6 +339,10 @@ export default function ShiftReportPanel({
   }, [textsProp])
 
   useEffect(() => {
+    setDateDraft(report.date)
+  }, [report.date])
+
+  useEffect(() => {
     suppressDebounceRef.current = true
     setReport(normalizeShiftReport(value, normalizeShiftReportTexts(textsProp)))
   }, [value])
@@ -391,7 +397,7 @@ export default function ShiftReportPanel({
 
   function resetTemplate() {
     const ok = window.confirm(
-      'לעבור למשמרת הבאה בתבנית חדשה?\nבוקר → צוהריים → לילה → בוקר של היום הבא',
+      'לאפס את הדוח לתבנית חדשה (אותו תאריך ואותה משמרת)?',
     )
     if (!ok) return
     flushPendingReportSave()
@@ -403,11 +409,12 @@ export default function ShiftReportPanel({
         outputTextsRef.current,
       )
     }
-    const { date, shift } = getNextShiftContext(
-      reportRef.current.date,
-      reportRef.current.shift,
-    )
-    const next = { ...createEmptyShiftReport(new Date(), texts), shift, date }
+    const { date, shift } = reportRef.current
+    const next = {
+      ...createEmptyShiftReport(shiftDateToDate(date), texts),
+      shift,
+      date,
+    }
     suppressDebounceRef.current = true
     setReport(next)
     onChangeRef.current(next)
@@ -439,6 +446,16 @@ export default function ShiftReportPanel({
       return
     }
     patch({ date })
+  }
+
+  function commitDateDraft() {
+    const parsed = parseShiftReportDate(dateDraft)
+    if (!parsed) {
+      setDateDraft(report.date)
+      onToast?.('תאריך לא תקין')
+      return
+    }
+    handleDateChange(parsed.formatted)
   }
 
   function handleShiftChange(shift: ShiftKind) {
@@ -1038,10 +1055,17 @@ export default function ShiftReportPanel({
             <span>תאריך</span>
             <input
               type="text"
-              value={report.date}
+              value={dateDraft}
               onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                handleDateChange(e.target.value)
+                setDateDraft(e.target.value)
               }
+              onBlur={commitDateDraft}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  commitDateDraft()
+                }
+              }}
               placeholder="DD.MM.YYYY"
             />
           </label>

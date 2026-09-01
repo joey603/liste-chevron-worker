@@ -46,6 +46,13 @@ export function parseShiftReportDate(dateStr: string): ParsedShiftDate | null {
   return { day, month, year, formatted: `${dd}.${mm}.${year}` }
 }
 
+/** Convertit une date de rapport en Date locale (sans retomber sur aujourd'hui). */
+export function shiftDateToDate(dateStr: string, fallback = new Date()): Date {
+  const parsed = parseShiftReportDate(dateStr)
+  if (!parsed) return fallback
+  return new Date(parsed.year, parsed.month - 1, parsed.day)
+}
+
 export function hebrewMonthName(month: number): string {
   return HEBREW_MONTHS[month - 1] ?? String(month)
 }
