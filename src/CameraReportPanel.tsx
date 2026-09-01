@@ -10,6 +10,7 @@ import {
   type CameraReportsArchive,
 } from './cameraReportArchive'
 import {
+  createEmptyCameraReport,
   createNextScanEntry,
   getShiftDefaultHours,
   formatScanRange,
@@ -27,6 +28,7 @@ import CameraReportExcelPreview from './CameraReportExcelPreview'
 import GuardNameField from './GuardNameField'
 import EmailAlreadySentModal from './EmailAlreadySentModal'
 import { SHIFT_LABELS, type ShiftKind } from './shiftReport'
+import { getNextShiftContext } from './shiftReportArchive'
 import { parseShiftReportDate } from './shiftReportPaths'
 import { createId } from './types'
 import type { AppSettings } from './types'
@@ -208,6 +210,22 @@ export default function CameraReportPanel({
     switchContext(report.date, shift)
   }
 
+  function resetTemplate() {
+    const ok = window.confirm(
+      'לעבור למשמרת הבאה בתבנית חדשה?\nבוקר → צוהריים → לילה → בוקר של היום הבא',
+    )
+    if (!ok) return
+    flushPendingSave()
+    onChangeRef.current(reportRef.current)
+    const { date, shift } = getNextShiftContext(
+      reportRef.current.date,
+      reportRef.current.shift,
+    )
+    const next = createEmptyCameraReport(new Date(), shift, date)
+    setReport(next)
+    onChangeRef.current(next)
+  }
+
   function addScan() {
     setReport((prev) => {
       const next = normalizeCameraReport({
@@ -386,6 +404,14 @@ export default function CameraReportPanel({
           <p>סריקות מצלמות לפי משמרת — בוקר, צוהריים, לילה</p>
         </div>
         <div className="main-header-actions">
+          <button
+            type="button"
+            className="btn btn-success"
+            style={{ width: 'auto' }}
+            onClick={resetTemplate}
+          >
+            דוח חדש
+          </button>
           <button
             type="button"
             className="btn btn-preview"

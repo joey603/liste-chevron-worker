@@ -33,7 +33,7 @@ import {
 import type { AppSettings, ShiftEmailSentLogItem } from './types'
 import { buildShiftReportDocumentModel } from './shiftReportDocument'
 import type { ShiftReportsArchive } from './shiftReportArchive'
-import { getShiftDayStatus, getShiftFromArchive } from './shiftReportArchive'
+import { getShiftDayStatus, getNextShiftContext, getShiftFromArchive } from './shiftReportArchive'
 
 const SHOW_WORD_EXPORT = false
 
@@ -391,15 +391,26 @@ export default function ShiftReportPanel({
 
   function resetTemplate() {
     const ok = window.confirm(
-      'לאפס את הדוח לתבנית חדשה (תאריך היום, ציוד ברירת מחדל)?',
+      'לעבור למשמרת הבאה בתבנית חדשה?\nבוקר → צוהריים → לילה → בוקר של היום הבא',
     )
     if (!ok) return
-    const shift = report.shift
-    const date = getOperationalDayDate?.(new Date(), shift) ?? report.date
-    const empty = createEmptyShiftReport(new Date(), texts)
-    const next = { ...empty, shift, date }
+    flushPendingReportSave()
+    onChangeRef.current(reportRef.current)
+    if (settings?.shiftReportSaveFolder?.trim()) {
+      void flushShiftReportAutoSave(
+        settings,
+        reportRef.current,
+        outputTextsRef.current,
+      )
+    }
+    const { date, shift } = getNextShiftContext(
+      reportRef.current.date,
+      reportRef.current.shift,
+    )
+    const next = { ...createEmptyShiftReport(new Date(), texts), shift, date }
+    suppressDebounceRef.current = true
     setReport(next)
-    onChange(next)
+    onChangeRef.current(next)
   }
 
   function switchShiftContext(date: string, shift: ShiftKind) {

@@ -1,5 +1,6 @@
 import type { ShiftKind, ShiftReport, ShiftReportTexts } from './shiftReport'
 import { createEmptyShiftReport, formatShiftDate } from './shiftReport'
+import { parseShiftReportDate } from './shiftReportPaths'
 
 export type ShiftDayArchive = Partial<Record<ShiftKind, ShiftReport>>
 
@@ -12,6 +13,23 @@ export function getNextShift(shift: ShiftKind): ShiftKind | null {
   const index = SHIFT_ORDER.indexOf(shift)
   if (index < 0 || index >= SHIFT_ORDER.length - 1) return null
   return SHIFT_ORDER[index + 1]
+}
+
+/** Contexte suivant : בוקר → צוהריים → לילה → בוקר du lendemain. */
+export function getNextShiftContext(
+  date: string,
+  shift: ShiftKind,
+): { date: string; shift: ShiftKind } {
+  const nextShift = getNextShift(shift)
+  if (nextShift) {
+    return { date: date.trim(), shift: nextShift }
+  }
+  const parsed = parseShiftReportDate(date)
+  if (!parsed) {
+    return { date: getOperationalDayDate(new Date(), 'morning'), shift: 'morning' }
+  }
+  const nextDay = new Date(parsed.year, parsed.month - 1, parsed.day + 1)
+  return { date: formatShiftDate(nextDay), shift: 'morning' }
 }
 
 /**
