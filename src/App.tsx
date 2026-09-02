@@ -1893,7 +1893,6 @@ export default function App() {
     try {
       const present = data.people.filter(isPresent)
       const text = buildEmergencyMessage(data, present)
-      const listImage = await captureListImageDataUrl()
 
       const browserOnline =
         typeof navigator !== 'undefined' ? navigator.onLine : true
@@ -1936,11 +1935,7 @@ export default function App() {
       }
 
       if (window.listeApi?.sendWhatsAppText) {
-        const result = await window.listeApi.sendWhatsAppText(
-          phones,
-          text,
-          listImage ?? undefined,
-        )
+        const result = await window.listeApi.sendWhatsAppText(phones, text)
         const ok = typeof result === 'boolean' ? result : result.ok
         const error = typeof result === 'boolean' ? undefined : result.error
         if (!ok) {
@@ -1977,12 +1972,8 @@ export default function App() {
       setToast({
         message:
           phones.length === 1
-            ? listImage
-              ? 'הודעת החירום והתמונה נשלחות ב־WhatsApp…'
-              : 'הרשימה נשלחת אוטומטית ב־WhatsApp…'
-            : listImage
-              ? `הודעת החירום והתמונה נשלחות ל־${phones.length} מספרים…`
-              : `הרשימה נשלחת אוטומטית ל־${phones.length} מספרים…`,
+            ? 'הרשימה נשלחת אוטומטית ב־WhatsApp…'
+            : `הרשימה נשלחת אוטומטית ל־${phones.length} מספרים…`,
       })
     } catch {
       setToast({ message: 'שגיאה בשליחת הודעת החירום' })
