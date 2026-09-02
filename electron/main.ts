@@ -20,6 +20,7 @@ import {
   ensureShiftReportSaveDir,
   shiftReportDocxPathsForDay,
 } from './shiftReportPaths'
+import { isShiftReportStaffed, type ShiftReport } from '../src/shiftReport'
 import {
   buildMonthlyCameraReportFromDisk,
   cameraReportMonthlyWorkbookFileName,
@@ -202,10 +203,16 @@ function getEmailConfig(data: AppData): {
 function buildShiftAttachmentsForDate(
   folder: string,
   dateKey: string,
+  archive?: Record<string, Record<string, unknown>>,
 ): Array<{ name: string; bytes: number[] }> {
+  const dayArchive = resolveShiftArchiveDay(archive, dateKey)
   const shifts = shiftReportDocxPathsForDay(dateKey)
   const attachments: Array<{ name: string; bytes: number[] }> = []
   for (const item of shifts) {
+    const report = dayArchive?.[item.shift]
+    if (!isShiftReportStaffed(report as ShiftReport)) {
+      continue
+    }
     const dir = ensureShiftReportSaveDir(folder, item.relativeDir)
     const docxPath = path.join(dir, item.fileName)
     if (!fs.existsSync(docxPath)) continue
@@ -215,6 +222,17 @@ function buildShiftAttachmentsForDate(
     })
   }
   return attachments
+}
+
+function hasStaffedShiftsForDay(
+  archive: Record<string, Record<string, unknown>> | undefined,
+  dateKey: string,
+): boolean {
+  const dayArchive = resolveShiftArchiveDay(archive, dateKey)
+  if (!dayArchive) return false
+  return (['morning', 'afternoon', 'night'] as const).some((shift) =>
+    isShiftReportStaffed(dayArchive[shift] as ShiftReport),
+  )
 }
 
 function resolveShiftArchiveDay(
@@ -259,11 +277,15 @@ async function sendShiftReportForDate(
   const archive = data.shiftReportsArchive as
     | Record<string, Record<string, unknown>>
     | undefined
-  if (!resolveShiftArchiveDay(archive, normalizedDate)) {
+  if (!hasStaffedShiftsForDay(archive, normalizedDate)) {
     return { ok: false, error: 'no_report_data' }
   }
 
-  const attachments = buildShiftAttachmentsForDate(folder, normalizedDate)
+  const attachments = buildShiftAttachmentsForDate(
+    folder,
+    normalizedDate,
+    archive,
+  )
   if (attachments.length === 0) {
     return { ok: false, error: 'no_attachments' }
   }
@@ -2344,6 +2366,36 @@ app.whenReady().then(() => {
         return {
           ok: false as const,
           error: err instanceof Error ? err.message : 'save_failed',
+        }
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'shiftReport:deleteFiles',
+    async (
+      _event,
+      payload: {
+        folder: string
+        relativeDir: string
+        docxFileName: string
+        jsonFileName: string
+      },
+    ) => {
+      try {
+        const dir = path.join(
+          payload.folder,
+          ...payload.relativeDir.split('/').filter(Boolean),
+        )
+        const docxPath = path.join(dir, payload.docxFileName)
+        const jsonPath = path.join(dir, payload.jsonFileName)
+        if (fs.existsSync(docxPath)) fs.unlinkSync(docxPath)
+        if (fs.existsSync(jsonPath)) fs.unlinkSync(jsonPath)
+        return { ok: true as const }
+      } catch (err) {
+        return {
+          ok: false as const,
+          error: err instanceof Error ? err.message : 'delete_failed',
         }
       }
     },

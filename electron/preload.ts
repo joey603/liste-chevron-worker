@@ -85,6 +85,13 @@ const api = {
     docxBytes: number[]
   }): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('shiftReport:saveFiles', payload),
+  deleteShiftReportFiles: (payload: {
+    folder: string
+    relativeDir: string
+    docxFileName: string
+    jsonFileName: string
+  }): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('shiftReport:deleteFiles', payload),
   saveCameraReportWorkbook: (payload: {
     folder: string
     relativeDir: string

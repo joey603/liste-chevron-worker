@@ -42,6 +42,13 @@ export const SHIFT_LABELS: Record<ShiftKind, string> = {
   night: 'לילה',
 }
 
+/** Garde effectuée : au moins un des deux gardiens (entrant ou sortant) est renseigné. */
+export function isShiftReportStaffed(
+  report: ShiftReport | null | undefined,
+): boolean {
+  return Boolean(report?.guardIn?.trim() || report?.guardOut?.trim())
+}
+
 export const SHIFT_REMINDERS: string[] = []
 
 export const SHIFT_JOURNAL_RULE_LEAD =

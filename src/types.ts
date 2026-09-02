@@ -291,6 +291,12 @@ export type ListeApi = {
     json: string
     docxBytes: number[]
   }) => Promise<{ ok: boolean; error?: string }>
+  deleteShiftReportFiles?: (payload: {
+    folder: string
+    relativeDir: string
+    docxFileName: string
+    jsonFileName: string
+  }) => Promise<{ ok: boolean; error?: string }>
   saveCameraReportWorkbook?: (payload: {
     folder: string
     relativeDir: string

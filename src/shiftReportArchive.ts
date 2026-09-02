@@ -1,5 +1,9 @@
 import type { ShiftKind, ShiftReport, ShiftReportTexts } from './shiftReport'
-import { createEmptyShiftReport, formatShiftDate } from './shiftReport'
+import {
+  createEmptyShiftReport,
+  formatShiftDate,
+  isShiftReportStaffed,
+} from './shiftReport'
 import { parseShiftReportDate } from './shiftReportPaths'
 
 export type ShiftDayArchive = Partial<Record<ShiftKind, ShiftReport>>
@@ -105,11 +109,11 @@ export function listShiftsForDay(
   )
 }
 
-/** Rapport considéré rempli si le gardien entrant a indiqué son nom */
+/** Rapport considéré rempli si au moins un gardien (entrant ou sortant) est renseigné. */
 export function isShiftReportFilled(
   report: ShiftReport | null | undefined,
 ): boolean {
-  return Boolean(report?.guardIn?.trim())
+  return isShiftReportStaffed(report)
 }
 
 export type ShiftDayStatusItem = {

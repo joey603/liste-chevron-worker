@@ -3,7 +3,11 @@ import {
   buildShiftReportDocx,
 } from './shiftReportDocx'
 import { getShiftReportSaveLocation } from './shiftReportPaths'
-import type { ShiftReport, ShiftReportTexts } from './shiftReport'
+import {
+  isShiftReportStaffed,
+  type ShiftReport,
+  type ShiftReportTexts,
+} from './shiftReport'
 import type { AppSettings } from './types'
 
 /** Court délai pour regrouper les frappes ; export Word coûteux. */
@@ -25,7 +29,13 @@ export function scheduleShiftReportAutoSave(
   texts: ShiftReportTexts | null | undefined,
 ): void {
   const folder = settings.shiftReportSaveFolder?.trim()
-  if (!folder || !window.listeApi?.saveShiftReportFiles) return
+  if (
+    !folder ||
+    (!window.listeApi?.saveShiftReportFiles &&
+      !window.listeApi?.deleteShiftReportFiles)
+  ) {
+    return
+  }
 
   pending = { settings, report, texts }
   if (saveTimer != null) window.clearTimeout(saveTimer)
@@ -72,10 +82,19 @@ export async function persistShiftReportFiles(
   report: ShiftReport,
   texts: ShiftReportTexts | null | undefined,
 ): Promise<void> {
-  if (!window.listeApi?.saveShiftReportFiles) return
   const location = getShiftReportSaveLocation(report)
   if (!location) return
   try {
+    if (!isShiftReportStaffed(report)) {
+      await window.listeApi?.deleteShiftReportFiles?.({
+        folder,
+        relativeDir: location.relativeDir,
+        docxFileName: location.docxFileName,
+        jsonFileName: location.jsonFileName,
+      })
+      return
+    }
+    if (!window.listeApi?.saveShiftReportFiles) return
     const blob = await buildShiftReportDocx(report, texts)
     const docxBytes = Array.from(await blobToUint8Array(blob))
     const json = JSON.stringify(
