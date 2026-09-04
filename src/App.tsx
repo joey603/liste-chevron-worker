@@ -26,9 +26,11 @@ import {
 } from './shiftReportArchive'
 import { normalizeShiftReportTexts } from './shiftReport'
 import {
+  coalesceShiftSettings,
   extractShiftLocalPayload,
   mergeShiftIntoMain,
   SHIFT_REPORT_LOCAL_STORAGE_KEY,
+  type ShiftReportLocalPayload,
   stripShiftFromMain,
 } from './shiftReportLocalStore'
 import {
@@ -475,9 +477,24 @@ async function saveData(data: AppData): Promise<void> {
     return
   }
   const normalized = normalizeData(data)
+  let existingLocal: ShiftReportLocalPayload = {}
+  try {
+    const raw = JSON.parse(
+      localStorage.getItem(SHIFT_REPORT_LOCAL_STORAGE_KEY) ?? 'null',
+    )
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      existingLocal = raw as ShiftReportLocalPayload
+    }
+  } catch {
+    /* ignore */
+  }
+  const incoming = extractShiftLocalPayload(normalized)
   localStorage.setItem(
     SHIFT_REPORT_LOCAL_STORAGE_KEY,
-    JSON.stringify(extractShiftLocalPayload(normalized)),
+    JSON.stringify({
+      ...incoming,
+      settings: coalesceShiftSettings(existingLocal.settings, incoming.settings),
+    }),
   )
   localStorage.setItem(
     'liste-chevron-data',

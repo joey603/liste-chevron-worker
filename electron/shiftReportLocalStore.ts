@@ -37,33 +37,77 @@ type AppDataLike = {
 
 const SHIFT_REPORT_LOCAL_FILE = 'shift-report-local.json'
 
+const SETTINGS_KEYS = [
+  'shiftReportSaveFolder',
+  'cameraReportSaveFolder',
+  'directorEmail',
+  'shiftReportEmailTime',
+  'shiftReportEmailMode',
+  'cameraReportEmailTime',
+  'cameraReportEmailMode',
+  'shiftReportSmtpHost',
+  'shiftReportSmtpPort',
+  'shiftReportSmtpUser',
+  'shiftReportSmtpPass',
+] as const satisfies ReadonlyArray<keyof ShiftReportLocalSettings>
+
 export function shiftReportLocalPath(): string {
   return path.join(app.getPath('userData'), SHIFT_REPORT_LOCAL_FILE)
 }
 
+function isFilledSettingValue(value: unknown): boolean {
+  if (typeof value === 'string') return value.trim().length > 0
+  if (typeof value === 'number') return Number.isFinite(value)
+  return false
+}
+
+/** Fusionne les réglages : une valeur remplie n'est jamais écrasée par une valeur vide. */
+export function coalesceShiftSettings(
+  base?: ShiftReportLocalSettings | null,
+  overlay?: ShiftReportLocalSettings | null,
+): ShiftReportLocalSettings | undefined {
+  if (!base && !overlay) return undefined
+  const result: ShiftReportLocalSettings = { ...(base ?? {}) }
+  if (!overlay) return result
+  for (const key of SETTINGS_KEYS) {
+    const next = overlay[key]
+    const prev = result[key]
+    if (isFilledSettingValue(next)) {
+      ;(result as Record<string, unknown>)[key] = next
+    } else if (!isFilledSettingValue(prev) && next !== undefined) {
+      ;(result as Record<string, unknown>)[key] = next
+    }
+  }
+  return result
+}
+
+function extractSettings(
+  settings: AppDataLike['settings'],
+): ShiftReportLocalSettings | undefined {
+  if (!settings) return undefined
+  return {
+    shiftReportSaveFolder: settings.shiftReportSaveFolder,
+    cameraReportSaveFolder: settings.cameraReportSaveFolder,
+    directorEmail: settings.directorEmail,
+    shiftReportEmailTime: settings.shiftReportEmailTime,
+    shiftReportEmailMode: settings.shiftReportEmailMode,
+    cameraReportEmailTime: settings.cameraReportEmailTime,
+    cameraReportEmailMode: settings.cameraReportEmailMode,
+    shiftReportSmtpHost: settings.shiftReportSmtpHost,
+    shiftReportSmtpPort: settings.shiftReportSmtpPort,
+    shiftReportSmtpUser: settings.shiftReportSmtpUser,
+    shiftReportSmtpPass: settings.shiftReportSmtpPass,
+  }
+}
+
 function extractShiftPayload(source: AppDataLike): ShiftReportLocalPayload {
-  const settings = source.settings
   return {
     shiftReport: source.shiftReport,
     shiftReportTexts: source.shiftReportTexts,
     shiftReportsArchive: source.shiftReportsArchive,
     cameraReport: source.cameraReport,
     cameraReportsArchive: source.cameraReportsArchive,
-    settings: settings
-      ? {
-          shiftReportSaveFolder: settings.shiftReportSaveFolder,
-          cameraReportSaveFolder: settings.cameraReportSaveFolder,
-          directorEmail: settings.directorEmail,
-          shiftReportEmailTime: settings.shiftReportEmailTime,
-          shiftReportEmailMode: settings.shiftReportEmailMode,
-          cameraReportEmailTime: settings.cameraReportEmailTime,
-          cameraReportEmailMode: settings.cameraReportEmailMode,
-          shiftReportSmtpHost: settings.shiftReportSmtpHost,
-          shiftReportSmtpPort: settings.shiftReportSmtpPort,
-          shiftReportSmtpUser: settings.shiftReportSmtpUser,
-          shiftReportSmtpPass: settings.shiftReportSmtpPass,
-        }
-      : undefined,
+    settings: extractSettings(source.settings),
   }
 }
 
@@ -95,6 +139,11 @@ function hasShiftContent(payload: ShiftReportLocalPayload): boolean {
   )
 }
 
+/**
+ * Retire du fichier principal uniquement les rapports / textes / archives.
+ * Les réglages mail + תיקיית שמירה restent dans liste-data.json (comme les autres réglages app)
+ * ET dans shift-report-local.json — double sauvegarde.
+ */
 export function stripShiftFromMain<T extends AppDataLike>(raw: T): T {
   const next = { ...raw }
   delete next.shiftReport
@@ -102,21 +151,6 @@ export function stripShiftFromMain<T extends AppDataLike>(raw: T): T {
   delete next.shiftReportsArchive
   delete next.cameraReport
   delete next.cameraReportsArchive
-  if (next.settings) {
-    const settings = { ...next.settings }
-    delete settings.shiftReportSaveFolder
-    delete settings.cameraReportSaveFolder
-    delete settings.directorEmail
-    delete settings.shiftReportEmailTime
-    delete settings.shiftReportEmailMode
-    delete settings.cameraReportEmailTime
-    delete settings.cameraReportEmailMode
-    delete settings.shiftReportSmtpHost
-    delete settings.shiftReportSmtpPort
-    delete settings.shiftReportSmtpUser
-    delete settings.shiftReportSmtpPass
-    next.settings = settings
-  }
   return next
 }
 
@@ -136,10 +170,14 @@ export function mergeShiftIntoMain<T extends AppDataLike>(
   if (local.cameraReportsArchive !== undefined) {
     next.cameraReportsArchive = local.cameraReportsArchive
   }
-  if (local.settings) {
+  const mergedSettings = coalesceShiftSettings(
+    extractSettings(next.settings),
+    local.settings,
+  )
+  if (mergedSettings) {
     next.settings = {
       ...next.settings,
-      ...local.settings,
+      ...mergedSettings,
     }
   }
   return next as T
@@ -155,20 +193,11 @@ export function hasLegacyShiftInMain(raw: AppDataLike): boolean {
       raw.cameraReport != null ||
       (raw.cameraReportsArchive &&
         typeof raw.cameraReportsArchive === 'object' &&
-        Object.keys(raw.cameraReportsArchive).length > 0) ||
-      raw.settings?.shiftReportSaveFolder ||
-      raw.settings?.cameraReportSaveFolder ||
-      raw.settings?.directorEmail ||
-      raw.settings?.cameraReportEmailTime ||
-      raw.settings?.shiftReportSmtpHost ||
-      raw.settings?.shiftReportSmtpUser ||
-      raw.settings?.shiftReportSmtpPass,
+        Object.keys(raw.cameraReportsArchive).length > 0),
   )
 }
 
-export function readShiftReportLocal(
-  migrateFrom?: AppDataLike,
-): ShiftReportLocalPayload {
+function readExistingLocalFile(): ShiftReportLocalPayload {
   const file = shiftReportLocalPath()
   try {
     if (fs.existsSync(file)) {
@@ -180,6 +209,14 @@ export function readShiftReportLocal(
   } catch {
     // fichier local illisible
   }
+  return {}
+}
+
+export function readShiftReportLocal(
+  migrateFrom?: AppDataLike,
+): ShiftReportLocalPayload {
+  const existing = readExistingLocalFile()
+  if (hasShiftContent(existing)) return existing
 
   if (migrateFrom) {
     const migrated = extractShiftPayload(migrateFrom)
@@ -189,7 +226,7 @@ export function readShiftReportLocal(
     }
   }
 
-  return {}
+  return existing
 }
 
 export function writeShiftReportLocal(payload: ShiftReportLocalPayload): void {
@@ -201,5 +238,10 @@ export function writeShiftReportLocal(payload: ShiftReportLocalPayload): void {
 }
 
 export function persistShiftReportLocalFromAppData(data: AppDataLike): void {
-  writeShiftReportLocal(extractShiftPayload(data))
+  const existing = readExistingLocalFile()
+  const incoming = extractShiftPayload(data)
+  writeShiftReportLocal({
+    ...incoming,
+    settings: coalesceShiftSettings(existing.settings, incoming.settings),
+  })
 }
