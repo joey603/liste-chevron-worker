@@ -164,6 +164,24 @@ export default function CameraReportPanel({
     scheduleCameraReportAutoSave(settings, next, archive)
   }
 
+  /** Écriture Excel immédiate (ajout/suppression) — le debounce laisse le preview à jour avant le fichier. */
+  async function flushFileSaveNow(next: CameraReport) {
+    if (!settings || !getCameraReportSaveFolder(settings)) return
+    const result = await flushCameraReportAutoSave(settings, next, archive)
+    if (result.ok) return
+    if (
+      result.error &&
+      result.error !== 'nothing_pending' &&
+      result.error !== 'no_folder'
+    ) {
+      const lockedHint =
+        /ebusy|locked|eperm|access|busy/i.test(result.error)
+          ? ' — סגרו את קובץ ה-Excel אם הוא פתוח'
+          : ''
+      onToast?.(`שגיאת שמירה Excel: ${result.error}${lockedHint}`)
+    }
+  }
+
   async function runFileSave(
     nextSettings: NonNullable<typeof settings>,
     nextReport: CameraReport = report,
@@ -247,7 +265,7 @@ export default function CameraReportPanel({
         scans: [...prev.scans, createNextScanEntry(createId(), prev)],
       })
       queueSave(next)
-      maybeScheduleFileSave(next)
+      void flushFileSaveNow(next)
       return next
     })
   }
@@ -277,7 +295,7 @@ export default function CameraReportPanel({
         scans: prev.scans.filter((row) => row.id !== id),
       })
       queueSave(next)
-      maybeScheduleFileSave(next)
+      void flushFileSaveNow(next)
       return next
     })
   }

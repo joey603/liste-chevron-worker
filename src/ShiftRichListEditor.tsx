@@ -5,7 +5,6 @@ import {
   SHIFT_TEXT_COLORS,
   editableHtmlToRichLines,
   richLinesToEditableHtml,
-  sanitizeRichHtml,
 } from './shiftRichText'
 
 type Props = {
@@ -19,6 +18,7 @@ type Props = {
 type ColorOption = { label: string; value: string }
 
 function runCmd(command: string, value?: string) {
+  document.execCommand('styleWithCSS', false, 'true')
   document.execCommand(command, false, value)
 }
 
@@ -110,8 +110,9 @@ export default function ShiftRichListEditor({
   function emitFromDom() {
     const root = editorRef.current
     if (!root) return
-    const html = sanitizeRichHtml(root.innerHTML)
-    onChange(editableHtmlToRichLines(html))
+    // Important : ne pas sanitizer le <ul>/<li> entier (sinon la liste est détruite
+    // et le texte est ré-échappé → &quot; visible dans le preview).
+    onChange(editableHtmlToRichLines(root.innerHTML))
   }
 
   function apply(command: string, value?: string) {
@@ -122,8 +123,28 @@ export default function ShiftRichListEditor({
 
   function applyHighlight(value: string) {
     editorRef.current?.focus()
-    const ok = document.execCommand('hiliteColor', false, value)
-    if (!ok) document.execCommand('backColor', false, value)
+    document.execCommand('styleWithCSS', false, 'true')
+    if (value === 'transparent') {
+      const ok = document.execCommand('hiliteColor', false, 'transparent')
+      if (!ok) document.execCommand('removeFormat', false)
+    } else {
+      const ok = document.execCommand('hiliteColor', false, value)
+      if (!ok) document.execCommand('backColor', false, value)
+    }
+    emitFromDom()
+  }
+
+  function applyUppercase() {
+    const root = editorRef.current
+    if (!root) return
+    root.focus()
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return
+    if (!root.contains(sel.anchorNode)) return
+    const text = sel.toString()
+    if (!text) return
+    // Transforme vraiment le texte (preview + Word), pas seulement du CSS
+    document.execCommand('insertText', false, text.toLocaleUpperCase('he-IL'))
     emitFromDom()
   }
 
@@ -184,6 +205,15 @@ export default function ShiftRichListEditor({
           onClick={() => apply('underline')}
         >
           <span style={{ textDecoration: 'underline' }}>U</span>
+        </button>
+        <button
+          type="button"
+          className="shift-rich-btn"
+          title="אותיות גדולות"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={applyUppercase}
+        >
+          AA
         </button>
         <span className="shift-rich-sep" />
         <ColorMenu

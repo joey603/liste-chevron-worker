@@ -14,17 +14,41 @@ export function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;')
 }
 
+/** Décode les entités HTML (&quot;, &amp;quot;, …) jusqu’au texte réel. */
+export function decodeHtmlEntities(text: string): string {
+  if (typeof document !== 'undefined') {
+    let current = text
+    for (let i = 0; i < 4; i++) {
+      const ta = document.createElement('textarea')
+      ta.innerHTML = current
+      const next = ta.value
+      if (next === current) return next
+      current = next
+    }
+    return current
+  }
+  let current = text
+  for (let i = 0; i < 4; i++) {
+    const next = current
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'")
+      .replace(/&amp;/gi, '&')
+    if (next === current) return next
+    current = next
+  }
+  return current
+}
+
 export function stripHtml(html: string): string {
-  return html
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|li)>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .trim()
+  return decodeHtmlEntities(
+    html
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|div|li)>/gi, '\n')
+      .replace(/<[^>]+>/g, ''),
+  ).trim()
 }
 
 /** Convertit une couleur CSS (#hex, rgb, rgba, nom) → hex 6 chars sans # */
@@ -93,7 +117,19 @@ export function normalizeRichLine(raw: unknown, fallbackStyle?: string): string 
   if (typeof raw !== 'string') return ''
   const trimmed = raw.trim()
   if (!trimmed) return ''
-  if (/[<>]/.test(trimmed)) return sanitizeRichHtml(trimmed)
+
+  // Déjà du HTML (balises) → sanitize sans ré-échapper
+  if (/<\/?[a-z][\s\S]*>/i.test(trimmed)) {
+    return typeof document !== 'undefined'
+      ? sanitizeRichHtml(trimmed)
+      : trimmed
+  }
+
+  // Entités HTML (&quot; / &amp;quot; …) → décoder puis échapper une seule fois
+  if (/&(?:#x?[\da-f]+|[a-z]+);/i.test(trimmed)) {
+    return plainToRichHtml(decodeHtmlEntities(trimmed), fallbackStyle)
+  }
+
   return plainToRichHtml(trimmed, fallbackStyle)
 }
 
@@ -124,6 +160,7 @@ const STYLE_PROPS = new Set([
   'font-weight',
   'font-style',
   'text-decoration',
+  'text-transform',
 ])
 
 /** Autorise uniquement des balises / styles sûrs pour l’édition */
@@ -179,6 +216,18 @@ export function sanitizeRichHtml(html: string): string {
           const hex = cssColorToHex(val)
           if (hex) val = `#${hex}`
           else if (val !== 'transparent') continue
+        }
+        if (key === 'text-transform') {
+          const t = val.toLowerCase()
+          if (
+            t !== 'uppercase' &&
+            t !== 'lowercase' &&
+            t !== 'capitalize' &&
+            t !== 'none'
+          ) {
+            continue
+          }
+          val = t
         }
         keep.push(`${key}:${val}`)
       }
@@ -294,6 +343,9 @@ export function parseRichHtmlSegments(html: string): Array<{
       if (key === 'font-style' && val === 'italic') next.italics = true
       if (key === 'text-decoration' && val.includes('underline'))
         next.underline = true
+      if (key === 'text-transform' && val.toLowerCase() === 'uppercase') {
+        // Appliqué au moment de l’export via le texte déjà transformé si besoin
+      }
       if (key === 'font-size') {
         const n = Number.parseFloat(val)
         if (Number.isFinite(n)) {

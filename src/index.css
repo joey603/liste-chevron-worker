@@ -1662,6 +1662,32 @@ button.emergency-status-button:hover {
   gap: 12px 14px;
 }
 
+.shift-date-field-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shift-date-field-row > input[type='text'] {
+  flex: 1;
+  min-width: 0;
+}
+
+.shift-date-picker {
+  width: 42px;
+  min-width: 42px;
+  flex: 0 0 auto;
+  padding: 7px 4px;
+  cursor: pointer;
+}
+
+.shift-date-today {
+  width: auto !important;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 8px 10px;
+}
+
 .shift-day-status {
   display: flex;
   align-items: center;
@@ -2549,6 +2575,16 @@ button.camera-xls-tab:hover:not(.is-disabled):not(.is-active) {
   background: #ffff00;
   color: #111;
   padding: 0 2px;
+}
+
+.shift-reminders mark,
+.shift-preview-doc mark,
+.shift-rich-surface mark,
+.shift-reminders span[style*='background'],
+.shift-preview-doc span[style*='background'],
+.shift-rich-surface span[style*='background'] {
+  padding: 0 1px;
+  border-radius: 2px;
 }
 
 .shift-reminders-section {

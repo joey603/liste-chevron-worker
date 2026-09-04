@@ -10,7 +10,7 @@ import { getCameraReportSaveFolder } from './cameraReportPaths'
 import { parseShiftReportDate } from './shiftReportPaths'
 import type { AppSettings } from './types'
 
-const AUTO_SAVE_DELAY_MS = 900
+const AUTO_SAVE_DELAY_MS = 400
 
 type PendingSave = {
   settings: AppSettings
