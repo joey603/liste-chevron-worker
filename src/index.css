@@ -1662,23 +1662,23 @@ button.emergency-status-button:hover {
   gap: 12px 14px;
 }
 
+.shift-date-field {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .shift-date-field-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .shift-date-field-row > input[type='text'] {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
-}
-
-.shift-date-picker {
-  width: 42px;
-  min-width: 42px;
-  flex: 0 0 auto;
-  padding: 7px 4px;
-  cursor: pointer;
+  max-width: 100%;
 }
 
 .shift-date-today {
@@ -1686,6 +1686,7 @@ button.emergency-status-button:hover {
   flex: 0 0 auto;
   white-space: nowrap;
   padding: 8px 10px;
+  font-size: 0.82rem;
 }
 
 .shift-day-status {
