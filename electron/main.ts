@@ -68,6 +68,32 @@ function formatArchiveDate(d: Date): string {
   return `${dd}.${mm}.${yyyy}`
 }
 
+/** Minutes depuis minuit pour "HH:MM" ; null si invalide. */
+function parseTimeToMinutes(raw: string): number | null {
+  const m = raw.trim().match(/^(\d{1,2}):(\d{2})$/)
+  if (!m) return null
+  const hours = Number(m[1])
+  const mins = Number(m[2])
+  if (
+    !Number.isFinite(hours) ||
+    !Number.isFinite(mins) ||
+    hours < 0 ||
+    hours > 23 ||
+    mins < 0 ||
+    mins > 59
+  ) {
+    return null
+  }
+  return hours * 60 + mins
+}
+
+function hasReachedScheduledTime(now: Date, targetTime: string): boolean {
+  const target = parseTimeToMinutes(targetTime) ?? parseTimeToMinutes('07:00')
+  if (target == null) return false
+  const nowMinutes = now.getHours() * 60 + now.getMinutes()
+  return nowMinutes >= target
+}
+
 async function sendShiftReportsEmail(payload: {
   date: string
   directorEmail: string
@@ -412,14 +438,18 @@ function trySendMonthlyCameraReports() {
     data.settings.cameraReportEmailTime?.trim() ||
     data.settings.shiftReportEmailTime?.trim() ||
     '07:00'
-  const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-  if (hhmm !== targetTime) return
+  // Après l'heure prévue (pas seulement la minute exacte) — sinon un tick raté = pas d'envoi
+  if (!hasReachedScheduledTime(now, targetTime)) return
 
   const { month, year } = getPreviousCalendarMonth(now)
   const monthKey = monthlyCameraReportKey(year, month)
   if (getCameraMonthlyEmailSent(monthKey)) return
 
-  void sendCameraMonthlyForMonth(year, month)
+  void sendCameraMonthlyForMonth(year, month).then((result) => {
+    if (!result.ok && !result.alreadySent) {
+      console.warn('[camera-email-auto]', monthKey, result.error)
+    }
+  })
 }
 
 function trySendDailyShiftReports() {
@@ -436,15 +466,19 @@ function trySendDailyShiftReports() {
 
   const now = new Date()
   const targetTime = data.settings.shiftReportEmailTime?.trim() || '07:00'
-  const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-  if (hhmm !== targetTime) return
+  // Après l'heure prévue (pas seulement la minute exacte) — sinon un tick raté = pas d'envoi
+  if (!hasReachedScheduledTime(now, targetTime)) return
 
   const reportDay = new Date(now)
   reportDay.setDate(reportDay.getDate() - 1)
   const dateKey = formatArchiveDate(reportDay)
   if (isShiftReportEmailAlreadySent(dateKey)) return
 
-  void sendShiftReportForDate(dateKey)
+  void sendShiftReportForDate(dateKey).then((result) => {
+    if (!result.ok && !result.alreadySent) {
+      console.warn('[shift-email-auto]', dateKey, result.error)
+    }
+  })
 }
 
 type EntryKind = 'named' | 'visitor'
@@ -2526,6 +2560,11 @@ app.whenReady().then(() => {
 
   mainWindow = createWindow()
   setupAutoUpdater(() => mainWindow)
+  // Au démarrage : rattraper un envoi manqué si l'heure prévue est déjà passée
+  setTimeout(() => {
+    trySendDailyShiftReports()
+    trySendMonthlyCameraReports()
+  }, 8_000)
   setInterval(trySendDailyShiftReports, 60_000)
   setInterval(trySendMonthlyCameraReports, 60_000)
 
