@@ -3197,15 +3197,11 @@ export default function App() {
         </main>
       )}
 
-      {data ? (
-        <main
-          className="main-panel report-panel"
-          hidden={activeTab !== 'cameras'}
-          aria-hidden={activeTab !== 'cameras'}
-        >
+      {activeTab === 'cameras' && (
+        <main className="main-panel report-panel">
             <CameraReportPanel
               value={
-                data.cameraReport
+                data?.cameraReport
                   ? getCameraFromArchive(
                       data.cameraReportsArchive,
                       data.cameraReport.date,
@@ -3216,45 +3212,41 @@ export default function App() {
               }
               onChange={onCameraReportChange}
               onToast={(message) => setToast({ message })}
-              settings={data.settings}
+              settings={data?.settings}
               onSettingsChange={onCameraReportSettingsChange}
-              archive={data.cameraReportsArchive}
+              archive={data?.cameraReportsArchive}
               onShiftContextChange={onCameraContextChange}
-              texts={data.shiftReportTexts}
+              texts={data?.shiftReportTexts}
               onTextsChange={onShiftReportTextsChange}
             />
         </main>
-      ) : null}
+      )}
 
-      {data ? (
-        <main
-          className="main-panel report-panel"
-          hidden={activeTab !== 'shift'}
-          aria-hidden={activeTab !== 'shift'}
-        >
+      {activeTab === 'shift' && (
+        <main className="main-panel report-panel">
             <ShiftReportPanel
               value={
-                data.shiftReport
+                data?.shiftReport
                   ? getShiftFromArchive(
                       data.shiftReportsArchive,
                       data.shiftReport.date,
                       data.shiftReport.shift,
                       data.shiftReportTexts,
                     )
-                  : data.shiftReport
+                  : data?.shiftReport
               }
               onChange={onShiftReportChange}
-              texts={data.shiftReportTexts}
+              texts={data?.shiftReportTexts}
               onTextsChange={onShiftReportTextsChange}
               onToast={(message) => setToast({ message })}
-              settings={data.settings}
+              settings={data?.settings}
               onSettingsChange={onShiftReportSettingsChange}
-              archive={data.shiftReportsArchive}
+              archive={data?.shiftReportsArchive}
               onShiftContextChange={onShiftContextChange}
               getOperationalDayDate={getOperationalDayDate}
             />
         </main>
-      ) : null}
+      )}
       </div>
 
       {showListPreview && (
