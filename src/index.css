@@ -1681,12 +1681,28 @@ button.emergency-status-button:hover {
   max-width: 100%;
 }
 
+.shift-date-picker-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.shift-date-pick,
 .shift-date-today {
   width: auto !important;
   flex: 0 0 auto;
   white-space: nowrap;
   padding: 8px 10px;
   font-size: 0.82rem;
+}
+
+.shift-date-saved-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: #15803d;
 }
 
 .shift-day-status {

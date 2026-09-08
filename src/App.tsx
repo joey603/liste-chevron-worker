@@ -685,13 +685,14 @@ export default function App() {
     const clean = () => {
       setData((prev) => {
         if (!prev) return prev
-        const next = purgeExpiredWorkers(normalizeData(prev))
+        const purged = purgeExpiredWorkers(prev)
         if (
-          next === prev ||
-          JSON.stringify(next) === JSON.stringify(prev)
+          purged.workers === prev.workers &&
+          purged.cardlessPeople === prev.cardlessPeople
         ) {
           return prev
         }
+        const next = normalizeData(purged)
         void saveData(next)
         return next
       })
@@ -3196,11 +3197,15 @@ export default function App() {
         </main>
       )}
 
-      {activeTab === 'cameras' && (
-        <main className="main-panel report-panel">
+      {data ? (
+        <main
+          className="main-panel report-panel"
+          hidden={activeTab !== 'cameras'}
+          aria-hidden={activeTab !== 'cameras'}
+        >
             <CameraReportPanel
               value={
-                data?.cameraReport
+                data.cameraReport
                   ? getCameraFromArchive(
                       data.cameraReportsArchive,
                       data.cameraReport.date,
@@ -3211,32 +3216,45 @@ export default function App() {
               }
               onChange={onCameraReportChange}
               onToast={(message) => setToast({ message })}
-              settings={data?.settings}
+              settings={data.settings}
               onSettingsChange={onCameraReportSettingsChange}
-              archive={data?.cameraReportsArchive}
+              archive={data.cameraReportsArchive}
               onShiftContextChange={onCameraContextChange}
-              texts={data?.shiftReportTexts}
+              texts={data.shiftReportTexts}
               onTextsChange={onShiftReportTextsChange}
             />
         </main>
-      )}
+      ) : null}
 
-      {activeTab === 'shift' && (
-        <main className="main-panel report-panel">
+      {data ? (
+        <main
+          className="main-panel report-panel"
+          hidden={activeTab !== 'shift'}
+          aria-hidden={activeTab !== 'shift'}
+        >
             <ShiftReportPanel
-              value={data?.shiftReport}
+              value={
+                data.shiftReport
+                  ? getShiftFromArchive(
+                      data.shiftReportsArchive,
+                      data.shiftReport.date,
+                      data.shiftReport.shift,
+                      data.shiftReportTexts,
+                    )
+                  : data.shiftReport
+              }
               onChange={onShiftReportChange}
-              texts={data?.shiftReportTexts}
+              texts={data.shiftReportTexts}
               onTextsChange={onShiftReportTextsChange}
               onToast={(message) => setToast({ message })}
-              settings={data?.settings}
+              settings={data.settings}
               onSettingsChange={onShiftReportSettingsChange}
-              archive={data?.shiftReportsArchive}
+              archive={data.shiftReportsArchive}
               onShiftContextChange={onShiftContextChange}
               getOperationalDayDate={getOperationalDayDate}
             />
         </main>
-      )}
+      ) : null}
       </div>
 
       {showListPreview && (

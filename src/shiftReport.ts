@@ -404,7 +404,15 @@ export function normalizeShiftReport(
     openIssues: typeof raw.openIssues === 'string' ? raw.openIssues : '',
     generalNotes: typeof raw.generalNotes === 'string' ? raw.generalNotes : '',
     deptEquipment: base.deptEquipment.map((row) => {
-      const saved = deptById.get(row.id)
+      const saved =
+        deptById.get(row.id) ??
+        (Array.isArray(raw.deptEquipment)
+          ? raw.deptEquipment.find(
+              (r) =>
+                typeof r?.name === 'string' &&
+                r.name.trim() === row.name.trim(),
+            )
+          : undefined)
       if (!saved) return row
       const status: EquipmentStatus =
         saved.status === 'ok' || saved.status === 'bad' || saved.status === ''
@@ -414,15 +422,29 @@ export function normalizeShiftReport(
         ...row,
         status,
         notes: typeof saved.notes === 'string' ? saved.notes : row.notes,
-        name: typeof saved.name === 'string' && saved.name.trim() ? saved.name : row.name,
+        name:
+          typeof saved.name === 'string' && saved.name.trim()
+            ? saved.name
+            : row.name,
       }
     }),
     stationEquipment: base.stationEquipment.map((row) => {
-      const saved = stationById.get(row.id)
+      const saved =
+        stationById.get(row.id) ??
+        (Array.isArray(raw.stationEquipment)
+          ? raw.stationEquipment.find(
+              (r) =>
+                typeof r?.name === 'string' &&
+                r.name.trim() === row.name.trim(),
+            )
+          : undefined)
       if (!saved) return row
       return {
         ...row,
-        name: typeof saved.name === 'string' && saved.name.trim() ? saved.name : row.name,
+        name:
+          typeof saved.name === 'string' && saved.name.trim()
+            ? saved.name
+            : row.name,
         quantity:
           typeof saved.quantity === 'number' && Number.isFinite(saved.quantity)
             ? saved.quantity

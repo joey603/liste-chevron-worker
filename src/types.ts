@@ -624,6 +624,7 @@ export function purgeExpiredWorkers(data: AppData, now = new Date()): AppData {
     workers,
     cardlessPeople,
     settings: {
+      ...data.settings,
       directorPhone: data.settings?.directorPhone ?? '',
       emergencyPhones: normalizeEmergencyPhones(
         data.settings?.emergencyPhones,

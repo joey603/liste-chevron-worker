@@ -35,8 +35,17 @@ import {
 import type { AppSettings, ShiftEmailSentLogItem } from './types'
 import { buildShiftReportDocumentModel } from './shiftReportDocument'
 import type { ShiftReportsArchive } from './shiftReportArchive'
-import { getShiftDayStatus, getShiftFromArchive } from './shiftReportArchive'
-import { getNextDayReportContext, shiftDateToDate } from './shiftReportPaths'
+import {
+  archiveHasSavedShifts,
+  getShiftDayStatus,
+  getShiftFromArchive,
+  listArchiveSavedDates,
+} from './shiftReportArchive'
+import {
+  getNextDayReportContext,
+  parseShiftReportDate,
+  shiftDateToDate,
+} from './shiftReportPaths'
 
 const SHOW_WORD_EXPORT = false
 
@@ -245,6 +254,9 @@ export default function ShiftReportPanel({
 
   const outputTextsRef = useRef(outputTexts)
   outputTextsRef.current = outputTexts
+  const lastSyncedContextRef = useRef(
+    `${report.date.trim()}|${report.shift}`,
+  )
 
   useEffect(() => {
     if (!settings) return
@@ -268,9 +280,39 @@ export default function ShiftReportPanel({
   }, [textsProp])
 
   useEffect(() => {
+    if (!value) return
+    const contextKey = `${value.date.trim()}|${value.shift}`
+    const contextChanged = contextKey !== lastSyncedContextRef.current
+    // Ne pas écraser une saisie locale encore non poussée vers le parent
+    if (!contextChanged && saveTimer.current != null) return
+
+    const incoming = normalizeShiftReport(
+      value,
+      normalizeShiftReportTexts(textsProp),
+    )
+    const current = reportRef.current
+    const sameContext =
+      incoming.date.trim() === current.date.trim() &&
+      incoming.shift === current.shift
+    if (
+      sameContext &&
+      incoming.guardIn === current.guardIn &&
+      incoming.guardOut === current.guardOut &&
+      incoming.openIssues === current.openIssues &&
+      incoming.generalNotes === current.generalNotes &&
+      JSON.stringify(incoming.deptEquipment) ===
+        JSON.stringify(current.deptEquipment) &&
+      JSON.stringify(incoming.stationEquipment) ===
+        JSON.stringify(current.stationEquipment)
+    ) {
+      lastSyncedContextRef.current = contextKey
+      return
+    }
+
+    lastSyncedContextRef.current = contextKey
     suppressDebounceRef.current = true
-    setReport(normalizeShiftReport(value, normalizeShiftReportTexts(textsProp)))
-  }, [value])
+    setReport(incoming)
+  }, [value, textsProp])
 
   useEffect(() => {
     if (suppressDebounceRef.current) {
@@ -283,7 +325,15 @@ export default function ShiftReportPanel({
       const current = reportRef.current
       onChangeRef.current(current)
     }, 200)
-    return clearPendingReportSave
+    return () => {
+      // Ne pas jeter la sauvegarde en attente (sinon le parent garde une ancienne version
+      // et peut réécraser l'UI via l'effet value).
+      if (saveTimer.current != null) {
+        window.clearTimeout(saveTimer.current)
+        saveTimer.current = null
+        onChangeRef.current(reportRef.current)
+      }
+    }
   }, [report])
 
   useEffect(() => {
@@ -363,18 +413,31 @@ export default function ShiftReportPanel({
     }
     const currentReport = reportRef.current
     const nextReport = getShiftFromArchive(archive, date, shift, texts)
+    lastSyncedContextRef.current = `${date.trim()}|${shift}`
     suppressDebounceRef.current = true
     setReport(nextReport)
     onShiftContextChange?.(date, shift, currentReport)
   }
 
   function handleDateChange(date: string) {
-    if (date.trim() === report.date.trim()) return
-    if (onShiftContextChange) {
-      switchShiftContext(date, report.shift)
+    const parsed = parseShiftReportDate(date)
+    if (!parsed) {
+      onToast?.('תאריך לא תקין')
       return
     }
-    patch({ date })
+    const normalized = parsed.formatted
+    if (normalized === report.date.trim()) return
+    const hasSaved = archiveHasSavedShifts(archive, normalized)
+    if (onShiftContextChange) {
+      switchShiftContext(normalized, report.shift)
+      onToast?.(
+        hasSaved
+          ? 'נטען הדוח השמור לתאריך זה — ניתן לערוך'
+          : 'נפתח דוח חדש לתאריך זה',
+      )
+      return
+    }
+    patch({ date: normalized })
   }
 
   function handleShiftChange(shift: ShiftKind) {
@@ -974,6 +1037,7 @@ export default function ShiftReportPanel({
             value={report.date}
             onCommit={handleDateChange}
             onInvalid={() => onToast?.('תאריך לא תקין')}
+            savedDates={listArchiveSavedDates(archive)}
           />
           <GuardNameField
             label="שומר/ת נכנס"

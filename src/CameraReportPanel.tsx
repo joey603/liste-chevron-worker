@@ -215,7 +215,22 @@ export default function CameraReportPanel({
   }
 
   function handleDateChange(date: string) {
-    switchContext(date.replace(/\//g, '.'), report.shift)
+    const parsed = parseShiftReportDate(date)
+    if (!parsed) {
+      onToast?.('תאריך לא תקין')
+      return
+    }
+    const normalized = parsed.formatted
+    const day = archive?.[normalized] ?? archive?.[date.trim()]
+    const hasSaved = Boolean(
+      day && (day.morning || day.afternoon || day.night),
+    )
+    switchContext(normalized, report.shift)
+    onToast?.(
+      hasSaved
+        ? 'נטען הדוח השמור לתאריך זה — ניתן לערוך'
+        : 'נפתח דוח חדש לתאריך זה',
+    )
   }
 
   function handlePreviewDaySelect(day: number) {
@@ -646,6 +661,7 @@ export default function CameraReportPanel({
             value={report.date}
             onCommit={handleDateChange}
             onInvalid={() => onToast?.('תאריך לא תקין')}
+            savedDates={Object.keys(archive ?? {})}
           />
           <label className="shift-field">
             <span>משמרת</span>

@@ -12,6 +12,65 @@ export type ShiftReportsArchive = Record<string, ShiftDayArchive>
 
 const SHIFT_ORDER: ShiftKind[] = ['morning', 'afternoon', 'night']
 
+/** Clé archive normalisée DD.MM.YYYY (accepte aussi 7.9.2026, 07/09/2026…). */
+export function normalizeArchiveDateKey(date: string): string | null {
+  return parseShiftReportDate(date)?.formatted ?? null
+}
+
+/** Trouve le jour en archive même si la clé n’a pas le même format. */
+export function resolveArchiveDay(
+  archive: ShiftReportsArchive | undefined,
+  date: string,
+): { key: string; day: ShiftDayArchive } | null {
+  if (!archive) return null
+  const normalized = normalizeArchiveDateKey(date)
+  if (!normalized) return null
+  if (archive[normalized]) {
+    return { key: normalized, day: archive[normalized]! }
+  }
+  const trimmed = date.trim()
+  if (trimmed && archive[trimmed]) {
+    return { key: trimmed, day: archive[trimmed]! }
+  }
+  for (const [key, day] of Object.entries(archive)) {
+    if (normalizeArchiveDateKey(key) === normalized) {
+      return { key, day: day ?? {} }
+    }
+  }
+  return null
+}
+
+export function archiveHasSavedShifts(
+  archive: ShiftReportsArchive | undefined,
+  date: string,
+): boolean {
+  const resolved = resolveArchiveDay(archive, date)
+  if (!resolved) return false
+  return SHIFT_ORDER.some((shift) => resolved.day[shift] != null)
+}
+
+export function listArchiveSavedDates(
+  archive: ShiftReportsArchive | undefined,
+): string[] {
+  if (!archive) return []
+  const keys = new Set<string>()
+  for (const key of Object.keys(archive)) {
+    const normalized = normalizeArchiveDateKey(key)
+    if (!normalized) continue
+    const day = resolveArchiveDay(archive, normalized)?.day
+    if (!day) continue
+    if (SHIFT_ORDER.some((shift) => day[shift] != null)) {
+      keys.add(normalized)
+    }
+  }
+  return [...keys].sort((a, b) => {
+    const pa = parseShiftReportDate(a)
+    const pb = parseShiftReportDate(b)
+    if (!pa || !pb) return a.localeCompare(b)
+    return pa.year - pb.year || pa.month - pb.month || pa.day - pb.day
+  })
+}
+
 /** Garde suivante le même jour (בוקר → צוהריים, צוהריים → לילה). */
 export function getNextShift(shift: ShiftKind): ShiftKind | null {
   const index = SHIFT_ORDER.indexOf(shift)
@@ -62,10 +121,17 @@ export function upsertShiftInArchive(
   texts?: ShiftReportTexts | null,
 ): ShiftReportsArchive {
   const next: ShiftReportsArchive = { ...(archive ?? {}) }
-  const dayKey = report.date.trim()
+  const dayKey =
+    normalizeArchiveDateKey(report.date) ?? report.date.trim()
   if (!dayKey) return next
-  const day: ShiftDayArchive = { ...(next[dayKey] ?? {}) }
-  day[report.shift] = report
+  const existing = resolveArchiveDay(next, dayKey)
+  const day: ShiftDayArchive = { ...(existing?.day ?? {}) }
+  // Évite les doublons de clés (07.09 vs 7.9)
+  if (existing && existing.key !== dayKey) {
+    delete next[existing.key]
+  }
+  const normalizedReport = { ...report, date: dayKey }
+  day[report.shift] = normalizedReport
   next[dayKey] = day
 
   const nextShift = getNextShift(report.shift)
@@ -87,13 +153,15 @@ export function getShiftFromArchive(
   shift: ShiftKind,
   texts?: ShiftReportTexts | null,
 ): ShiftReport {
-  const existing = archive?.[date]?.[shift]
+  const normalized = normalizeArchiveDateKey(date) ?? date.trim()
+  const resolved = resolveArchiveDay(archive, normalized)
+  const existing = resolved?.day?.[shift]
   if (existing) {
-    return { ...existing, date, shift }
+    return { ...existing, date: normalized, shift }
   }
   return {
     ...createEmptyShiftReport(new Date(), texts),
-    date,
+    date: normalized,
     shift,
   }
 }
@@ -102,11 +170,9 @@ export function listShiftsForDay(
   archive: ShiftReportsArchive | undefined,
   date: string,
 ): ShiftKind[] {
-  const day = archive?.[date]
-  if (!day) return []
-  return (['morning', 'afternoon', 'night'] as ShiftKind[]).filter(
-    (s) => day[s] != null,
-  )
+  const resolved = resolveArchiveDay(archive, date)
+  if (!resolved) return []
+  return SHIFT_ORDER.filter((s) => resolved.day[s] != null)
 }
 
 /** Rapport considéré rempli si au moins un gardien (entrant ou sortant) est renseigné. */
@@ -128,18 +194,19 @@ export function getShiftDayStatus(
   date: string,
   current: ShiftReport,
 ): ShiftDayStatusItem[] {
-  const day = archive?.[date.trim()] ?? {}
-  return (['morning', 'afternoon', 'night'] as ShiftKind[]).map((shift) => {
+  const dayKey = normalizeArchiveDateKey(date) ?? date.trim()
+  const day = resolveArchiveDay(archive, dayKey)?.day ?? {}
+  const currentKey =
+    normalizeArchiveDateKey(current.date) ?? current.date.trim()
+  return SHIFT_ORDER.map((shift) => {
     const fromArchive = day[shift]
     const report =
-      current.date.trim() === date.trim() && current.shift === shift
-        ? current
-        : fromArchive
+      currentKey === dayKey && current.shift === shift ? current : fromArchive
     return {
       shift,
       filled: isShiftReportFilled(report),
       guardName: report?.guardIn?.trim() ?? '',
-      isActive: current.date.trim() === date.trim() && current.shift === shift,
+      isActive: currentKey === dayKey && current.shift === shift,
     }
   })
 }
