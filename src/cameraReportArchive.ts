@@ -3,6 +3,7 @@ import { createEmptyCameraReport, isValidScan } from './cameraReport'
 import type { ShiftKind } from './shiftReport'
 import type { ShiftReportsArchive } from './shiftReportArchive'
 import { getOperationalDayDate } from './shiftReportArchive'
+import { parseShiftReportDate } from './shiftReportPaths'
 
 export type CameraDayArchive = Partial<Record<ShiftKind, CameraReport>>
 
@@ -114,5 +115,26 @@ export function getCameraDayStatus(
       scanCount: scans.filter(isValidScan).length,
       isActive: current.date.trim() === date.trim() && current.shift === shift,
     }
+  })
+}
+
+/** Dates (DD.MM.YYYY) avec au moins un דוח מצלמות rempli (fichier Excel). */
+export function listCameraArchiveSavedDates(
+  archive: CameraReportsArchive | undefined,
+): string[] {
+  if (!archive) return []
+  const keys = new Set<string>()
+  const shifts: ShiftKind[] = ['morning', 'afternoon', 'night']
+  for (const [key, day] of Object.entries(archive)) {
+    if (!day) continue
+    if (!shifts.some((shift) => isCameraReportFilled(day[shift]))) continue
+    const normalized = parseShiftReportDate(key)?.formatted ?? key.trim()
+    if (normalized) keys.add(normalized)
+  }
+  return [...keys].sort((a, b) => {
+    const pa = parseShiftReportDate(a)
+    const pb = parseShiftReportDate(b)
+    if (!pa || !pb) return a.localeCompare(b)
+    return pa.year - pb.year || pa.month - pb.month || pa.day - pb.day
   })
 }

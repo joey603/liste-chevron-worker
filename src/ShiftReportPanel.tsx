@@ -1037,7 +1037,12 @@ export default function ShiftReportPanel({
             value={report.date}
             onCommit={handleDateChange}
             onInvalid={() => onToast?.('תאריך לא תקין')}
-            savedDates={listArchiveSavedDates(archive)}
+            savedDates={[
+              ...listArchiveSavedDates(archive),
+              ...(report.guardIn.trim() || report.guardOut.trim()
+                ? [report.date]
+                : []),
+            ]}
           />
           <GuardNameField
             label="שומר/ת נכנס"

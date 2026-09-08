@@ -46,9 +46,10 @@ export function archiveHasSavedShifts(
 ): boolean {
   const resolved = resolveArchiveDay(archive, date)
   if (!resolved) return false
-  return SHIFT_ORDER.some((shift) => resolved.day[shift] != null)
+  return SHIFT_ORDER.some((shift) => isShiftReportStaffed(resolved.day[shift]))
 }
 
+/** Dates (DD.MM.YYYY) pour lesquelles un fichier Word a été / sera sauvegardé. */
 export function listArchiveSavedDates(
   archive: ShiftReportsArchive | undefined,
 ): string[] {
@@ -59,7 +60,7 @@ export function listArchiveSavedDates(
     if (!normalized) continue
     const day = resolveArchiveDay(archive, normalized)?.day
     if (!day) continue
-    if (SHIFT_ORDER.some((shift) => day[shift] != null)) {
+    if (SHIFT_ORDER.some((shift) => isShiftReportStaffed(day[shift]))) {
       keys.add(normalized)
     }
   }

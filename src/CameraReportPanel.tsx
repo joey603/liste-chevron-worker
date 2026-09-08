@@ -6,6 +6,8 @@ import {
 import { createPortal } from 'react-dom'
 import {
   getCameraDayStatus,
+  isCameraReportFilled,
+  listCameraArchiveSavedDates,
   type CameraReportsArchive,
 } from './cameraReportArchive'
 import {
@@ -661,7 +663,10 @@ export default function CameraReportPanel({
             value={report.date}
             onCommit={handleDateChange}
             onInvalid={() => onToast?.('תאריך לא תקין')}
-            savedDates={Object.keys(archive ?? {})}
+            savedDates={[
+              ...listCameraArchiveSavedDates(archive),
+              ...(isCameraReportFilled(report) ? [report.date] : []),
+            ]}
           />
           <label className="shift-field">
             <span>משמרת</span>

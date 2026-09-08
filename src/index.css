@@ -1660,49 +1660,255 @@ button.emergency-status-button:hover {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px 14px;
+  align-items: start;
+}
+
+.shift-meta-grid > .shift-field {
+  min-width: 0;
+  /* réserve la même place sous les contrôles (hint date) pour aligner les rangées */
+  padding-bottom: 1.15rem;
 }
 
 .shift-date-field {
+  position: relative;
   min-width: 0;
   max-width: 100%;
 }
 
-.shift-date-field-row {
+.shift-date-field-row,
+.shift-meta-grid .shift-guard-row {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
   max-width: 100%;
+  height: 42px;
 }
 
-.shift-date-field-row > input[type='text'] {
+.shift-meta-grid .shift-date-input,
+.shift-meta-grid .shift-guard-input {
   flex: 1 1 auto;
   min-width: 0;
-  max-width: 100%;
+  width: 100%;
+  height: 42px;
+  box-sizing: border-box;
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: 1.2;
 }
 
-.shift-date-picker-hidden {
+.shift-date-calendar {
   position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
+  z-index: 40;
+  top: calc(100% - 0.95rem);
+  right: 0;
+  width: min(292px, calc(100vw - 24px));
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 87, 168, 0.22);
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(15, 40, 80, 0.16);
+  direction: rtl;
+}
+
+.shift-date-calendar-nav {
+  display: grid;
+  grid-template-columns: 32px 1fr 32px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  direction: ltr;
+}
+
+.shift-date-calendar-title {
+  flex: 1;
+  text-align: center;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--chevron-blue-dark);
+}
+
+.shift-date-calendar-nav-btn {
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(0, 87, 168, 0.2);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--chevron-blue-dark);
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.shift-date-calendar-nav-btn:hover {
+  background: rgba(0, 87, 168, 0.06);
+}
+
+.shift-date-calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin-bottom: 4px;
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: rgba(0, 50, 100, 0.55);
+}
+
+.shift-date-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.shift-date-cal-empty {
+  aspect-ratio: 1;
+}
+
+.shift-date-cal-day {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  min-height: 34px;
+  padding: 0 0 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--chevron-blue-dark);
+  font-size: 0.84rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.shift-date-cal-day:hover {
+  background: rgba(0, 87, 168, 0.08);
+}
+
+.shift-date-cal-day.is-today:not(.is-selected) {
+  box-shadow: inset 0 0 0 1.5px rgba(0, 87, 168, 0.45);
+}
+
+.shift-date-cal-day.is-selected,
+.shift-date-cal-day.is-selected:hover {
+  background: var(--chevron-blue-dark);
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff;
+}
+
+.shift-date-cal-day.is-selected .shift-date-cal-day-num {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff;
+}
+
+.shift-date-cal-day-num {
+  line-height: 1;
+}
+
+/* Point vert sous chaque jour qui a un fichier sauvegardé */
+.shift-date-cal-day.has-saved::after {
+  content: '';
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #16a34a;
   pointer-events: none;
 }
 
-.shift-date-pick,
-.shift-date-today {
-  width: auto !important;
+.shift-date-cal-day.is-selected.has-saved::after {
+  background: #86efac;
+}
+
+.shift-date-calendar-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0, 87, 168, 0.12);
+}
+
+.shift-date-calendar-footer-btn {
+  flex: 1;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 87, 168, 0.25);
+  background: rgba(0, 87, 168, 0.06);
+  color: var(--chevron-blue-dark);
+  font-size: 0.84rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.shift-date-calendar-footer-btn.is-muted {
+  background: #fff;
+  font-weight: 600;
+  color: rgba(0, 40, 80, 0.7);
+}
+
+.shift-date-calendar-footer-btn:hover {
+  background: rgba(0, 87, 168, 0.12);
+}
+
+.shift-date-action,
+.shift-meta-grid .shift-guard-picker-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
-  white-space: nowrap;
-  padding: 8px 10px;
+  box-sizing: border-box;
+  height: 42px;
+  min-width: 42px;
+  margin: 0;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 87, 168, 0.25);
+  background: #fff;
+  color: var(--chevron-blue-dark);
   font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.shift-meta-grid .shift-guard-picker-btn {
+  width: 42px;
+  padding: 0;
+  font-size: 1.1rem;
+  font-weight: 400;
+}
+
+.shift-date-action:hover,
+.shift-meta-grid .shift-guard-picker-btn:hover {
+  background: rgba(0, 87, 168, 0.06);
+  border-color: rgba(0, 87, 168, 0.4);
 }
 
 .shift-date-saved-hint {
-  display: block;
-  margin-top: 4px;
+  position: absolute;
+  right: 0;
+  left: 0;
+  bottom: 0;
+  margin: 0;
   font-size: 0.75rem;
   color: #15803d;
+  line-height: 1.15;
+  pointer-events: none;
+}
+
+.shift-date-saved-hint.is-placeholder {
+  visibility: hidden;
 }
 
 .shift-day-status {
