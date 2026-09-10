@@ -3522,13 +3522,64 @@ button.camera-xls-tab:hover:not(.is-disabled):not(.is-active) {
   padding: 24px;
 }
 
+.banned-list-panel .roster-capture-root {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .banned-list {
   flex: 1;
+  overflow-x: hidden;
   overflow-y: auto;
   min-height: 0;
   display: grid;
   gap: 10px;
   align-content: start;
+  padding-inline-end: 4px;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 87, 168, 0.45) rgba(0, 59, 112, 0.06);
+}
+
+.banned-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.banned-list::-webkit-scrollbar-track {
+  background: rgba(0, 59, 112, 0.05);
+  border-radius: 8px;
+}
+
+.banned-list::-webkit-scrollbar-thumb {
+  background: rgba(0, 87, 168, 0.4);
+  border-radius: 8px;
+}
+
+.banned-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 87, 168, 0.65);
+}
+
+.roster-panel .banned-list {
+  scrollbar-color: rgba(0, 87, 168, 0.45) rgba(0, 59, 112, 0.06);
+}
+
+.banned-panel:not(.roster-panel) .banned-list {
+  scrollbar-color: rgba(227, 24, 55, 0.45) rgba(227, 24, 55, 0.08);
+}
+
+.banned-panel:not(.roster-panel) .banned-list::-webkit-scrollbar-track {
+  background: rgba(227, 24, 55, 0.06);
+}
+
+.banned-panel:not(.roster-panel) .banned-list::-webkit-scrollbar-thumb {
+  background: rgba(227, 24, 55, 0.4);
+}
+
+.banned-panel:not(.roster-panel) .banned-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(227, 24, 55, 0.65);
 }
 
 .banned-row {
