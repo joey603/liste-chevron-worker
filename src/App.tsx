@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { domToPng } from 'modern-screenshot'
 import ShiftReportPanel from './ShiftReportPanel'
 import CameraReportPanel from './CameraReportPanel'
+import GuardRosterPanel from './GuardRosterPanel'
 import type { ShiftKind, ShiftReport, ShiftReportTexts } from './shiftReport'
 import type { CameraReport } from './cameraReport'
 import {
@@ -254,7 +255,7 @@ function IconPhone({ size = 16 }: { size?: number }) {
 }
 
 type Toast = { message: string } | null
-type AppTab = 'presence' | 'banned' | 'cameras' | 'shift'
+type AppTab = 'presence' | 'banned' | 'roster' | 'cameras' | 'shift'
 type ListSort = 'time_asc' | 'time_desc' | 'name'
 type ListLayout = 'rows' | 'columns'
 type ListKindFilter = 'all' | 'visitors' | 'workers_constant' | 'workers_temporary'
@@ -2443,6 +2444,16 @@ export default function App() {
         <nav className="app-tabs" aria-label="ניווט ראשי">
           <button
             type="button"
+            className={`app-tab ${activeTab === 'roster' ? 'active' : ''}`}
+            onClick={() => {
+              clearManageMode()
+              setActiveTab('roster')
+            }}
+          >
+            רוסטר
+          </button>
+          <button
+            type="button"
             className={`app-tab app-tab-banned ${activeTab === 'banned' ? 'active' : ''}`}
             onClick={() => {
               clearManageMode()
@@ -3176,6 +3187,19 @@ export default function App() {
             {toast && <div className="toast">{toast.message}</div>}
           </div>
         </main>
+      )}
+
+      {activeTab === 'roster' && data && (
+        <GuardRosterPanel
+          guards={data.guards ?? []}
+          onChange={(guards, message) =>
+            void persist({ ...data, guards }, message)
+          }
+          onToast={(message) => setToast({ message })}
+          toastMessage={toast?.message ?? null}
+          shareContacts={data.settings.emergencyPhones ?? []}
+          siteName={data.settings.siteName}
+        />
       )}
 
       {activeTab === 'cameras' && (

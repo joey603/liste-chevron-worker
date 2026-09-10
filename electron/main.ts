@@ -542,19 +542,6 @@ type AppSettings = {
   shiftReportSmtpPass?: string
 }
 
-type AppData = {
-  settings: AppSettings
-  workers: Worker[]
-  cardlessPeople: CardlessPerson[]
-  people: PersonEntry[]
-  banned: BannedPerson[]
-  shiftReport?: unknown
-  shiftReportTexts?: unknown
-  shiftReportsArchive?: Record<string, unknown>
-  cameraReport?: unknown
-  cameraReportsArchive?: Record<string, unknown>
-}
-
 type BannedPerson = {
   id: string
   firstName: string
@@ -563,6 +550,31 @@ type BannedPerson = {
   plateNumber: string
   idNumber: string
   addedAt: string
+}
+
+type GuardRosterEntry = {
+  id: string
+  firstName: string
+  lastName: string
+  phone: string
+  address: string
+  emergencyContactName: string
+  emergencyContactPhone: string
+  addedAt: string
+}
+
+type AppData = {
+  settings: AppSettings
+  workers: Worker[]
+  cardlessPeople: CardlessPerson[]
+  people: PersonEntry[]
+  banned: BannedPerson[]
+  guards: GuardRosterEntry[]
+  shiftReport?: unknown
+  shiftReportTexts?: unknown
+  shiftReportsArchive?: Record<string, unknown>
+  cameraReport?: unknown
+  cameraReportsArchive?: Record<string, unknown>
 }
 
 function defaultVisitorSlots(): Record<string, VisitorSlot> {
@@ -616,6 +628,7 @@ const defaultData = (): AppData => ({
   cardlessPeople: [],
   people: [],
   banned: [],
+  guards: [],
 })
 
 function dataPath() {
@@ -786,6 +799,27 @@ function normalize(raw: Partial<AppData>): AppData {
           plateNumber: b.plateNumber ?? '',
           idNumber: b.idNumber ?? '',
           addedAt: b.addedAt ?? new Date().toISOString(),
+        }))
+      : [],
+    guards: Array.isArray(raw.guards)
+      ? raw.guards.map((g) => ({
+          id: typeof g?.id === 'string' ? g.id : makeId(),
+          firstName: typeof g?.firstName === 'string' ? g.firstName : '',
+          lastName: typeof g?.lastName === 'string' ? g.lastName : '',
+          phone: typeof g?.phone === 'string' ? g.phone : '',
+          address: typeof g?.address === 'string' ? g.address : '',
+          emergencyContactName:
+            typeof g?.emergencyContactName === 'string'
+              ? g.emergencyContactName
+              : '',
+          emergencyContactPhone:
+            typeof g?.emergencyContactPhone === 'string'
+              ? g.emergencyContactPhone
+              : '',
+          addedAt:
+            typeof g?.addedAt === 'string'
+              ? g.addedAt
+              : new Date().toISOString(),
         }))
       : [],
     shiftReport: raw.shiftReport,

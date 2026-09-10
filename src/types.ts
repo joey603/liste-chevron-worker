@@ -176,6 +176,18 @@ export type BannedPerson = {
   addedAt: string
 }
 
+/** רשומת שומר/ת ברוסטר */
+export type GuardRosterEntry = {
+  id: string
+  firstName: string
+  lastName: string
+  phone: string
+  address: string
+  emergencyContactName: string
+  emergencyContactPhone: string
+  addedAt: string
+}
+
 export type AppData = {
   settings: AppSettings
   workers: Worker[]
@@ -183,6 +195,8 @@ export type AppData = {
   cardlessPeople: CardlessPerson[]
   people: PersonEntry[]
   banned: BannedPerson[]
+  /** רוסטר שומרים */
+  guards: GuardRosterEntry[]
   /** טיוטת דוח משמרת נוכחית */
   shiftReport?: ShiftReport
   /** טקסטים קבועים לדוח משמרת (תזכורות / תקלות / הערות) */
@@ -363,6 +377,10 @@ export function bannedDisplayName(b: BannedPerson): string {
   return `${b.firstName} ${b.lastName}`.trim()
 }
 
+export function guardDisplayName(g: GuardRosterEntry): string {
+  return `${g.firstName} ${g.lastName}`.trim()
+}
+
 export function cardlessDisplayName(c: CardlessPerson): string {
   return `${c.firstName} ${c.lastName}`.trim()
 }
@@ -509,6 +527,49 @@ export function buildEmergencyMessage(
 
   lines.push('', `סה״כ: ${present.length}`)
   return lines.join('\n')
+}
+
+/** הודעת WhatsApp לרוסטר שומרים בלבד (לא רשימת נוכחים). */
+export function buildGuardRosterMessage(
+  guards: GuardRosterEntry[],
+  siteName = 'אתר Chevron',
+): string {
+  const sorted = [...guards].sort((a, b) =>
+    guardDisplayName(a).localeCompare(guardDisplayName(b), 'he'),
+  )
+  const now = new Date().toLocaleString('he-IL', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+  const lines: string[] = [
+    `🛡️ רוסטר שומרים — ${siteName}`,
+    `עודכן: ${now}`,
+    '',
+  ]
+
+  if (sorted.length === 0) {
+    lines.push('— אין שומרים ברוסטר —')
+  } else {
+    sorted.forEach((g, i) => {
+      lines.push(`${i + 1}. ${guardDisplayName(g)}`)
+      if (g.phone.trim()) lines.push(`   טלפון: ${g.phone.trim()}`)
+      if (g.address.trim()) lines.push(`   כתובת: ${g.address.trim()}`)
+      const emName = g.emergencyContactName.trim()
+      const emPhone = g.emergencyContactPhone.trim()
+      if (emName || emPhone) {
+        lines.push(
+          `   איש קשר לחירום: ${emName || '—'}${emPhone ? ` · ${emPhone}` : ''}`,
+        )
+      }
+      lines.push('')
+    })
+  }
+
+  lines.push(`סה״כ שומרים: ${sorted.length}`)
+  return lines.join('\n').trimEnd()
 }
 
 /** Normalise un numéro IL vers format international (chiffres seuls). */
@@ -751,12 +812,28 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
     idNumber: b.idNumber ?? '',
     addedAt: b.addedAt ?? new Date().toISOString(),
   }))
+  const guards = (Array.isArray(raw?.guards) ? raw.guards : []).map((g) => ({
+    id: typeof g?.id === 'string' ? g.id : createId(),
+    firstName: typeof g?.firstName === 'string' ? g.firstName : '',
+    lastName: typeof g?.lastName === 'string' ? g.lastName : '',
+    phone: typeof g?.phone === 'string' ? g.phone : '',
+    address: typeof g?.address === 'string' ? g.address : '',
+    emergencyContactName:
+      typeof g?.emergencyContactName === 'string' ? g.emergencyContactName : '',
+    emergencyContactPhone:
+      typeof g?.emergencyContactPhone === 'string'
+        ? g.emergencyContactPhone
+        : '',
+    addedAt:
+      typeof g?.addedAt === 'string' ? g.addedAt : new Date().toISOString(),
+  }))
   return purgeExpiredWorkers({
     settings,
     workers,
     cardlessPeople,
     people,
     banned,
+    guards,
     shiftReport: normalizeShiftReport(
       raw?.shiftReport,
       normalizeShiftReportTexts(raw?.shiftReportTexts),

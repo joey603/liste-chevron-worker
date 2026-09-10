@@ -1484,6 +1484,67 @@ button.emergency-status-button:hover {
   width: 100%;
 }
 
+.roster-emergency-block {
+  margin-top: 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(0, 87, 168, 0.05);
+  border: 1px solid rgba(0, 87, 168, 0.12);
+}
+
+.roster-emergency-block h4 {
+  margin: 0 0 10px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--chevron-blue-dark);
+}
+
+.roster-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+.roster-details .muted {
+  color: var(--muted);
+}
+
+.roster-emergency-line {
+  margin-top: 4px;
+  font-size: 0.86rem;
+  color: var(--chevron-blue-dark);
+}
+
+.roster-emergency-line strong {
+  font-weight: 700;
+}
+
+.roster-capture-heading {
+  display: none;
+}
+
+.roster-capture-root[data-capture-host] .roster-capture-heading,
+[data-capture-host] .roster-capture-heading {
+  display: block;
+  margin-bottom: 14px;
+  font-size: 1.15rem;
+  color: var(--chevron-blue-dark);
+}
+
+.roster-panel .banned-empty {
+  border-color: rgba(0, 87, 168, 0.28);
+  background: rgba(0, 87, 168, 0.04);
+}
+
+.roster-panel .banned-row {
+  border-color: rgba(0, 87, 168, 0.2);
+  background: rgba(0, 87, 168, 0.03);
+}
+
+.roster-panel .banned-name {
+  color: var(--chevron-blue-dark);
+}
+
 .report-panel {
   flex: 1;
   width: 100%;
