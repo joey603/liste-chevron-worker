@@ -29,6 +29,10 @@ import {
   readMonthlyCameraWorkbookFile,
 } from './cameraReportMonthly'
 import {
+  readGuardRosterExcel,
+  writeGuardRosterExcel,
+} from './guardRosterExcel'
+import {
   buildCameraMonthlyWorkbookBuffer,
   writeCameraMonthlyWorkbook,
 } from './cameraReportWorkbook'
@@ -531,6 +535,7 @@ type AppSettings = {
   visitorSlots: Record<string, VisitorSlot>
   shiftReportSaveFolder?: string
   cameraReportSaveFolder?: string
+  guardRosterExcelPath?: string
   directorEmail?: string
   shiftReportEmailTime?: string
   shiftReportEmailMode?: 'auto' | 'manual'
@@ -560,6 +565,10 @@ type GuardRosterEntry = {
   address: string
   emergencyContactName: string
   emergencyContactPhone: string
+  job: string
+  company: string
+  shift: string
+  idCard: string
   addedAt: string
 }
 
@@ -740,6 +749,10 @@ function normalize(raw: Partial<AppData>): AppData {
       typeof raw.settings?.cameraReportSaveFolder === 'string'
         ? raw.settings.cameraReportSaveFolder.trim()
         : '',
+    guardRosterExcelPath:
+      typeof raw.settings?.guardRosterExcelPath === 'string'
+        ? raw.settings.guardRosterExcelPath.trim()
+        : '',
     directorEmail:
       typeof raw.settings?.directorEmail === 'string'
         ? raw.settings.directorEmail.trim()
@@ -816,6 +829,14 @@ function normalize(raw: Partial<AppData>): AppData {
             typeof g?.emergencyContactPhone === 'string'
               ? g.emergencyContactPhone
               : '',
+          job:
+            typeof g?.job === 'string' && g.job.trim() ? g.job : 'guard',
+          company:
+            typeof g?.company === 'string' && g.company.trim()
+              ? g.company
+              : 'G1',
+          shift: typeof g?.shift === 'string' ? g.shift : '',
+          idCard: typeof g?.idCard === 'string' ? g.idCard : '',
           addedAt:
             typeof g?.addedAt === 'string'
               ? g.addedAt
@@ -2404,6 +2425,63 @@ app.whenReady().then(() => {
     }
     return { ok: true as const, path: result.filePaths[0] }
   })
+
+  ipcMain.handle('guardRoster:pickExcel', async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'בחירת קובץ רוסטר Excel',
+      properties: ['openFile'],
+      filters: [{ name: 'Excel', extensions: ['xlsx', 'xls'] }],
+    })
+    if (result.canceled || !result.filePaths[0]) {
+      return { ok: false as const, canceled: true as const }
+    }
+    return { ok: true as const, path: result.filePaths[0] }
+  })
+
+  ipcMain.handle(
+    'guardRoster:readExcel',
+    async (_event, filePath: string) => readGuardRosterExcel(String(filePath || '')),
+  )
+
+  ipcMain.handle(
+    'guardRoster:writeExcel',
+    async (
+      _event,
+      payload: {
+        filePath: string
+        guards: Array<{
+          id: string
+          firstName: string
+          lastName: string
+          phone: string
+          address: string
+          emergencyContactName: string
+          emergencyContactPhone: string
+          job?: string
+          company?: string
+          shift?: string
+          idCard?: string
+          addedAt?: string
+        }>
+      },
+    ) => {
+      const rows = (payload.guards ?? []).map((g) => ({
+        id: g.id,
+        firstName: g.firstName ?? '',
+        lastName: g.lastName ?? '',
+        phone: g.phone ?? '',
+        address: g.address ?? '',
+        emergencyContactName: g.emergencyContactName ?? '',
+        emergencyContactPhone: g.emergencyContactPhone ?? '',
+        job: g.job ?? 'guard',
+        company: g.company ?? 'G1',
+        shift: g.shift ?? '',
+        idCard: g.idCard ?? '',
+        addedAt: g.addedAt ?? new Date().toISOString(),
+      }))
+      return writeGuardRosterExcel(String(payload.filePath || ''), rows)
+    },
+  )
 
   ipcMain.handle(
     'shiftReport:saveFiles',

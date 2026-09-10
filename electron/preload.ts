@@ -76,6 +76,22 @@ const api = {
     ipcRenderer.invoke('file:saveBytes', payload),
   pickFolder: (): Promise<{ ok: boolean; canceled?: boolean; path?: string }> =>
     ipcRenderer.invoke('folder:pick'),
+  pickGuardRosterExcel: (): Promise<{
+    ok: boolean
+    canceled?: boolean
+    path?: string
+  }> => ipcRenderer.invoke('guardRoster:pickExcel'),
+  readGuardRosterExcel: (
+    filePath: string,
+  ): Promise<
+    | { ok: true; guards: unknown[] }
+    | { ok: false; error?: string }
+  > => ipcRenderer.invoke('guardRoster:readExcel', filePath),
+  writeGuardRosterExcel: (payload: {
+    filePath: string
+    guards: unknown[]
+  }): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('guardRoster:writeExcel', payload),
   saveShiftReportFiles: (payload: {
     folder: string
     relativeDir: string

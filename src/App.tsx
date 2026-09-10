@@ -3199,6 +3199,13 @@ export default function App() {
           toastMessage={toast?.message ?? null}
           shareContacts={data.settings.emergencyPhones ?? []}
           siteName={data.settings.siteName}
+          excelPath={data.settings.guardRosterExcelPath ?? ''}
+          onExcelPathChange={(path) =>
+            void persist({
+              ...data,
+              settings: { ...data.settings, guardRosterExcelPath: path },
+            })
+          }
         />
       )}
 

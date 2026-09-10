@@ -75,6 +75,8 @@ export type AppSettings = {
   shiftReportSaveFolder?: string
   /** תיקייה לשמירה אוטומטית של דוחות מצלמות */
   cameraReportSaveFolder?: string
+  /** נתיב קובץ Excel של רוסטר השומרים (רוסטר צרעה.xlsx) */
+  guardRosterExcelPath?: string
   /** אימייל מנהל לקבלת 3 הדוחות היומיים */
   directorEmail?: string
   /** שעת שליחה יומית (HH:MM) */
@@ -185,6 +187,14 @@ export type GuardRosterEntry = {
   address: string
   emergencyContactName: string
   emergencyContactPhone: string
+  /** Job (Excel) */
+  job: string
+  /** Company (Excel) */
+  company: string
+  /** Shift (Excel) */
+  shift: string
+  /** ID card # (Excel) */
+  idCard: string
   addedAt: string
 }
 
@@ -297,6 +307,21 @@ export type ListeApi = {
   downloadUpdate: () => Promise<boolean>
   installUpdate: () => Promise<boolean>
   pickFolder?: () => Promise<{ ok: boolean; canceled?: boolean; path?: string }>
+  pickGuardRosterExcel?: () => Promise<{
+    ok: boolean
+    canceled?: boolean
+    path?: string
+  }>
+  readGuardRosterExcel?: (
+    filePath: string,
+  ) => Promise<
+    | { ok: true; guards: GuardRosterEntry[] }
+    | { ok: false; error?: string }
+  >
+  writeGuardRosterExcel?: (payload: {
+    filePath: string
+    guards: GuardRosterEntry[]
+  }) => Promise<{ ok: boolean; error?: string }>
   saveShiftReportFiles?: (payload: {
     folder: string
     relativeDir: string
@@ -736,6 +761,10 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
       typeof rawSettings?.cameraReportSaveFolder === 'string'
         ? rawSettings.cameraReportSaveFolder.trim()
         : '',
+    guardRosterExcelPath:
+      typeof rawSettings?.guardRosterExcelPath === 'string'
+        ? rawSettings.guardRosterExcelPath.trim()
+        : '',
     directorEmail:
       typeof rawSettings?.directorEmail === 'string'
         ? rawSettings.directorEmail.trim()
@@ -824,6 +853,11 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
       typeof g?.emergencyContactPhone === 'string'
         ? g.emergencyContactPhone
         : '',
+    job: typeof g?.job === 'string' && g.job.trim() ? g.job : 'guard',
+    company:
+      typeof g?.company === 'string' && g.company.trim() ? g.company : 'G1',
+    shift: typeof g?.shift === 'string' ? g.shift : '',
+    idCard: typeof g?.idCard === 'string' ? g.idCard : '',
     addedAt:
       typeof g?.addedAt === 'string' ? g.addedAt : new Date().toISOString(),
   }))

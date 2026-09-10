@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useRef, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { domToPng } from 'modern-screenshot'
 import {
   contactDisplayName,
@@ -17,6 +17,10 @@ const emptyGuard = {
   address: '',
   emergencyContactName: '',
   emergencyContactPhone: '',
+  job: 'guard',
+  company: 'G1',
+  shift: '',
+  idCard: '',
 }
 
 type GuardForm = typeof emptyGuard
@@ -29,6 +33,8 @@ type Props = {
   /** מספרי WhatsApp לשליחה (אותם אנשי קשר מההגדרות — לא רשימת נוכחים) */
   shareContacts?: ContactPhone[]
   siteName?: string
+  excelPath?: string
+  onExcelPathChange?: (path: string) => void | Promise<void>
 }
 
 export default function GuardRosterPanel({
@@ -38,6 +44,8 @@ export default function GuardRosterPanel({
   toastMessage,
   shareContacts = [],
   siteName = 'אתר Chevron',
+  excelPath = '',
+  onExcelPathChange,
 }: Props) {
   const [showAdd, setShowAdd] = useState(false)
   const [draft, setDraft] = useState<GuardForm>(emptyGuard)
@@ -45,7 +53,12 @@ export default function GuardRosterPanel({
   const [showShare, setShowShare] = useState(false)
   const [sharePhoneDraft, setSharePhoneDraft] = useState('')
   const [sending, setSending] = useState(false)
+  const [excelBusy, setExcelBusy] = useState(false)
   const captureRef = useRef<HTMLDivElement>(null)
+  const excelPathRef = useRef(excelPath)
+  const skipNextExcelWriteRef = useRef(false)
+  const excelWriteTimer = useRef<number | null>(null)
+  excelPathRef.current = excelPath
 
   const sorted = useMemo(
     () =>
@@ -61,6 +74,114 @@ export default function GuardRosterPanel({
 
   function resetDraft() {
     setDraft(emptyGuard)
+  }
+
+  async function writeExcelNow(nextGuards: GuardRosterEntry[], pathOverride?: string) {
+    const filePath = (pathOverride ?? excelPathRef.current).trim()
+    if (!filePath || !window.listeApi?.writeGuardRosterExcel) return
+    const result = await window.listeApi.writeGuardRosterExcel({
+      filePath,
+      guards: nextGuards,
+    })
+    if (!result.ok) {
+      if (result.error === 'file_locked') {
+        notify('קובץ ה־Excel פתוח — סגרו אותו ושמרו שוב')
+      } else {
+        notify(`שמירת Excel נכשלה${result.error ? `: ${result.error}` : ''}`)
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (skipNextExcelWriteRef.current) {
+      skipNextExcelWriteRef.current = false
+      return
+    }
+    if (!excelPath.trim() || !window.listeApi?.writeGuardRosterExcel) return
+    if (excelWriteTimer.current != null) {
+      window.clearTimeout(excelWriteTimer.current)
+    }
+    excelWriteTimer.current = window.setTimeout(() => {
+      excelWriteTimer.current = null
+      void writeExcelNow(guards)
+    }, 700)
+    return () => {
+      if (excelWriteTimer.current != null) {
+        window.clearTimeout(excelWriteTimer.current)
+        excelWriteTimer.current = null
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync Excel on guards/path only
+  }, [guards, excelPath])
+
+  async function pickExcelFile() {
+    if (!window.listeApi?.pickGuardRosterExcel) {
+      notify('בחירת קובץ זמינה רק באפליקציה המותקנת')
+      return
+    }
+    setExcelBusy(true)
+    try {
+      const picked = await window.listeApi.pickGuardRosterExcel()
+      if (!picked.ok || !picked.path) return
+      await loadFromExcel(picked.path, true)
+    } finally {
+      setExcelBusy(false)
+    }
+  }
+
+  async function loadFromExcel(filePath: string, replaceList: boolean) {
+    if (!window.listeApi?.readGuardRosterExcel) {
+      notify('קריאת Excel זמינה רק באפליקציה המותקנת')
+      return
+    }
+    const result = await window.listeApi.readGuardRosterExcel(filePath)
+    if (!result.ok) {
+      notify(
+        result.error === 'not_found'
+          ? 'קובץ ה־Excel לא נמצא'
+          : `טעינת Excel נכשלה${result.error ? `: ${result.error}` : ''}`,
+      )
+      return
+    }
+    skipNextExcelWriteRef.current = true
+    await onExcelPathChange?.(filePath)
+    if (replaceList || guards.length === 0) {
+      await onChange(
+        result.guards,
+        `נטענו ${result.guards.length} שומרים מקובץ ה־Excel`,
+      )
+    } else {
+      notify('נתיב ה־Excel נשמר — הרשימה הקיימת לא הוחלפה')
+    }
+  }
+
+  async function reloadExcel() {
+    const filePath = excelPath.trim()
+    if (!filePath) {
+      notify('בחרו קובץ Excel תחילה')
+      return
+    }
+    setExcelBusy(true)
+    try {
+      await loadFromExcel(filePath, true)
+    } finally {
+      setExcelBusy(false)
+    }
+  }
+
+  async function saveExcelNow() {
+    const filePath = excelPath.trim()
+    if (!filePath) {
+      notify('בחרו קובץ Excel תחילה')
+      return
+    }
+    setExcelBusy(true)
+    try {
+      await writeExcelNow(guards, filePath)
+      notify('הרוסטר נשמר לקובץ ה־Excel')
+    } finally {
+      setExcelBusy(false)
+    }
   }
 
   function openSharePicker() {
@@ -262,6 +383,10 @@ export default function GuardRosterPanel({
       address: draft.address.trim(),
       emergencyContactName: draft.emergencyContactName.trim(),
       emergencyContactPhone: draft.emergencyContactPhone.trim(),
+      job: draft.job.trim() || 'guard',
+      company: draft.company.trim() || 'G1',
+      shift: draft.shift.trim(),
+      idCard: draft.idCard.trim(),
       addedAt: new Date().toISOString(),
     }
     await onChange(
@@ -282,6 +407,10 @@ export default function GuardRosterPanel({
       address: editing.address,
       emergencyContactName: editing.emergencyContactName,
       emergencyContactPhone: editing.emergencyContactPhone,
+      job: editing.job || 'guard',
+      company: editing.company || 'G1',
+      shift: editing.shift || '',
+      idCard: editing.idCard || '',
     }
     const error = validate(form)
     if (error) {
@@ -310,6 +439,10 @@ export default function GuardRosterPanel({
             address: form.address.trim(),
             emergencyContactName: form.emergencyContactName.trim(),
             emergencyContactPhone: form.emergencyContactPhone.trim(),
+            job: form.job.trim() || 'guard',
+            company: form.company.trim() || 'G1',
+            shift: form.shift.trim(),
+            idCard: form.idCard.trim(),
           }
         : g,
     )
@@ -378,14 +511,52 @@ export default function GuardRosterPanel({
             />
           </div>
           <div className="field">
-            <label htmlFor={`${idPrefix}-address`}>כתובת</label>
+            <label htmlFor={`${idPrefix}-idcard`}>תעודת זהות</label>
             <input
-              id={`${idPrefix}-address`}
-              value={values.address}
+              id={`${idPrefix}-idcard`}
+              value={values.idCard}
               onChange={(e) =>
-                setValues((s) => ({ ...s, address: e.target.value }))
+                setValues((s) => ({ ...s, idCard: e.target.value }))
               }
-              placeholder="רחוב, עיר"
+              placeholder="000000000"
+              autoComplete="off"
+            />
+          </div>
+        </div>
+        <div className="field">
+          <label htmlFor={`${idPrefix}-address`}>כתובת</label>
+          <input
+            id={`${idPrefix}-address`}
+            value={values.address}
+            onChange={(e) =>
+              setValues((s) => ({ ...s, address: e.target.value }))
+            }
+            placeholder="רחוב, עיר"
+            autoComplete="off"
+          />
+        </div>
+        <div className="row-2">
+          <div className="field">
+            <label htmlFor={`${idPrefix}-job`}>תפקיד (Job)</label>
+            <input
+              id={`${idPrefix}-job`}
+              value={values.job}
+              onChange={(e) =>
+                setValues((s) => ({ ...s, job: e.target.value }))
+              }
+              placeholder="guard"
+              autoComplete="off"
+            />
+          </div>
+          <div className="field">
+            <label htmlFor={`${idPrefix}-company`}>חברה (Company)</label>
+            <input
+              id={`${idPrefix}-company`}
+              value={values.company}
+              onChange={(e) =>
+                setValues((s) => ({ ...s, company: e.target.value }))
+              }
+              placeholder="G1"
               autoComplete="off"
             />
           </div>
@@ -435,7 +606,7 @@ export default function GuardRosterPanel({
       <header className="main-header">
         <div className="brand">
           <h1>רוסטר</h1>
-          <p>רשימת שומרים — פרטים ואיש קשר לחירום</p>
+          <p>רשימת שומרים — מסונכרן עם קובץ Excel</p>
         </div>
         <div className="main-header-actions">
           <button
@@ -461,6 +632,46 @@ export default function GuardRosterPanel({
           </button>
         </div>
       </header>
+
+      <div className="roster-excel-bar">
+        <input
+          id="roster-excel-path"
+          className="roster-excel-path-input"
+          value={excelPath}
+          readOnly
+          placeholder="קובץ Excel — לחצו «בחר קובץ»"
+          aria-label="קובץ Excel (רוסטר צרעה)"
+          dir="ltr"
+          title={excelPath || 'לא נבחר קובץ'}
+        />
+        <div className="roster-excel-actions">
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={excelBusy}
+            onClick={() => void pickExcelFile()}
+          >
+            בחר קובץ
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={excelBusy || !excelPath.trim()}
+            onClick={() => void reloadExcel()}
+          >
+            טען מהקובץ
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ width: 'auto' }}
+            disabled={excelBusy || !excelPath.trim()}
+            onClick={() => void saveExcelNow()}
+          >
+            שמור ל־Excel
+          </button>
+        </div>
+      </div>
 
       <div className="panel banned-list-panel roster-list-panel">
         {sorted.length === 0 ? (
@@ -491,8 +702,14 @@ export default function GuardRosterPanel({
                       ) : (
                         <span className="muted">ללא טלפון</span>
                       )}
+                      {entry.idCard ? (
+                        <span>ת.ז.: {entry.idCard}</span>
+                      ) : null}
                       {entry.address ? (
                         <span>כתובת: {entry.address}</span>
+                      ) : null}
+                      {entry.company ? (
+                        <span>חברה: {entry.company}</span>
                       ) : null}
                     </div>
                     {(entry.emergencyContactName ||
@@ -585,6 +802,10 @@ export default function GuardRosterPanel({
                   address: editing.address,
                   emergencyContactName: editing.emergencyContactName,
                   emergencyContactPhone: editing.emergencyContactPhone,
+                  job: editing.job || 'guard',
+                  company: editing.company || 'G1',
+                  shift: editing.shift || '',
+                  idCard: editing.idCard || '',
                 },
                 (updater) => {
                   setEditing((prev) => {
@@ -596,6 +817,10 @@ export default function GuardRosterPanel({
                       address: prev.address,
                       emergencyContactName: prev.emergencyContactName,
                       emergencyContactPhone: prev.emergencyContactPhone,
+                      job: prev.job || 'guard',
+                      company: prev.company || 'G1',
+                      shift: prev.shift || '',
+                      idCard: prev.idCard || '',
                     })
                     return { ...prev, ...next }
                   })
