@@ -20,8 +20,8 @@ import {
   scheduleShiftReportAutoSave,
 } from './shiftReportAutoSave'
 import {
-  getNextShift,
   getShiftFromArchive,
+  normalizeArchiveDateKey,
   upsertShiftInArchive,
 } from './shiftReportArchive'
 import { normalizeShiftReportTexts } from './shiftReport'
@@ -1090,12 +1090,8 @@ export default function App() {
   const onShiftReportChange = useCallback((next: ShiftReport) => {
     setData((prev) => {
       if (!prev) return prev
-      const dayKey = next.date.trim()
-      const nextShift = getNextShift(next.shift)
-      const prevNextGuardOut =
-        nextShift != null
-          ? prev.shiftReportsArchive?.[dayKey]?.[nextShift]?.guardOut ?? ''
-          : ''
+      const dayKey =
+        normalizeArchiveDateKey(next.date) ?? next.date.trim()
       const shiftReportsArchive = upsertShiftInArchive(
         prev.shiftReportsArchive,
         next,
@@ -1131,21 +1127,6 @@ export default function App() {
           camReport,
           guardSync.cameraReportsArchive,
         )
-      }
-
-      if (nextShift) {
-        const nextGuardOut =
-          shiftReportsArchive[dayKey]?.[nextShift]?.guardOut ?? ''
-        if (nextGuardOut !== prevNextGuardOut) {
-          const nextShiftReport = shiftReportsArchive[dayKey]?.[nextShift]
-          if (nextShiftReport) {
-            void scheduleShiftReportAutoSave(
-              updated.settings,
-              nextShiftReport,
-              updated.shiftReportTexts,
-            )
-          }
-        }
       }
 
       return updated

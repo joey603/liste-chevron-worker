@@ -119,7 +119,7 @@ export function getOperationalDayDate(
 export function upsertShiftInArchive(
   archive: ShiftReportsArchive | undefined,
   report: ShiftReport,
-  texts?: ShiftReportTexts | null,
+  _texts?: ShiftReportTexts | null,
 ): ShiftReportsArchive {
   const next: ShiftReportsArchive = { ...(archive ?? {}) }
   const dayKey =
@@ -133,17 +133,6 @@ export function upsertShiftInArchive(
   }
   const normalizedReport = { ...report, date: dayKey }
   day[report.shift] = normalizedReport
-  next[dayKey] = day
-
-  const nextShift = getNextShift(report.shift)
-  if (!nextShift) return next
-
-  const guardIn = report.guardIn.trim()
-  const nextShiftReport =
-    day[nextShift] ?? getShiftFromArchive(next, dayKey, nextShift, texts)
-  if (nextShiftReport.guardOut === guardIn) return next
-
-  day[nextShift] = { ...nextShiftReport, guardOut: guardIn }
   next[dayKey] = day
   return next
 }

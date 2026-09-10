@@ -40,6 +40,7 @@ import {
   getShiftDayStatus,
   getShiftFromArchive,
   listArchiveSavedDates,
+  upsertShiftInArchive,
 } from './shiftReportArchive'
 import {
   getNextDayReportContext,
@@ -412,7 +413,19 @@ export default function ShiftReportPanel({
       )
     }
     const currentReport = reportRef.current
-    const nextReport = getShiftFromArchive(archive, date, shift, texts)
+    // Sauvegarder d'abord le rapport courant dans l'archive locale
+    // pour ne pas recharger une version obsolète au changement de משמרת.
+    const archiveAfterSave = upsertShiftInArchive(
+      archive,
+      currentReport,
+      texts,
+    )
+    const nextReport = getShiftFromArchive(
+      archiveAfterSave,
+      date,
+      shift,
+      texts,
+    )
     lastSyncedContextRef.current = `${date.trim()}|${shift}`
     suppressDebounceRef.current = true
     setReport(nextReport)
