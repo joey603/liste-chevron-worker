@@ -25,6 +25,7 @@ import {
   scheduleCameraReportAutoSave,
 } from './cameraReportAutoSave'
 import { getCameraReportSaveFolder } from './cameraReportPaths'
+import { restoreUiInteractivity } from './captureDomToPng'
 import CameraReportExcelPreview from './CameraReportExcelPreview'
 import GuardNameField from './GuardNameField'
 import GuardNamesManager from './GuardNamesManager'
@@ -319,11 +320,15 @@ export default function CameraReportPanel({
 
   async function pickSaveFolder() {
     if (!window.listeApi?.pickFolder) return
-    const result = await window.listeApi.pickFolder()
-    if (!result.ok || result.canceled || !result.path) return
-    onSettingsChange?.({ cameraReportSaveFolder: result.path })
-    const nextSettings = { ...settings!, cameraReportSaveFolder: result.path }
-    await runFileSave(nextSettings)
+    try {
+      const result = await window.listeApi.pickFolder()
+      if (!result.ok || result.canceled || !result.path) return
+      onSettingsChange?.({ cameraReportSaveFolder: result.path })
+      const nextSettings = { ...settings!, cameraReportSaveFolder: result.path }
+      await runFileSave(nextSettings)
+    } finally {
+      restoreUiInteractivity()
+    }
   }
 
   async function handleSaveFolderCommit(folderValue: string) {

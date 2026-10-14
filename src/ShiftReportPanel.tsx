@@ -32,6 +32,7 @@ import {
   flushShiftReportAutoSave,
   scheduleShiftReportAutoSave,
 } from './shiftReportAutoSave'
+import { restoreUiInteractivity } from './captureDomToPng'
 import type { AppSettings, ShiftEmailSentLogItem } from './types'
 import { buildShiftReportDocumentModel } from './shiftReportDocument'
 import type { ShiftReportsArchive } from './shiftReportArchive'
@@ -579,10 +580,14 @@ export default function ShiftReportPanel({
 
   async function pickSaveFolder() {
     if (!window.listeApi?.pickFolder) return
-    const result = await window.listeApi.pickFolder()
-    if (!result.ok || result.canceled || !result.path) return
-    onSettingsChange?.({ shiftReportSaveFolder: result.path })
-    onToast?.('תיקיית שמירה עודכנה')
+    try {
+      const result = await window.listeApi.pickFolder()
+      if (!result.ok || result.canceled || !result.path) return
+      onSettingsChange?.({ shiftReportSaveFolder: result.path })
+      onToast?.('תיקיית שמירה עודכנה')
+    } finally {
+      restoreUiInteractivity()
+    }
   }
 
   function openEdit(section: Exclude<EditSection, null>) {

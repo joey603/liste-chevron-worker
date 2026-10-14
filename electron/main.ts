@@ -2396,46 +2396,77 @@ app.whenReady().then(() => {
     return true
   })
 
+  function refocusMainWindow(sender?: Electron.WebContents) {
+    const fromSender = sender
+      ? BrowserWindow.fromWebContents(sender)
+      : null
+    const win =
+      fromSender && !fromSender.isDestroyed()
+        ? fromSender
+        : BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    if (!win || win.isDestroyed()) return
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+    try {
+      win.webContents.focus()
+    } catch {
+      /* ignore */
+    }
+  }
+
   ipcMain.handle(
     'file:saveBytes',
     async (
-      _event,
+      event,
       payload: { defaultName: string; bytes: number[]; filters?: { name: string; extensions: string[] }[] },
     ) => {
-      const result = await dialog.showSaveDialog({
-        defaultPath: payload.defaultName,
-        filters: payload.filters ?? [
-          { name: 'Word', extensions: ['docx'] },
-        ],
-      })
-      if (result.canceled || !result.filePath) {
-        return { ok: false as const, canceled: true as const }
+      try {
+        const result = await dialog.showSaveDialog({
+          defaultPath: payload.defaultName,
+          filters: payload.filters ?? [
+            { name: 'Word', extensions: ['docx'] },
+          ],
+        })
+        if (result.canceled || !result.filePath) {
+          return { ok: false as const, canceled: true as const }
+        }
+        fs.writeFileSync(result.filePath, Buffer.from(payload.bytes))
+        return { ok: true as const, path: result.filePath }
+      } finally {
+        refocusMainWindow(event.sender)
       }
-      fs.writeFileSync(result.filePath, Buffer.from(payload.bytes))
-      return { ok: true as const, path: result.filePath }
     },
   )
 
-  ipcMain.handle('folder:pick', async () => {
-    const result = await dialog.showOpenDialog({
-      properties: ['openDirectory', 'createDirectory'],
-    })
-    if (result.canceled || !result.filePaths[0]) {
-      return { ok: false as const, canceled: true as const }
+  ipcMain.handle('folder:pick', async (event) => {
+    try {
+      const result = await dialog.showOpenDialog({
+        properties: ['openDirectory', 'createDirectory'],
+      })
+      if (result.canceled || !result.filePaths[0]) {
+        return { ok: false as const, canceled: true as const }
+      }
+      return { ok: true as const, path: result.filePaths[0] }
+    } finally {
+      refocusMainWindow(event.sender)
     }
-    return { ok: true as const, path: result.filePaths[0] }
   })
 
-  ipcMain.handle('guardRoster:pickExcel', async () => {
-    const result = await dialog.showOpenDialog({
-      title: 'בחירת קובץ רוסטר Excel',
-      properties: ['openFile'],
-      filters: [{ name: 'Excel', extensions: ['xlsx', 'xls'] }],
-    })
-    if (result.canceled || !result.filePaths[0]) {
-      return { ok: false as const, canceled: true as const }
+  ipcMain.handle('guardRoster:pickExcel', async (event) => {
+    try {
+      const result = await dialog.showOpenDialog({
+        title: 'בחירת קובץ רוסטר Excel',
+        properties: ['openFile'],
+        filters: [{ name: 'Excel', extensions: ['xlsx', 'xls'] }],
+      })
+      if (result.canceled || !result.filePaths[0]) {
+        return { ok: false as const, canceled: true as const }
+      }
+      return { ok: true as const, path: result.filePaths[0] }
+    } finally {
+      refocusMainWindow(event.sender)
     }
-    return { ok: true as const, path: result.filePaths[0] }
   })
 
   ipcMain.handle(

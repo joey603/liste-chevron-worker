@@ -1,5 +1,8 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { domToPng } from 'modern-screenshot'
+import {
+  captureElementToPng,
+  restoreUiInteractivity,
+} from './captureDomToPng'
 import {
   contactDisplayName,
   createId,
@@ -126,6 +129,7 @@ export default function GuardRosterPanel({
       await loadFromExcel(picked.path, true)
     } finally {
       setExcelBusy(false)
+      restoreUiInteractivity()
     }
   }
 
@@ -197,80 +201,35 @@ export default function GuardRosterPanel({
     const source = captureRef.current
     if (!source) return null
 
-    const host = document.createElement('div')
-    host.setAttribute('data-capture-host', '1')
-    host.style.cssText = [
-      'position:fixed',
-      'left:0',
-      'top:0',
-      'z-index:2147483647',
-      'background:#ffffff',
-      'padding:0',
-      'margin:0',
-      'opacity:1',
-      'filter:none',
-      'pointer-events:none',
-      'transform:none',
-    ].join(';')
-
-    const clone = source.cloneNode(true) as HTMLElement
-    clone.style.width = `${Math.max(source.scrollWidth, source.clientWidth, 720)}px`
-    clone.style.maxWidth = 'none'
-    clone.style.height = 'auto'
-    clone.style.maxHeight = 'none'
-    clone.style.overflow = 'visible'
-    clone.style.opacity = '1'
-    clone.style.filter = 'none'
-    clone.style.background = '#ffffff'
-    clone.style.boxShadow = 'none'
-    clone.style.border = 'none'
-    clone.style.transform = 'none'
-    clone.style.padding = '20px'
-
-    clone
-      .querySelectorAll<HTMLElement>('.banned-actions, .banned-meta, .toast')
-      .forEach((node) => {
-        node.remove()
-      })
-    clone
-      .querySelectorAll<HTMLElement>('.roster-capture-heading')
-      .forEach((node) => {
-        node.style.display = 'block'
-        node.style.marginBottom = '14px'
-        node.style.fontSize = '1.15rem'
-        node.style.color = '#003b70'
-      })
-    clone.querySelectorAll<HTMLElement>('.banned-list, .roster-list').forEach((node) => {
-      node.style.overflow = 'visible'
-      node.style.maxHeight = 'none'
-      node.style.height = 'auto'
-    })
-    clone.querySelectorAll<HTMLElement>('*').forEach((node) => {
-      node.style.animation = 'none'
-      node.style.transition = 'none'
-    })
-
-    host.appendChild(clone)
-    document.body.appendChild(host)
-
     try {
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-      })
-      return await domToPng(clone, {
-        backgroundColor: '#ffffff',
-        scale: Math.min(2, window.devicePixelRatio || 2),
-        quality: 1,
-        style: {
-          opacity: '1',
-          filter: 'none',
-          transform: 'none',
+      return await captureElementToPng(source, {
+        minWidth: 720,
+        prepareClone: (clone) => {
+          clone.style.padding = '20px'
+          clone
+            .querySelectorAll<HTMLElement>('.banned-actions, .banned-meta, .toast')
+            .forEach((node) => {
+              node.remove()
+            })
+          clone
+            .querySelectorAll<HTMLElement>('.roster-capture-heading')
+            .forEach((node) => {
+              node.style.display = 'block'
+              node.style.marginBottom = '14px'
+              node.style.fontSize = '1.15rem'
+              node.style.color = '#003b70'
+            })
+          clone
+            .querySelectorAll<HTMLElement>('.banned-list, .roster-list')
+            .forEach((node) => {
+              node.style.overflow = 'visible'
+              node.style.maxHeight = 'none'
+              node.style.height = 'auto'
+            })
         },
       })
-    } catch {
-      return null
     } finally {
-      host.remove()
+      restoreUiInteractivity()
     }
   }
 
@@ -347,6 +306,7 @@ export default function GuardRosterPanel({
       notify('שגיאה בשליחת התמונה')
     } finally {
       setSending(false)
+      restoreUiInteractivity()
     }
   }
 

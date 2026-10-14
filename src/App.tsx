@@ -1,6 +1,9 @@
 import { CSSProperties, FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { domToPng } from 'modern-screenshot'
+import {
+  captureElementToPng,
+  restoreUiInteractivity,
+} from './captureDomToPng'
 import ShiftReportPanel from './ShiftReportPanel'
 import CameraReportPanel from './CameraReportPanel'
 import GuardRosterPanel from './GuardRosterPanel'
@@ -669,6 +672,21 @@ export default function App() {
 
   useEffect(() => {
     loadData().then((loaded) => setData(normalizeData(loaded)))
+  }, [])
+
+  // Filet de sécurité : calques de capture orphelins / focus après dialogues
+  useEffect(() => {
+    const onResume = () => restoreUiInteractivity()
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') onResume()
+    }
+    window.addEventListener('focus', onResume)
+    document.addEventListener('visibilitychange', onVisibility)
+    restoreUiInteractivity()
+    return () => {
+      window.removeEventListener('focus', onResume)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [])
 
   useEffect(() => {
@@ -1810,71 +1828,25 @@ export default function App() {
 
     if (!source) return null
 
-    const host = document.createElement('div')
-    host.setAttribute('data-capture-host', '1')
-    host.style.cssText = [
-      'position:fixed',
-      'left:0',
-      'top:0',
-      'z-index:2147483647',
-      'background:#ffffff',
-      'padding:0',
-      'margin:0',
-      'opacity:1',
-      'filter:none',
-      'pointer-events:none',
-      'transform:none',
-    ].join(';')
-
-    const clone = source.cloneNode(true) as HTMLElement
-    clone.style.width = `${Math.max(source.scrollWidth, source.clientWidth, 900)}px`
-    clone.style.maxWidth = 'none'
-    clone.style.height = 'auto'
-    clone.style.maxHeight = 'none'
-    clone.style.overflow = 'visible'
-    clone.style.opacity = '1'
-    clone.style.filter = 'none'
-    clone.style.background = '#ffffff'
-    clone.style.boxShadow = 'none'
-    clone.style.border = 'none'
-    clone.style.transform = 'none'
-
-    clone
-      .querySelectorAll<HTMLElement>('.people.doc-scroll-list, .list-capture, .people')
-      .forEach((node) => {
-        node.style.overflow = 'visible'
-        node.style.maxHeight = 'none'
-        node.style.height = 'auto'
-        node.style.opacity = '1'
-        node.style.filter = 'none'
-      })
-
-    clone.querySelectorAll<HTMLElement>('*').forEach((node) => {
-      node.style.animation = 'none'
-      node.style.transition = 'none'
-    })
-
-    host.appendChild(clone)
-    document.body.appendChild(host)
-
     try {
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-      })
-      return await domToPng(clone, {
-        backgroundColor: '#ffffff',
-        scale: Math.min(2, window.devicePixelRatio || 2),
-        quality: 1,
-        style: {
-          opacity: '1',
-          filter: 'none',
-          transform: 'none',
+      return await captureElementToPng(source, {
+        minWidth: 900,
+        prepareClone: (clone) => {
+          clone
+            .querySelectorAll<HTMLElement>(
+              '.people.doc-scroll-list, .list-capture, .people',
+            )
+            .forEach((node) => {
+              node.style.overflow = 'visible'
+              node.style.maxHeight = 'none'
+              node.style.height = 'auto'
+              node.style.opacity = '1'
+              node.style.filter = 'none'
+            })
         },
       })
-    } catch {
-      return null
     } finally {
-      host.remove()
+      restoreUiInteractivity()
     }
   }
 
@@ -2138,6 +2110,7 @@ export default function App() {
       setToast({ message: 'שגיאה בשליחת התמונה' })
     } finally {
       setBusy(false)
+      restoreUiInteractivity()
     }
   }
 
