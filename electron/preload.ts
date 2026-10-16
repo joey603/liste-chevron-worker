@@ -92,6 +92,34 @@ const api = {
     guards: unknown[]
   }): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('guardRoster:writeExcel', payload),
+  pickAuthorizedListExcel: (): Promise<{
+    ok: boolean
+    canceled?: boolean
+    path?: string
+  }> => ipcRenderer.invoke('authorizedList:pickExcel'),
+  createAuthorizedListExcel: (payload?: {
+    defaultName?: string
+  }): Promise<{
+    ok: boolean
+    canceled?: boolean
+    path?: string
+    error?: string
+  }> => ipcRenderer.invoke('authorizedList:createExcel', payload),
+  readAuthorizedListExcel: (
+    filePath: string,
+  ): Promise<
+    | { ok: true; people: unknown[] }
+    | { ok: false; error?: string }
+  > => ipcRenderer.invoke('authorizedList:readExcel', filePath),
+  writeAuthorizedListExcel: (payload: {
+    filePath: string
+    people: unknown[]
+  }): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('authorizedList:writeExcel', payload),
+  getAuthorizedListExcelMtime: (
+    filePath: string,
+  ): Promise<number | null> =>
+    ipcRenderer.invoke('authorizedList:mtime', filePath),
   saveShiftReportFiles: (payload: {
     folder: string
     relativeDir: string

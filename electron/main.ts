@@ -33,6 +33,12 @@ import {
   writeGuardRosterExcel,
 } from './guardRosterExcel'
 import {
+  createAuthorizedListTemplate,
+  getAuthorizedListFileMtime,
+  readAuthorizedListExcel,
+  writeAuthorizedListExcel,
+} from './authorizedListExcel'
+import {
   buildCameraMonthlyWorkbookBuffer,
   writeCameraMonthlyWorkbook,
 } from './cameraReportWorkbook'
@@ -536,6 +542,7 @@ type AppSettings = {
   shiftReportSaveFolder?: string
   cameraReportSaveFolder?: string
   guardRosterExcelPath?: string
+  authorizedListExcelPath?: string
   directorEmail?: string
   shiftReportEmailTime?: string
   shiftReportEmailMode?: 'auto' | 'manual'
@@ -555,6 +562,16 @@ type BannedPerson = {
   plateNumber: string
   idNumber: string
   addedAt: string
+}
+
+type AuthorizedPerson = {
+  id: string
+  firstName: string
+  lastName: string
+  idNumber: string
+  kind: 'permanent' | 'visitor'
+  notes: string
+  updatedAt: string
 }
 
 type GuardRosterEntry = {
@@ -578,6 +595,7 @@ type AppData = {
   cardlessPeople: CardlessPerson[]
   people: PersonEntry[]
   banned: BannedPerson[]
+  authorizedPeople: AuthorizedPerson[]
   guards: GuardRosterEntry[]
   shiftReport?: unknown
   shiftReportTexts?: unknown
@@ -637,6 +655,7 @@ const defaultData = (): AppData => ({
   cardlessPeople: [],
   people: [],
   banned: [],
+  authorizedPeople: [],
   guards: [],
 })
 
@@ -753,6 +772,10 @@ function normalize(raw: Partial<AppData>): AppData {
       typeof raw.settings?.guardRosterExcelPath === 'string'
         ? raw.settings.guardRosterExcelPath.trim()
         : '',
+    authorizedListExcelPath:
+      typeof raw.settings?.authorizedListExcelPath === 'string'
+        ? raw.settings.authorizedListExcelPath.trim()
+        : '',
     directorEmail:
       typeof raw.settings?.directorEmail === 'string'
         ? raw.settings.directorEmail.trim()
@@ -813,6 +836,38 @@ function normalize(raw: Partial<AppData>): AppData {
           idNumber: b.idNumber ?? '',
           addedAt: b.addedAt ?? new Date().toISOString(),
         }))
+      : [],
+    authorizedPeople: Array.isArray(raw.authorizedPeople)
+      ? raw.authorizedPeople.map((p) => {
+          const notes = typeof p?.notes === 'string' ? p.notes : ''
+          const rawKind = typeof p?.kind === 'string' ? p.kind : notes
+          const kind: 'permanent' | 'visitor' =
+            rawKind === 'visitor' ||
+            rawKind === 'וויזיטור' ||
+            rawKind === 'ויזיטור' ||
+            rawKind === 'ללא כרטיס'
+              ? 'visitor'
+              : 'permanent'
+          return {
+            id: typeof p?.id === 'string' ? p.id : makeId(),
+            firstName: typeof p?.firstName === 'string' ? p.firstName : '',
+            lastName: typeof p?.lastName === 'string' ? p.lastName : '',
+            idNumber: typeof p?.idNumber === 'string' ? p.idNumber : '',
+            kind,
+            notes:
+              notes === 'עובד' ||
+              notes === 'ללא כרטיס' ||
+              notes === 'קבוע' ||
+              notes === 'וויזיטור' ||
+              notes === 'ויזיטור'
+                ? ''
+                : notes,
+            updatedAt:
+              typeof p?.updatedAt === 'string'
+                ? p.updatedAt
+                : new Date().toISOString(),
+          }
+        })
       : [],
     guards: Array.isArray(raw.guards)
       ? raw.guards.map((g) => ({
@@ -2512,6 +2567,104 @@ app.whenReady().then(() => {
       }))
       return writeGuardRosterExcel(String(payload.filePath || ''), rows)
     },
+  )
+
+  ipcMain.handle('authorizedList:pickExcel', async (event) => {
+    try {
+      const result = await dialog.showOpenDialog({
+        title: 'בחירת קובץ רשימת מורשים Excel',
+        properties: ['openFile'],
+        filters: [{ name: 'Excel', extensions: ['xlsx', 'xls'] }],
+      })
+      if (result.canceled || !result.filePaths[0]) {
+        return { ok: false as const, canceled: true as const }
+      }
+      return { ok: true as const, path: result.filePaths[0] }
+    } finally {
+      refocusMainWindow(event.sender)
+    }
+  })
+
+  ipcMain.handle(
+    'authorizedList:createExcel',
+    async (
+      event,
+      payload?: { defaultName?: string },
+    ) => {
+      try {
+        const defaultName =
+          typeof payload?.defaultName === 'string' && payload.defaultName.trim()
+            ? payload.defaultName.trim()
+            : 'רשימת מורשים.xlsx'
+        const result = await dialog.showSaveDialog({
+          title: 'יצירת קובץ רשימת מורשים Excel',
+          defaultPath: defaultName,
+          filters: [{ name: 'Excel', extensions: ['xlsx'] }],
+        })
+        if (result.canceled || !result.filePath) {
+          return { ok: false as const, canceled: true as const }
+        }
+        const created = await createAuthorizedListTemplate(result.filePath)
+        if (!created.ok) {
+          return { ok: false as const, error: created.error }
+        }
+        return { ok: true as const, path: result.filePath }
+      } finally {
+        refocusMainWindow(event.sender)
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'authorizedList:readExcel',
+    async (_event, filePath: string) =>
+      readAuthorizedListExcel(String(filePath || '')),
+  )
+
+  ipcMain.handle(
+    'authorizedList:writeExcel',
+    async (
+      _event,
+      payload: {
+        filePath: string
+        people: Array<{
+          id: string
+          firstName: string
+          lastName: string
+          idNumber?: string
+          kind?: 'permanent' | 'visitor' | string
+          notes?: string
+          updatedAt?: string
+        }>
+      },
+    ) => {
+      const rows = (payload.people ?? []).map((p) => {
+        const kindRaw = String(p.kind ?? p.notes ?? '')
+        const kind: 'permanent' | 'visitor' =
+          kindRaw === 'visitor' ||
+          kindRaw === 'וויזיטור' ||
+          kindRaw === 'ויזיטור' ||
+          kindRaw === 'ללא כרטיס'
+            ? 'visitor'
+            : 'permanent'
+        return {
+          id: p.id,
+          firstName: p.firstName ?? '',
+          lastName: p.lastName ?? '',
+          idNumber: p.idNumber ?? '',
+          kind,
+          notes: p.notes ?? '',
+          updatedAt: p.updatedAt ?? new Date().toISOString(),
+        }
+      })
+      return writeAuthorizedListExcel(String(payload.filePath || ''), rows)
+    },
+  )
+
+  ipcMain.handle(
+    'authorizedList:mtime',
+    async (_event, filePath: string) =>
+      getAuthorizedListFileMtime(String(filePath || '')),
   )
 
   ipcMain.handle(

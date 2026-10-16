@@ -7,6 +7,7 @@ import {
 import ShiftReportPanel from './ShiftReportPanel'
 import CameraReportPanel from './CameraReportPanel'
 import GuardRosterPanel from './GuardRosterPanel'
+import AuthorizedPeopleSyncBar from './AuthorizedPeopleSyncBar'
 import type { ShiftKind, ShiftReport, ShiftReportTexts } from './shiftReport'
 import type { CameraReport } from './cameraReport'
 import {
@@ -39,6 +40,7 @@ import {
 } from './shiftReportLocalStore'
 import {
   AppData,
+  AuthorizedPerson,
   BannedPerson,
   CardlessAssignment,
   CardlessPerson,
@@ -525,6 +527,12 @@ export default function App() {
     null,
   )
   const [activeTab, setActiveTab] = useState<AppTab>('presence')
+  const [pendingAuth, setPendingAuth] = useState<{
+    firstName: string
+    lastName: string
+    proceed: () => Promise<void>
+  } | null>(null)
+  const authorizedExcelMtimeRef = useRef<number | null>(null)
   const [showBannedModal, setShowBannedModal] = useState(false)
   const [newBanned, setNewBanned] = useState(emptyBanned)
   const [editingBanned, setEditingBanned] = useState<BannedPerson | null>(null)
@@ -732,6 +740,81 @@ export default function App() {
     const t = window.setTimeout(() => setToast(null), 2600)
     return () => window.clearTimeout(t)
   }, [toast])
+
+  // Sync auto de la liste Excel (Drive) sur רשימת נוכחים
+  useEffect(() => {
+    if (activeTab !== 'presence') return
+    const filePath = data?.settings.authorizedListExcelPath?.trim() ?? ''
+    if (!filePath || !window.listeApi?.getAuthorizedListExcelMtime) return
+
+    authorizedExcelMtimeRef.current = null
+    let cancelled = false
+    let missingWarned = false
+
+    const applyPeople = (
+      people: NonNullable<typeof data>['authorizedPeople'],
+    ): number => {
+      let addedCount = 0
+      setData((prev) => {
+        if (!prev) return prev
+        const merged = mergeAuthorizedIntoSidebar(
+          prev.workers,
+          prev.cardlessPeople,
+          people,
+        )
+        addedCount = merged.addedWorkers + merged.addedVisitors
+        const next = normalizeData({
+          ...prev,
+          authorizedPeople: people,
+          workers: merged.workers,
+          cardlessPeople: merged.cardlessPeople,
+        })
+        void saveData(next)
+        return next
+      })
+      return addedCount
+    }
+
+    const tick = async (force = false) => {
+      const mtime = await window.listeApi?.getAuthorizedListExcelMtime?.(filePath)
+      if (cancelled) return
+      if (typeof mtime !== 'number') {
+        if (!missingWarned) {
+          missingWarned = true
+          setToast({
+            message: 'קובץ ה־Excel לא נמצא — לחצו «בחר קובץ»',
+          })
+        }
+        return
+      }
+      const prevMtime = authorizedExcelMtimeRef.current
+      const changed = prevMtime != null && mtime > prevMtime
+      if (!force && !changed) {
+        if (prevMtime == null) authorizedExcelMtimeRef.current = mtime
+        return
+      }
+      authorizedExcelMtimeRef.current = mtime
+      const result = await window.listeApi?.readAuthorizedListExcel?.(filePath)
+      if (!result?.ok || cancelled) return
+      const added = applyPeople(result.people)
+      if (changed || added > 0) {
+        setToast({
+          message:
+            added > 0
+              ? `עודכן מה־Excel · נוספו ${added} לסרגל העובדים`
+              : `עודכן אוטומטית מה־Excel (${result.people.length})`,
+        })
+      }
+    }
+
+    // Recharge dès l’ouverture de רשימת נוכחים / changement de chemin
+    void tick(true)
+    const id = window.setInterval(() => void tick(false), 4000)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [activeTab, data?.settings.authorizedListExcelPath])
 
   useEffect(() => {
     const api = window.listeApi
@@ -1306,6 +1389,104 @@ export default function App() {
     clearCardlessSelection()
   }
 
+  function normalizeAuthName(s: string): string {
+    return s.trim().toLowerCase().replace(/\s+/g, ' ')
+  }
+
+  function authNameKey(firstName: string, lastName: string): string {
+    return `${normalizeAuthName(firstName)}|${normalizeAuthName(lastName)}`
+  }
+
+  /**
+   * Excel סוג=קבוע → עובדים · סוג=וויזיטור → שמות לשיוך.
+   * N'ajoute que les noms absents des deux listes.
+   */
+  function mergeAuthorizedIntoSidebar(
+    workers: Worker[],
+    cardlessPeople: CardlessPerson[],
+    authorized: AuthorizedPerson[],
+  ): {
+    workers: Worker[]
+    cardlessPeople: CardlessPerson[]
+    addedWorkers: number
+    addedVisitors: number
+  } {
+    const existing = new Set<string>()
+    for (const w of workers) {
+      existing.add(authNameKey(w.firstName, w.lastName))
+    }
+    for (const c of cardlessPeople) {
+      existing.add(authNameKey(c.firstName, c.lastName))
+    }
+    const nextWorkers = [...workers]
+    const nextCardless = [...cardlessPeople]
+    let addedWorkers = 0
+    let addedVisitors = 0
+    for (const person of authorized) {
+      const firstName = person.firstName.trim()
+      const lastName = person.lastName.trim()
+      if (!firstName && !lastName) continue
+      const key = authNameKey(firstName, lastName)
+      if (existing.has(key)) continue
+      existing.add(key)
+      if (person.kind === 'visitor') {
+        nextCardless.push({
+          id: createId(),
+          firstName,
+          lastName,
+          temporary: false,
+          expiresAt: null,
+          assignment: 'unique',
+        })
+        addedVisitors += 1
+      } else {
+        nextWorkers.push({
+          id: createId(),
+          firstName,
+          lastName,
+          temporary: false,
+          expiresAt: null,
+        })
+        addedWorkers += 1
+      }
+    }
+    return {
+      workers: nextWorkers,
+      cardlessPeople: nextCardless,
+      addedWorkers,
+      addedVisitors,
+    }
+  }
+
+  function isAuthorizedOnSharedList(
+    firstName: string,
+    lastName: string,
+  ): boolean {
+    const f = normalizeAuthName(firstName)
+    const l = normalizeAuthName(lastName)
+    if (!f && !l) return true
+    return (data?.authorizedPeople ?? []).some(
+      (p) =>
+        normalizeAuthName(p.firstName) === f &&
+        normalizeAuthName(p.lastName) === l,
+    )
+  }
+
+  async function withEntryAuthorization(
+    firstName: string,
+    lastName: string,
+    proceed: () => Promise<void>,
+  ) {
+    if (isAuthorizedOnSharedList(firstName, lastName)) {
+      await proceed()
+      return
+    }
+    // Remplacer la popup «עובד חדש» par «נדרש אישור»
+    setShowNewWorker(false)
+    resetNewWorkerForm()
+    setPendingAuth({ firstName, lastName, proceed })
+  }
+
   async function addWorkerToSite(worker: Worker) {
     if (!data) return
     clearManageMode()
@@ -1313,21 +1494,23 @@ export default function App() {
       setToast({ message: `${workerDisplayName(worker)} כבר באתר` })
       return
     }
-    const entry: PersonEntry = {
-      id: createId(),
-      kind: 'named',
-      workerId: worker.id,
-      cardlessPersonId: null,
-      firstName: worker.firstName,
-      lastName: worker.lastName,
-      visitorNumber: null,
-      enteredAt: new Date().toISOString(),
-      exitedAt: null,
-    }
-    await persist(
-      { ...data, people: [entry, ...data.people] },
-      `${workerDisplayName(worker)} נוסף/ה`,
-    )
+    await withEntryAuthorization(worker.firstName, worker.lastName, async () => {
+      const entry: PersonEntry = {
+        id: createId(),
+        kind: 'named',
+        workerId: worker.id,
+        cardlessPersonId: null,
+        firstName: worker.firstName,
+        lastName: worker.lastName,
+        visitorNumber: null,
+        enteredAt: new Date().toISOString(),
+        exitedAt: null,
+      }
+      await persist(
+        { ...data, people: [entry, ...data.people] },
+        `${workerDisplayName(worker)} נוסף/ה`,
+      )
+    })
   }
 
   async function addVisitorToSite(
@@ -1341,24 +1524,31 @@ export default function App() {
     }
     const firstName = names?.firstName.trim() ?? ''
     const lastName = names?.lastName.trim() ?? ''
-    const entry: PersonEntry = {
-      id: createId(),
-      kind: 'visitor',
-      workerId: null,
-      cardlessPersonId: null,
-      firstName,
-      lastName,
-      visitorNumber,
-      enteredAt: new Date().toISOString(),
-      exitedAt: null,
+    const doAdd = async () => {
+      const entry: PersonEntry = {
+        id: createId(),
+        kind: 'visitor',
+        workerId: null,
+        cardlessPersonId: null,
+        firstName,
+        lastName,
+        visitorNumber,
+        enteredAt: new Date().toISOString(),
+        exitedAt: null,
+      }
+      const nameLabel = `${firstName} ${lastName}`.trim()
+      await persist(
+        { ...data, people: [entry, ...data.people] },
+        nameLabel
+          ? `ויזיטור ${visitorNumber} · ${nameLabel} נוסף`
+          : `ויזיטור ${visitorNumber} נוסף`,
+      )
     }
-    const nameLabel = `${firstName} ${lastName}`.trim()
-    await persist(
-      { ...data, people: [entry, ...data.people] },
-      nameLabel
-        ? `ויזיטור ${visitorNumber} · ${nameLabel} נוסף`
-        : `ויזיטור ${visitorNumber} נוסף`,
-    )
+    if (firstName || lastName) {
+      await withEntryAuthorization(firstName, lastName, doAdd)
+    } else {
+      await doAdd()
+    }
   }
 
   function resetNewWorkerForm() {
@@ -1514,23 +1704,25 @@ export default function App() {
     }
     const firstName = person.firstName.trim()
     const lastName = person.lastName.trim()
-    const entry: PersonEntry = {
-      id: createId(),
-      kind: 'visitor',
-      workerId: null,
-      cardlessPersonId: person.id,
-      firstName,
-      lastName,
-      visitorNumber,
-      enteredAt: new Date().toISOString(),
-      exitedAt: null,
-    }
     const display = cardlessDisplayName(person)
-    await persist(
-      { ...data, people: [entry, ...data.people] },
-      `ויזיטור ${visitorNumber} · ${display} נוסף`,
-    )
-    clearCardlessSelection()
+    await withEntryAuthorization(firstName, lastName, async () => {
+      const entry: PersonEntry = {
+        id: createId(),
+        kind: 'visitor',
+        workerId: null,
+        cardlessPersonId: person.id,
+        firstName,
+        lastName,
+        visitorNumber,
+        enteredAt: new Date().toISOString(),
+        exitedAt: null,
+      }
+      await persist(
+        { ...data, people: [entry, ...data.people] },
+        `ויזיטור ${visitorNumber} · ${display} נוסף`,
+      )
+      clearCardlessSelection()
+    })
   }
 
   async function createNewWorker(e: FormEvent) {
@@ -1554,38 +1746,39 @@ export default function App() {
     }
 
     const temporary = newWorkerTemporary
-    const worker: Worker = {
-      id: createId(),
-      firstName,
-      lastName,
-      temporary,
-      expiresAt: temporary ? endOfTodayMidnight() : null,
-    }
-    const entry: PersonEntry = {
-      id: createId(),
-      kind: 'named',
-      workerId: worker.id,
-      cardlessPersonId: null,
-      firstName,
-      lastName,
-      visitorNumber: null,
-      enteredAt: new Date().toISOString(),
-      exitedAt: null,
-    }
-
     const display = `${firstName} ${lastName}`.trim()
-    await persist(
-      {
-        ...data,
-        workers: [...data.workers, worker],
-        people: [entry, ...data.people],
-      },
-      temporary
-        ? `${display} נוסף (זמני עד חצות)`
-        : `${display} נוסף (קבוע)`,
-    )
-    setShowNewWorker(false)
-    resetNewWorkerForm()
+    await withEntryAuthorization(firstName, lastName, async () => {
+      const worker: Worker = {
+        id: createId(),
+        firstName,
+        lastName,
+        temporary,
+        expiresAt: temporary ? endOfTodayMidnight() : null,
+      }
+      const entry: PersonEntry = {
+        id: createId(),
+        kind: 'named',
+        workerId: worker.id,
+        cardlessPersonId: null,
+        firstName,
+        lastName,
+        visitorNumber: null,
+        enteredAt: new Date().toISOString(),
+        exitedAt: null,
+      }
+      await persist(
+        {
+          ...data,
+          workers: [...data.workers, worker],
+          people: [entry, ...data.people],
+        },
+        temporary
+          ? `${display} נוסף (זמני עד חצות)`
+          : `${display} נוסף (קבוע)`,
+      )
+      setShowNewWorker(false)
+      resetNewWorkerForm()
+    })
   }
 
   async function onWorkerCardClick(worker: Worker) {
@@ -2637,6 +2830,10 @@ export default function App() {
                     const present = isWorkerPresent(data, worker.id)
                     const managing = manageMode !== 'none'
                     const letter = workerAlphaLetter(worker)
+                    const excelAuthorized = isAuthorizedOnSharedList(
+                      worker.firstName,
+                      worker.lastName,
+                    )
                     return (
                       <div
                         key={worker.id}
@@ -2659,6 +2856,9 @@ export default function App() {
                           }
                         >
                           <span className="pick-label">{workerDisplayName(worker)}</span>
+                          {excelAuthorized ? (
+                            <span className="auth-badge auth-ok">מאושר</span>
+                          ) : null}
                           <span className="pick-hint">
                             {manageMode === 'edit'
                               ? 'עריכה'
@@ -2842,6 +3042,10 @@ export default function App() {
                       const isDimmed =
                         !managing && selectedCardlessId != null && !isSelected
                       const letter = cardlessAlphaLetter(person)
+                      const excelAuthorized = isAuthorizedOnSharedList(
+                        person.firstName,
+                        person.lastName,
+                      )
                       return (
                         <div
                           key={person.id}
@@ -2881,6 +3085,9 @@ export default function App() {
                                 {person.assignment === 'unique' ? 'יחיד' : 'מרובה'}
                               </span>
                             </span>
+                            {excelAuthorized ? (
+                              <span className="auth-badge auth-ok">מאושר</span>
+                            ) : null}
                             <span className="pick-hint">
                               {manageMode === 'edit'
                                 ? 'עריכה'
@@ -2977,6 +3184,40 @@ export default function App() {
             <h1>באתר עכשיו</h1>
           </div>
         </header>
+
+        {data ? (
+          <AuthorizedPeopleSyncBar
+            excelPath={data.settings.authorizedListExcelPath ?? ''}
+            peopleCount={(data.authorizedPeople ?? []).length}
+            onSynced={({ path, people, message }) => {
+              const merged = mergeAuthorizedIntoSidebar(
+                data.workers,
+                data.cardlessPeople,
+                people,
+              )
+              const added =
+                merged.addedWorkers + merged.addedVisitors
+              const tip =
+                added > 0
+                  ? `${message ?? 'נטען מה־Excel'} · נוספו ${added} לסרגל`
+                  : message
+              void persist(
+                {
+                  ...data,
+                  authorizedPeople: people,
+                  workers: merged.workers,
+                  cardlessPeople: merged.cardlessPeople,
+                  settings: {
+                    ...data.settings,
+                    authorizedListExcelPath: path,
+                  },
+                },
+                tip,
+              )
+            }}
+            onToast={(message) => setToast({ message })}
+          />
+        ) : null}
 
         <div ref={listRef} className="list-capture panel">
           {renderPresenceListBody(filteredPresentPeople, {
@@ -3570,6 +3811,56 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {pendingAuth && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setPendingAuth(null)}
+        >
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-labelledby="entry-auth-title"
+          >
+            <h3 id="entry-auth-title">נדרש אישור</h3>
+            <p className="settings-note" style={{ marginBottom: 14 }}>
+              שימו לב:{' '}
+              <strong>
+                {pendingAuth.firstName} {pendingAuth.lastName}
+              </strong>{' '}
+              אינו ברשימת המורשים.
+              <br />
+              יש לקבל אישור מ־<strong>Eli</strong> או מ־<strong>Arega</strong>{' '}
+              לפני הכניסה.
+            </p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  setPendingAuth(null)
+                  setToast({ message: 'הכניסה נדחתה — לא נוסף' })
+                }}
+              >
+                לא קיבלתי אישור
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ width: 'auto' }}
+                onClick={() => {
+                  const action = pendingAuth.proceed
+                  setPendingAuth(null)
+                  void action()
+                }}
+              >
+                קיבלתי אישור
+              </button>
+            </div>
           </div>
         </div>
       )}

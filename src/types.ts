@@ -77,6 +77,8 @@ export type AppSettings = {
   cameraReportSaveFolder?: string
   /** נתיב קובץ Excel של רוסטר השומרים (רוסטר צרעה.xlsx) */
   guardRosterExcelPath?: string
+  /** נתיב קובץ Excel רשימת מורשים לכניסה (Drive / Share) */
+  authorizedListExcelPath?: string
   /** אימייל מנהל לקבלת 3 הדוחות היומיים */
   directorEmail?: string
   /** שעת שליחה יומית (HH:MM) */
@@ -178,6 +180,21 @@ export type BannedPerson = {
   addedAt: string
 }
 
+/** קבוע = עובדים · וויזיטור = שמות לשיוך ויזיטור */
+export type AuthorizedKind = 'permanent' | 'visitor'
+
+/** אדם מורשה לכניסה (רשימה משותפת Excel / Drive) */
+export type AuthorizedPerson = {
+  id: string
+  firstName: string
+  lastName: string
+  idNumber: string
+  /** סוג מה־Excel: קבוע / וויזיטור */
+  kind: AuthorizedKind
+  notes: string
+  updatedAt: string
+}
+
 /** רשומת שומר/ת ברוסטר */
 export type GuardRosterEntry = {
   id: string
@@ -205,6 +222,8 @@ export type AppData = {
   cardlessPeople: CardlessPerson[]
   people: PersonEntry[]
   banned: BannedPerson[]
+  /** רשימת מורשים לכניסה (מסונכרן עם Excel) */
+  authorizedPeople: AuthorizedPerson[]
   /** רוסטר שומרים */
   guards: GuardRosterEntry[]
   /** טיוטת דוח משמרת נוכחית */
@@ -322,6 +341,32 @@ export type ListeApi = {
     filePath: string
     guards: GuardRosterEntry[]
   }) => Promise<{ ok: boolean; error?: string }>
+  pickAuthorizedListExcel?: () => Promise<{
+    ok: boolean
+    canceled?: boolean
+    path?: string
+  }>
+  createAuthorizedListExcel?: (payload?: {
+    defaultName?: string
+  }) => Promise<{
+    ok: boolean
+    canceled?: boolean
+    path?: string
+    error?: string
+  }>
+  readAuthorizedListExcel?: (
+    filePath: string,
+  ) => Promise<
+    | { ok: true; people: AuthorizedPerson[] }
+    | { ok: false; error?: string }
+  >
+  writeAuthorizedListExcel?: (payload: {
+    filePath: string
+    people: AuthorizedPerson[]
+  }) => Promise<{ ok: boolean; error?: string }>
+  getAuthorizedListExcelMtime?: (
+    filePath: string,
+  ) => Promise<number | null>
   saveShiftReportFiles?: (payload: {
     folder: string
     relativeDir: string
@@ -765,6 +810,10 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
       typeof rawSettings?.guardRosterExcelPath === 'string'
         ? rawSettings.guardRosterExcelPath.trim()
         : '',
+    authorizedListExcelPath:
+      typeof rawSettings?.authorizedListExcelPath === 'string'
+        ? rawSettings.authorizedListExcelPath.trim()
+        : '',
     directorEmail:
       typeof rawSettings?.directorEmail === 'string'
         ? rawSettings.directorEmail.trim()
@@ -841,6 +890,43 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
     idNumber: b.idNumber ?? '',
     addedAt: b.addedAt ?? new Date().toISOString(),
   }))
+  const authorizedPeople = (
+    Array.isArray(raw?.authorizedPeople) ? raw.authorizedPeople : []
+  ).map((p) => {
+    const notes = typeof p?.notes === 'string' ? p.notes : ''
+    const rawKind: string =
+      typeof p?.kind === 'string'
+        ? p.kind
+        : notes === 'ללא כרטיס' || notes === 'וויזיטור' || notes === 'ויזיטור'
+          ? 'visitor'
+          : 'permanent'
+    const kind: AuthorizedKind =
+      rawKind === 'visitor' ||
+      rawKind === 'וויזיטור' ||
+      rawKind === 'ויזיטור' ||
+      rawKind === 'ללא כרטיס'
+        ? 'visitor'
+        : 'permanent'
+    return {
+      id: typeof p?.id === 'string' ? p.id : createId(),
+      firstName: typeof p?.firstName === 'string' ? p.firstName : '',
+      lastName: typeof p?.lastName === 'string' ? p.lastName : '',
+      idNumber: typeof p?.idNumber === 'string' ? p.idNumber : '',
+      kind,
+      notes:
+        notes === 'עובד' ||
+        notes === 'ללא כרטיס' ||
+        notes === 'קבוע' ||
+        notes === 'וויזיטור' ||
+        notes === 'ויזיטור'
+          ? ''
+          : notes,
+      updatedAt:
+        typeof p?.updatedAt === 'string'
+          ? p.updatedAt
+          : new Date().toISOString(),
+    }
+  })
   const guards = (Array.isArray(raw?.guards) ? raw.guards : []).map((g) => ({
     id: typeof g?.id === 'string' ? g.id : createId(),
     firstName: typeof g?.firstName === 'string' ? g.firstName : '',
@@ -867,6 +953,7 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
     cardlessPeople,
     people,
     banned,
+    authorizedPeople,
     guards,
     shiftReport: normalizeShiftReport(
       raw?.shiftReport,

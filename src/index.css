@@ -1565,6 +1565,26 @@ button.emergency-status-button:hover {
   white-space: nowrap;
 }
 
+.authorized-excel-bar {
+  margin: 0 0 8px;
+  flex-shrink: 0;
+}
+
+.authorized-excel-count {
+  flex-shrink: 0;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 87, 168, 0.12);
+  color: var(--chevron-blue-dark);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
 .roster-capture-heading {
   display: none;
 }
@@ -4209,6 +4229,24 @@ button.camera-xls-tab:hover:not(.is-disabled):not(.is-active) {
 .pick-hint {
   font-size: 0.75rem;
   color: var(--muted);
+}
+
+.auth-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+}
+
+.auth-badge.auth-ok {
+  color: #0b6b2f;
+  background: rgba(34, 160, 80, 0.16);
 }
 
 .pick-btn.temporary {
