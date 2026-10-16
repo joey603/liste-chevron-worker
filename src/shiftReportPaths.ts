@@ -53,7 +53,7 @@ export function shiftDateToDate(dateStr: string, fallback = new Date()): Date {
   return new Date(parsed.year, parsed.month - 1, parsed.day)
 }
 
-/** Jour suivant, même משמרת — pour דוח חדש. */
+/** Jour suivant — pour דוח חדש (la משמרת est choisie par l'appelant, souvent בוקר). */
 export function getNextDayReportContext(
   date: string,
   shift: ShiftKind,

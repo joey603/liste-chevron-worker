@@ -261,16 +261,16 @@ export default function CameraReportPanel({
 
   function resetTemplate() {
     const ok = window.confirm(
-      'לאפס את דוח המצלמות לתבנית חדשה ולעבור ליום הבא (אותה משמרת)?',
+      'לאפס את דוח המצלמות לתבנית חדשה ולעבור ליום הבא במשמרת בוקר?',
     )
     if (!ok) return
     flushPendingSave()
     onChangeRef.current(reportRef.current)
-    const { shift } = reportRef.current
     const { date } = getNextDayReportContext(
       reportRef.current.date,
       reportRef.current.shift,
     )
+    const shift: ShiftKind = 'morning'
     const next = createEmptyCameraReport(shiftDateToDate(date), shift, date)
     setReport(next)
     onChangeRef.current(next)
