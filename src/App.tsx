@@ -742,7 +742,7 @@ export default function App() {
     return () => window.clearTimeout(t)
   }, [toast])
 
-  // Sync Excel : toutes les heures, uniquement si le fichier a changé
+  // Sync Excel : surveillance continue — sync dès que le fichier change
   useEffect(() => {
     const filePath = data?.settings.authorizedListExcelPath?.trim() ?? ''
     if (!filePath || !window.listeApi?.readAuthorizedListExcel) return
@@ -779,7 +779,7 @@ export default function App() {
       return addedCount
     }
 
-    const checkHourly = async () => {
+    const checkForChanges = async () => {
       const mtime =
         await window.listeApi?.getAuthorizedListExcelMtime?.(filePath)
       if (cancelled) return
@@ -812,14 +812,11 @@ export default function App() {
       })
     }
 
-    void checkHourly()
-    const hourlyId = window.setInterval(
-      () => void checkHourly(),
-      60 * 60 * 1000,
-    )
+    void checkForChanges()
+    const pollId = window.setInterval(() => void checkForChanges(), 4000)
     return () => {
       cancelled = true
-      window.clearInterval(hourlyId)
+      window.clearInterval(pollId)
     }
   }, [data?.settings.authorizedListExcelPath])
 
@@ -3206,8 +3203,8 @@ export default function App() {
           <section className="shift-section shift-settings-card presence-settings-card">
             <h3>סנכרון רשימת מורשים (Excel)</h3>
             <p className="shift-settings-note">
-              קובץ משותף ב־Drive — קבוע / ויזיטור. כל שעה האפליקציה בודקת אם
-              הקובץ השתנה ומסנכרנת רק אם יש שינוי.
+              קובץ משותף ב־Drive — קבוע / ויזיטור. האפליקציה בודקת כל כמה
+              שניות ומסנכרנת אוטומטית ברגע שהקובץ משתנה.
             </p>
             <AuthorizedPeopleSyncBar
               excelPath={data.settings.authorizedListExcelPath ?? ''}
