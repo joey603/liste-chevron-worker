@@ -3189,6 +3189,8 @@ export default function App() {
           <AuthorizedPeopleSyncBar
             excelPath={data.settings.authorizedListExcelPath ?? ''}
             peopleCount={(data.authorizedPeople ?? []).length}
+            workers={data.workers ?? []}
+            visitors={data.cardlessPeople ?? []}
             onSynced={({ path, people, message }) => {
               const merged = mergeAuthorizedIntoSidebar(
                 data.workers,
