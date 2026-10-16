@@ -1402,8 +1402,8 @@ export default function App() {
   }
 
   /**
-   * Excel סוג=קבוע → עובדים · סוג=וויזיטור → שמות לשיוך.
-   * N'ajoute que les noms absents des deux listes.
+   * Excel סוג=קבוע → עובדים · סוג=ויזיטור → שמות לשיוך.
+   * Ajoute les nouveaux et déplace si le סוג Excel a changé.
    */
   function mergeAuthorizedIntoSidebar(
     workers: Worker[],
@@ -1415,45 +1415,61 @@ export default function App() {
     addedWorkers: number
     addedVisitors: number
   } {
-    const existing = new Set<string>()
-    for (const w of workers) {
-      existing.add(authNameKey(w.firstName, w.lastName))
-    }
-    for (const c of cardlessPeople) {
-      existing.add(authNameKey(c.firstName, c.lastName))
-    }
-    const nextWorkers = [...workers]
-    const nextCardless = [...cardlessPeople]
+    let nextWorkers = [...workers]
+    let nextCardless = [...cardlessPeople]
     let addedWorkers = 0
     let addedVisitors = 0
+
     for (const person of authorized) {
       const firstName = person.firstName.trim()
       const lastName = person.lastName.trim()
       if (!firstName && !lastName) continue
       const key = authNameKey(firstName, lastName)
-      if (existing.has(key)) continue
-      existing.add(key)
+      const inWorkers = nextWorkers.some(
+        (w) => authNameKey(w.firstName, w.lastName) === key,
+      )
+      const inCardless = nextCardless.some(
+        (c) => authNameKey(c.firstName, c.lastName) === key,
+      )
+
       if (person.kind === 'visitor') {
-        nextCardless.push({
-          id: createId(),
-          firstName,
-          lastName,
-          temporary: false,
-          expiresAt: null,
-          assignment: 'unique',
-        })
-        addedVisitors += 1
+        // Doit être dans ויזיטורים, pas עובדים
+        if (inWorkers) {
+          nextWorkers = nextWorkers.filter(
+            (w) => authNameKey(w.firstName, w.lastName) !== key,
+          )
+        }
+        if (!inCardless) {
+          nextCardless.push({
+            id: createId(),
+            firstName,
+            lastName,
+            temporary: false,
+            expiresAt: null,
+            assignment: 'unique',
+          })
+          addedVisitors += 1
+        }
       } else {
-        nextWorkers.push({
-          id: createId(),
-          firstName,
-          lastName,
-          temporary: false,
-          expiresAt: null,
-        })
-        addedWorkers += 1
+        // Doit être dans עובדים, pas ויזיטורים
+        if (inCardless) {
+          nextCardless = nextCardless.filter(
+            (c) => authNameKey(c.firstName, c.lastName) !== key,
+          )
+        }
+        if (!inWorkers) {
+          nextWorkers.push({
+            id: createId(),
+            firstName,
+            lastName,
+            temporary: false,
+            expiresAt: null,
+          })
+          addedWorkers += 1
+        }
       }
     }
+
     return {
       workers: nextWorkers,
       cardlessPeople: nextCardless,
