@@ -1565,9 +1565,49 @@ button.emergency-status-button:hover {
   white-space: nowrap;
 }
 
+.presence-settings-card {
+  margin: 0 0 10px;
+  flex-shrink: 0;
+}
+
+.presence-settings-card .authorized-excel-bar {
+  margin: 0 0 12px;
+}
+
+.presence-sync-time-grid {
+  margin-top: 4px;
+  align-items: end;
+}
+
+.presence-last-sync {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 100%;
+  justify-content: flex-end;
+}
+
+.presence-last-sync span {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.presence-last-sync strong {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--chevron-blue-dark);
+  line-height: 1.35;
+}
+
 .authorized-excel-bar {
   margin: 0 0 8px;
   flex-shrink: 0;
+}
+
+.main-header-actions .btn-ghost.active {
+  border-color: rgba(0, 87, 168, 0.45);
+  background: rgba(0, 87, 168, 0.1);
+  color: var(--chevron-blue-dark);
 }
 
 .authorized-excel-count {

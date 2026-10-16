@@ -79,6 +79,10 @@ export type AppSettings = {
   guardRosterExcelPath?: string
   /** נתיב קובץ Excel רשימת מורשים לכניסה (Drive / Share) */
   authorizedListExcelPath?: string
+  /** שעת סנכרון יומית של רשימת המורשים מה־Excel (HH:MM) */
+  authorizedListSyncTime?: string
+  /** תאריך/שעה של הסנכרון האחרון מה־Excel (ISO) */
+  authorizedListLastSyncedAt?: string
   /** אימייל מנהל לקבלת 3 הדוחות היומיים */
   directorEmail?: string
   /** שעת שליחה יומית (HH:MM) */
@@ -813,6 +817,15 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
     authorizedListExcelPath:
       typeof rawSettings?.authorizedListExcelPath === 'string'
         ? rawSettings.authorizedListExcelPath.trim()
+        : '',
+    authorizedListSyncTime:
+      typeof rawSettings?.authorizedListSyncTime === 'string' &&
+      rawSettings.authorizedListSyncTime.trim()
+        ? rawSettings.authorizedListSyncTime.trim()
+        : '07:00',
+    authorizedListLastSyncedAt:
+      typeof rawSettings?.authorizedListLastSyncedAt === 'string'
+        ? rawSettings.authorizedListLastSyncedAt.trim()
         : '',
     directorEmail:
       typeof rawSettings?.directorEmail === 'string'

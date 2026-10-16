@@ -533,6 +533,7 @@ export default function App() {
     proceed: () => Promise<void>
   } | null>(null)
   const authorizedExcelMtimeRef = useRef<number | null>(null)
+  const [showPresenceSettings, setShowPresenceSettings] = useState(false)
   const [showBannedModal, setShowBannedModal] = useState(false)
   const [newBanned, setNewBanned] = useState(emptyBanned)
   const [editingBanned, setEditingBanned] = useState<BannedPerson | null>(null)
@@ -741,13 +742,11 @@ export default function App() {
     return () => window.clearTimeout(t)
   }, [toast])
 
-  // Sync auto de la liste Excel (Drive) sur רשימת נוכחים
+  // Sync Excel : toutes les heures, uniquement si le fichier a changé
   useEffect(() => {
-    if (activeTab !== 'presence') return
     const filePath = data?.settings.authorizedListExcelPath?.trim() ?? ''
-    if (!filePath || !window.listeApi?.getAuthorizedListExcelMtime) return
+    if (!filePath || !window.listeApi?.readAuthorizedListExcel) return
 
-    authorizedExcelMtimeRef.current = null
     let cancelled = false
     let missingWarned = false
 
@@ -755,6 +754,7 @@ export default function App() {
       people: NonNullable<typeof data>['authorizedPeople'],
     ): number => {
       let addedCount = 0
+      const syncedAt = new Date().toISOString()
       setData((prev) => {
         if (!prev) return prev
         const merged = mergeAuthorizedIntoSidebar(
@@ -768,6 +768,10 @@ export default function App() {
           authorizedPeople: people,
           workers: merged.workers,
           cardlessPeople: merged.cardlessPeople,
+          settings: {
+            ...prev.settings,
+            authorizedListLastSyncedAt: syncedAt,
+          },
         })
         void saveData(next)
         return next
@@ -775,46 +779,49 @@ export default function App() {
       return addedCount
     }
 
-    const tick = async (force = false) => {
-      const mtime = await window.listeApi?.getAuthorizedListExcelMtime?.(filePath)
+    const checkHourly = async () => {
+      const mtime =
+        await window.listeApi?.getAuthorizedListExcelMtime?.(filePath)
       if (cancelled) return
       if (typeof mtime !== 'number') {
         if (!missingWarned) {
           missingWarned = true
           setToast({
-            message: 'קובץ ה־Excel לא נמצא — לחצו «בחר קובץ»',
+            message: 'קובץ ה־Excel לא נמצא — פתחו הגדרות ובחרו קובץ',
           })
         }
         return
       }
       const prevMtime = authorizedExcelMtimeRef.current
-      const changed = prevMtime != null && mtime > prevMtime
-      if (!force && !changed) {
-        if (prevMtime == null) authorizedExcelMtimeRef.current = mtime
+      if (prevMtime == null) {
+        // Première mesure : mémoriser sans recharger
+        authorizedExcelMtimeRef.current = mtime
         return
       }
-      authorizedExcelMtimeRef.current = mtime
+      if (mtime <= prevMtime) return
+
       const result = await window.listeApi?.readAuthorizedListExcel?.(filePath)
       if (!result?.ok || cancelled) return
+      authorizedExcelMtimeRef.current = mtime
       const added = applyPeople(result.people)
-      if (changed || added > 0) {
-        setToast({
-          message:
-            added > 0
-              ? `עודכן מה־Excel · נוספו ${added} לסרגל העובדים`
-              : `עודכן אוטומטית מה־Excel (${result.people.length})`,
-        })
-      }
+      setToast({
+        message:
+          added > 0
+            ? `עודכן מה־Excel · נוספו ${added} לסרגל`
+            : `עודכן מה־Excel (${result.people.length})`,
+      })
     }
 
-    // Recharge dès l’ouverture de רשימת נוכחים / changement de chemin
-    void tick(true)
-    const id = window.setInterval(() => void tick(false), 4000)
+    void checkHourly()
+    const hourlyId = window.setInterval(
+      () => void checkHourly(),
+      60 * 60 * 1000,
+    )
     return () => {
       cancelled = true
-      window.clearInterval(id)
+      window.clearInterval(hourlyId)
     }
-  }, [activeTab, data?.settings.authorizedListExcelPath])
+  }, [data?.settings.authorizedListExcelPath])
 
   useEffect(() => {
     const api = window.listeApi
@@ -3183,42 +3190,70 @@ export default function App() {
           <div className="brand">
             <h1>באתר עכשיו</h1>
           </div>
+          <div className="main-header-actions">
+            <button
+              type="button"
+              className={`btn btn-ghost${showPresenceSettings ? ' active' : ''}`}
+              style={{ width: 'auto' }}
+              onClick={() => setShowPresenceSettings((v) => !v)}
+            >
+              הגדרות
+            </button>
+          </div>
         </header>
 
-        {data ? (
-          <AuthorizedPeopleSyncBar
-            excelPath={data.settings.authorizedListExcelPath ?? ''}
-            peopleCount={(data.authorizedPeople ?? []).length}
-            workers={data.workers ?? []}
-            visitors={data.cardlessPeople ?? []}
-            onSynced={({ path, people, message }) => {
-              const merged = mergeAuthorizedIntoSidebar(
-                data.workers,
-                data.cardlessPeople,
-                people,
-              )
-              const added =
-                merged.addedWorkers + merged.addedVisitors
-              const tip =
-                added > 0
-                  ? `${message ?? 'נטען מה־Excel'} · נוספו ${added} לסרגל`
-                  : message
-              void persist(
-                {
-                  ...data,
-                  authorizedPeople: people,
-                  workers: merged.workers,
-                  cardlessPeople: merged.cardlessPeople,
-                  settings: {
-                    ...data.settings,
-                    authorizedListExcelPath: path,
+        {showPresenceSettings && data ? (
+          <section className="shift-section shift-settings-card presence-settings-card">
+            <h3>סנכרון רשימת מורשים (Excel)</h3>
+            <p className="shift-settings-note">
+              קובץ משותף ב־Drive — קבוע / ויזיטור. כל שעה האפליקציה בודקת אם
+              הקובץ השתנה ומסנכרנת רק אם יש שינוי.
+            </p>
+            <AuthorizedPeopleSyncBar
+              excelPath={data.settings.authorizedListExcelPath ?? ''}
+              peopleCount={(data.authorizedPeople ?? []).length}
+              workers={data.workers ?? []}
+              visitors={data.cardlessPeople ?? []}
+              onSynced={({ path, people, message }) => {
+                const merged = mergeAuthorizedIntoSidebar(
+                  data.workers,
+                  data.cardlessPeople,
+                  people,
+                )
+                const added =
+                  merged.addedWorkers + merged.addedVisitors
+                const tip =
+                  added > 0
+                    ? `${message ?? 'נטען מה־Excel'} · נוספו ${added} לסרגל`
+                    : message
+                void persist(
+                  {
+                    ...data,
+                    authorizedPeople: people,
+                    workers: merged.workers,
+                    cardlessPeople: merged.cardlessPeople,
+                    settings: {
+                      ...data.settings,
+                      authorizedListExcelPath: path,
+                      authorizedListLastSyncedAt: new Date().toISOString(),
+                    },
                   },
-                },
-                tip,
-              )
-            }}
-            onToast={(message) => setToast({ message })}
-          />
+                  tip,
+                )
+              }}
+              onToast={(message) => setToast({ message })}
+            />
+            <div className="shift-settings-grid presence-sync-time-grid">
+              <div className="shift-field presence-last-sync">
+                <span>סנכרון אחרון</span>
+                <strong>
+                  {data.settings.authorizedListLastSyncedAt
+                    ? formatDateTime(data.settings.authorizedListLastSyncedAt)
+                    : 'עדיין לא סונכרן'}
+                </strong>
+              </div>
+            </div>
+          </section>
         ) : null}
 
         <div ref={listRef} className="list-capture panel">

@@ -543,6 +543,8 @@ type AppSettings = {
   cameraReportSaveFolder?: string
   guardRosterExcelPath?: string
   authorizedListExcelPath?: string
+  authorizedListSyncTime?: string
+  authorizedListLastSyncedAt?: string
   directorEmail?: string
   shiftReportEmailTime?: string
   shiftReportEmailMode?: 'auto' | 'manual'
@@ -775,6 +777,15 @@ function normalize(raw: Partial<AppData>): AppData {
     authorizedListExcelPath:
       typeof raw.settings?.authorizedListExcelPath === 'string'
         ? raw.settings.authorizedListExcelPath.trim()
+        : '',
+    authorizedListSyncTime:
+      typeof raw.settings?.authorizedListSyncTime === 'string' &&
+      raw.settings.authorizedListSyncTime.trim()
+        ? raw.settings.authorizedListSyncTime.trim()
+        : '07:00',
+    authorizedListLastSyncedAt:
+      typeof raw.settings?.authorizedListLastSyncedAt === 'string'
+        ? raw.settings.authorizedListLastSyncedAt.trim()
         : '',
     directorEmail:
       typeof raw.settings?.directorEmail === 'string'
