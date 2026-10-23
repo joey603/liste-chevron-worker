@@ -1265,6 +1265,11 @@ let isAppQuitting = false
 const WHATSAPP_WEB_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 
+/** Fenêtre WhatsApp Web embarquée (Windows + Mac) — jamais Safari ni l'app Desktop. */
+function useEmbeddedWhatsAppWeb(): boolean {
+  return process.platform === 'win32' || process.platform === 'darwin'
+}
+
 function isNetworkOnline(): boolean {
   try {
     return net.isOnline()
@@ -1346,7 +1351,7 @@ async function waitForWebContentsIdle(
 ): Promise<void> {
   if (win.isDestroyed()) return
   if (!win.webContents.isLoading()) {
-    await wait(80)
+    await wait(20)
     return
   }
   await Promise.race([
@@ -1355,7 +1360,92 @@ async function waitForWebContentsIdle(
     }),
     wait(timeoutMs),
   ])
-  await wait(80)
+  await wait(20)
+}
+
+function isWhatsAppWebAlreadyLoaded(win: BrowserWindow): boolean {
+  if (win.isDestroyed()) return false
+  try {
+    const url = win.webContents.getURL()
+    return url.includes('web.whatsapp.com') && !win.webContents.isLoading()
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Navigue dans WhatsApp Web sans recharger toute la page si possible.
+ * Un loadURL Electron à chaque envoi provoquait une reconnexion (splash / WebSocket).
+ * Windows + Mac (fenêtre embarquée).
+ */
+async function navigateWhatsAppWeb(
+  win: BrowserWindow,
+  url: string,
+  hardTimeoutMs = 15000,
+): Promise<'soft' | 'hard'> {
+  if (isWhatsAppWebAlreadyLoaded(win)) {
+    await win.webContents.executeJavaScript(
+      `(() => {
+        const next = ${JSON.stringify(url)}
+        if (window.location.href === next) return 'same'
+        // Navigation SPA (garde la session / cookies, évite le reload Electron)
+        window.location.assign(next)
+        return 'assigned'
+      })()`,
+      true,
+    )
+    await wait(40)
+    return 'soft'
+  }
+  await win.loadURL(url, { userAgent: WHATSAPP_WEB_USER_AGENT })
+  await waitForWebContentsIdle(win, hardTimeoutMs)
+  return 'hard'
+}
+
+/** Attend la zone de saisie du chat (après /send?phone=…). */
+async function waitForWhatsAppComposeReady(
+  win: BrowserWindow,
+  maxMs = 20000,
+): Promise<boolean> {
+  return Boolean(
+    await win.webContents.executeJavaScript(
+      `(() => new Promise((resolve) => {
+        const maxMs = ${maxMs}
+        const started = Date.now()
+        let done = false
+        const finish = (ok) => {
+          if (done) return
+          done = true
+          resolve(ok)
+        }
+        const tick = () => {
+          const okBtn = document.querySelector(
+            '[data-testid="popup-controls-ok"], button[data-testid="popup-controls-ok"]'
+          )
+          if (okBtn) okBtn.click()
+          const input = document.querySelector(
+            '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
+          )
+          if (input) {
+            input.focus()
+            finish(true)
+            return
+          }
+          if (Date.now() - started >= maxMs) {
+            finish(false)
+            return
+          }
+          setTimeout(tick, 30)
+        }
+        const observer = new MutationObserver(tick)
+        try {
+          observer.observe(document.body, { childList: true, subtree: true })
+        } catch (_) {}
+        tick()
+      }))()`,
+      true,
+    ),
+  )
 }
 
 async function inspectWhatsAppWebDom(
@@ -1400,13 +1490,17 @@ async function inspectWhatsAppWebDom(
 async function openWhatsAppWebSessionWindow(): Promise<WhatsAppStatus> {
   const win = ensureWhatsAppWebWindow(true)
   win.webContents.setUserAgent(WHATSAPP_WEB_USER_AGENT)
-  // Recharger avec UA Chrome (évite l'écran "Télécharger Chrome")
-  await win.loadURL('https://web.whatsapp.com/', {
-    userAgent: WHATSAPP_WEB_USER_AGENT,
-  })
-  await waitForWebContentsIdle(win, 15000)
-  // Laisser le QR / l'UI se dessiner
-  await wait(1200)
+  // Ne pas recharger si déjà sur WA Web (évite une reconnexion inutile)
+  if (!isWhatsAppWebAlreadyLoaded(win)) {
+    await win.loadURL('https://web.whatsapp.com/', {
+      userAgent: WHATSAPP_WEB_USER_AGENT,
+    })
+    await waitForWebContentsIdle(win, 15000)
+    await wait(1200)
+  } else {
+    win.show()
+    win.focus()
+  }
   return getWhatsAppStatus()
 }
 
@@ -1422,7 +1516,7 @@ async function probeWindowsWhatsAppWeb(): Promise<
     }
     let state = await inspectWhatsAppWebDom(win)
     if (state === 'loading') {
-      await wait(2000)
+      await wait(500)
       state = await inspectWhatsAppWebDom(win)
     }
     if (state === 'connected') {
@@ -1534,21 +1628,20 @@ async function clickWhatsAppMediaSend(
         const maxMs = ${maxMs}
         const findSend = () => {
           const mediaSend = document.querySelector(
-            '[data-testid="send"], [data-testid="drawer-btn-send"], span[data-icon="send"], span[data-icon="wds-ic-send-filled"]'
+            '[data-testid="send"], [data-testid="compose-btn-send"], [data-testid="drawer-btn-send"], span[data-icon="send"], span[data-icon="wds-ic-send-filled"], span[data-icon="send-light"]'
           )
           if (mediaSend) {
-            return mediaSend.closest('button') || mediaSend
+            return mediaSend.closest('button') || mediaSend.closest('[role="button"]') || mediaSend
           }
           return null
         }
         const tryClick = () => {
           const btn = findSend()
           if (btn) {
+            btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+            btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
             btn.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-            setTimeout(() => {
-              const again = findSend()
-              if (again) again.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-            }, 60)
+            if (typeof btn.click === 'function') btn.click()
             resolve(true)
             return
           }
@@ -1556,7 +1649,7 @@ async function clickWhatsAppMediaSend(
             resolve(false)
             return
           }
-          setTimeout(tryClick, 40)
+          setTimeout(tryClick, 25)
         }
         tryClick()
       }))()`,
@@ -1564,6 +1657,17 @@ async function clickWhatsAppMediaSend(
     ),
   )
 }
+
+const WA_MEDIA_READY_JS = `(() => !!(
+  document.querySelector('[data-testid="media-canvas"]') ||
+  document.querySelector('[data-testid="media-editor"]') ||
+  document.querySelector('[data-testid="drawer-middle"]') ||
+  document.querySelector('[data-testid="media-caption-input"]') ||
+  document.querySelector('[data-testid="send"]') ||
+  document.querySelector('span[data-icon="send"]') ||
+  document.querySelector('div[data-animate-modal-body="true"] img') ||
+  document.querySelector('div[data-animate-modal-body="true"] canvas')
+))()`
 
 async function sendImageInOpenWhatsAppChat(
   win: BrowserWindow,
@@ -1577,16 +1681,41 @@ async function sendImageInOpenWhatsAppChat(
       const input = document.querySelector(
         '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
       )
-      if (input) input.focus()
+      if (input) {
+        input.focus()
+        input.click()
+      }
       return !!input
     })()`,
     true,
   )
   win.focus()
   win.webContents.focus()
-  win.webContents.paste()
-  // L'aperçu média WA peut prendre un moment : attendre le Send réel
-  const sent = await clickWhatsAppMediaSend(win, 4500)
+  const pasteMod = process.platform === 'darwin' ? 'meta' : 'control'
+  for (let i = 0; i < 2; i++) {
+    clipboard.writeImage(image)
+    win.webContents.paste()
+    await wait(80)
+    const mediaReady = await win.webContents.executeJavaScript(
+      WA_MEDIA_READY_JS,
+      true,
+    )
+    if (mediaReady) break
+    win.webContents.sendInputEvent({
+      type: 'keyDown',
+      keyCode: 'V',
+      modifiers: [pasteMod],
+    })
+    win.webContents.sendInputEvent({
+      type: 'keyUp',
+      keyCode: 'V',
+      modifiers: [pasteMod],
+    })
+    await wait(100)
+    const again = await win.webContents.executeJavaScript(WA_MEDIA_READY_JS, true)
+    if (again) break
+  }
+  const sent = await clickWhatsAppMediaSend(win, 2500)
   if (!sent) {
     await win.webContents.executeJavaScript(WA_CLICK_SEND_JS, true)
   }
@@ -1606,42 +1735,21 @@ async function sendViaEmbeddedWhatsAppWeb(
   }
 
   const win = ensureWhatsAppWebWindow(true)
+  win.show()
+  win.focus()
   const shortEnough = message.length > 0 && message.length <= 1200
   const encoded = shortEnough ? encodeURIComponent(message) : ''
   const url = encoded
     ? `https://web.whatsapp.com/send?phone=${phoneNorm}&text=${encoded}`
     : `https://web.whatsapp.com/send?phone=${phoneNorm}`
 
-  await win.loadURL(url, { userAgent: WHATSAPP_WEB_USER_AGENT })
-  await waitForWebContentsIdle(win, 15000)
-  await wait(250)
+  // Soft nav si déjà connecté (Windows + Mac) — pas de reload Electron
+  await navigateWhatsAppWeb(win, url)
+  await waitForWhatsAppComposeReady(win, 12000)
 
   // Photo seule : pas de texte à envoyer
   if (!message) {
     if (imageDataUrl) {
-      // Attendre que le chat soit prêt avant collage/envoi
-      await win.webContents.executeJavaScript(
-        `(() => new Promise((resolve) => {
-          let tries = 0
-          const tick = () => {
-            const input = document.querySelector(
-              '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
-            )
-            const okBtn = document.querySelector(
-              '[data-testid="popup-controls-ok"], button[data-testid="popup-controls-ok"]'
-            )
-            if (okBtn) okBtn.click()
-            if (input || tries >= 50) {
-              resolve(!!input)
-              return
-            }
-            tries += 1
-            setTimeout(tick, 80)
-          }
-          tick()
-        }))()`,
-        true,
-      )
       await sendImageInOpenWhatsAppChat(win, imageDataUrl)
     }
     return { ok: true }
@@ -1746,90 +1854,9 @@ async function sendViaEmbeddedWhatsAppWeb(
 async function probeWhatsAppConnection(): Promise<
   Omit<WhatsAppStatus, 'online'>
 > {
-  if (process.platform === 'win32') {
-    // Windows: session WhatsApp Web embarquée (vérifiable via le DOM)
+  if (useEmbeddedWhatsAppWeb()) {
+    // Session WhatsApp Web embarquée (statut DOM réel)
     return probeWindowsWhatsAppWeb()
-  }
-
-  if (process.platform === 'darwin') {
-    const installed = await new Promise<boolean>((resolve) => {
-      execFile(
-        'osascript',
-        [
-          '-e',
-          'try\n id of application "WhatsApp"\non error\n id of application "WhatsApp Beta"\nend try',
-        ],
-        (err) => resolve(!err),
-      )
-    })
-    const running = await new Promise<boolean>((resolve) => {
-      execFile(
-        'osascript',
-        [
-          '-e',
-          'tell application "System Events" to (name of processes) contains "WhatsApp" or (name of processes) contains "WhatsApp Beta"',
-        ],
-        (err, stdout) => resolve(!err && String(stdout).trim() === 'true'),
-      )
-    })
-    const webOpen = await new Promise<boolean>((resolve) => {
-      execFile(
-        'osascript',
-        [
-          '-e',
-          'tell application "System Events" to (exists (processes whose name is "Google Chrome" or name is "Safari" or name is "Microsoft Edge" or name is "Brave Browser" or name is "Firefox"))',
-        ],
-        () => {
-          execFile(
-            'osascript',
-            [
-              '-e',
-              `
-set found to false
-tell application "System Events"
-  repeat with p in (every process whose background only is false)
-    try
-      repeat with w in windows of p
-        try
-          if name of w contains "WhatsApp" then set found to true
-        end try
-      end repeat
-    end try
-  end repeat
-end tell
-return found
-`,
-            ],
-            (err, stdout) => resolve(!err && String(stdout).trim() === 'true'),
-          )
-        },
-      )
-    })
-
-    // Sur Mac, si l'app tourne on considère connectée (probe UI limité)
-    const connected = running || webOpen
-    const channel: WhatsAppChannel = running
-      ? 'desktop'
-      : webOpen
-        ? 'web'
-        : installed
-          ? 'desktop'
-          : 'none'
-    return {
-      whatsappAvailable: connected,
-      channel,
-      connected,
-      desktopInstalled: installed,
-      desktopRunning: running,
-      webOpen,
-      detail: running
-        ? 'desktop_connected'
-        : webOpen
-          ? 'web_connected'
-          : installed
-            ? 'desktop_not_running'
-            : 'not_installed',
-    }
   }
 
   return {
@@ -2068,43 +2095,35 @@ async function pasteClipboardImageAndSend(
   win.webContents.focus()
   await focusWhatsAppCompose(win)
 
-  // Tentatives: Electron paste + Ctrl+V (Windows)
-  for (let i = 0; i < 3; i++) {
+  const pasteMod = process.platform === 'darwin' ? 'meta' : 'control'
+  for (let i = 0; i < 2; i++) {
     clipboard.writeImage(image)
-    await wait(30)
     await focusWhatsAppCompose(win)
     win.webContents.focus()
     win.webContents.paste()
-    await wait(120)
-    // Ctrl+V en secours
+    await wait(80)
+    const mediaReady = await win.webContents.executeJavaScript(
+      WA_MEDIA_READY_JS,
+      true,
+    )
+    if (mediaReady) break
     win.webContents.sendInputEvent({
       type: 'keyDown',
       keyCode: 'V',
-      modifiers: ['control'],
+      modifiers: [pasteMod],
     })
     win.webContents.sendInputEvent({
       type: 'keyUp',
       keyCode: 'V',
-      modifiers: ['control'],
+      modifiers: [pasteMod],
     })
-    await wait(180)
-
-    const mediaReady = await win.webContents.executeJavaScript(
-      `(() => !!(
-        document.querySelector('[data-testid="media-canvas"]') ||
-        document.querySelector('[data-testid="drawer-middle"]') ||
-        document.querySelector('[data-testid="send"]') ||
-        document.querySelector('span[data-icon="send"]') ||
-        document.querySelector('div[data-animate-modal-body="true"] img') ||
-        document.querySelector('canvas')
-      ))()`,
-      true,
-    )
-    if (mediaReady) break
+    await wait(100)
+    const again = await win.webContents.executeJavaScript(WA_MEDIA_READY_JS, true)
+    if (again) break
   }
 
   if (autoSend) {
-    const sent = await clickWhatsAppMediaSend(win, 4500)
+    const sent = await clickWhatsAppMediaSend(win, 2500)
     if (!sent) {
       await win.webContents.executeJavaScript(WA_CLICK_SEND_JS, true)
     }
@@ -2135,37 +2154,22 @@ async function shareImageViaEmbeddedWhatsAppWeb(
   win.show()
   win.focus()
 
-  // Éviter un reload complet si WhatsApp Web est déjà chargé (beaucoup plus rapide)
-  const currentUrl = win.webContents.getURL()
-  const alreadyOnWeb =
-    currentUrl.includes('web.whatsapp.com') && !win.webContents.isLoading()
-
-  if (alreadyOnWeb) {
+  // Ouvrir le picker sans reload Electron si WA est déjà chargé (Windows + Mac)
+  const pickerUrl = `https://web.whatsapp.com/send?text=${encodeURIComponent('.')}`
+  if (isWhatsAppWebAlreadyLoaded(win)) {
     try {
       const opened = await win.webContents.executeJavaScript(
         WA_OPEN_SEND_PICKER_JS,
         true,
       )
       if (opened === 'none') {
-        await win.loadURL(
-          `https://web.whatsapp.com/send?text=${encodeURIComponent('.')}`,
-          { userAgent: WHATSAPP_WEB_USER_AGENT },
-        )
-        await waitForWebContentsIdle(win, 8000)
+        await navigateWhatsAppWeb(win, pickerUrl, 8000)
       }
     } catch {
-      await win.loadURL(
-        `https://web.whatsapp.com/send?text=${encodeURIComponent('.')}`,
-        { userAgent: WHATSAPP_WEB_USER_AGENT },
-      )
-      await waitForWebContentsIdle(win, 8000)
+      await navigateWhatsAppWeb(win, pickerUrl, 8000)
     }
   } else {
-    await win.loadURL(
-      `https://web.whatsapp.com/send?text=${encodeURIComponent('.')}`,
-      { userAgent: WHATSAPP_WEB_USER_AGENT },
-    )
-    await waitForWebContentsIdle(win, 10000)
+    await navigateWhatsAppWeb(win, pickerUrl, 10000)
     try {
       await win.webContents.executeJavaScript(WA_OPEN_SEND_PICKER_JS, true)
     } catch {
@@ -2181,7 +2185,6 @@ async function shareImageViaEmbeddedWhatsAppWeb(
     try {
       const selected = await waitForWhatsAppRecipientSelected(win, 120_000)
       if (!selected) return
-      await wait(150)
       clipboard.writeImage(image)
       await pasteClipboardImageAndSend(win, image, false)
     } catch {
@@ -2195,30 +2198,23 @@ async function openWhatsAppAndPaste() {
   // Un "." ouvre l'écran "à qui envoyer" ; l'image reste dans le presse-papiers
   const text = encodeURIComponent('.')
   const image = clipboard.readImage()
-  if (process.platform === 'win32') {
+  if (useEmbeddedWhatsAppWeb()) {
     const win = ensureWhatsAppWebWindow(true)
-    const currentUrl = win.webContents.getURL()
-    if (!currentUrl.includes('web.whatsapp.com') || win.webContents.isLoading()) {
-      await win.loadURL(`https://web.whatsapp.com/send?text=${text}`, {
-        userAgent: WHATSAPP_WEB_USER_AGENT,
-      })
-      await waitForWebContentsIdle(win, 10000)
-    } else {
+    const pickerUrl = `https://web.whatsapp.com/send?text=${text}`
+    if (isWhatsAppWebAlreadyLoaded(win)) {
       try {
         await win.webContents.executeJavaScript(WA_OPEN_SEND_PICKER_JS, true)
       } catch {
-        await win.loadURL(`https://web.whatsapp.com/send?text=${text}`, {
-          userAgent: WHATSAPP_WEB_USER_AGENT,
-        })
-        await waitForWebContentsIdle(win, 8000)
+        await navigateWhatsAppWeb(win, pickerUrl, 8000)
       }
+    } else {
+      await navigateWhatsAppWeb(win, pickerUrl, 10000)
     }
     win.show()
     win.focus()
     if (!image.isEmpty()) clipboard.writeImage(image)
     const selected = await waitForWhatsAppRecipientSelected(win, 120_000)
     if (!selected) return
-    await wait(150)
     if (!image.isEmpty()) {
       await pasteClipboardImageAndSend(win, image, true)
     } else {
@@ -2253,68 +2249,12 @@ async function openWhatsAppSendText(
     return { ok: false, error: 'offline' }
   }
 
-  // Windows: WhatsApp Web embarqué (statut DOM réel + envoi dans la même session)
-  if (process.platform === 'win32') {
+  // WhatsApp Web embarqué dans l'app (Windows + Mac)
+  if (useEmbeddedWhatsAppWeb()) {
     return sendViaEmbeddedWhatsAppWeb(phoneNorm, message, imageDataUrl)
   }
 
-  const status = await getWhatsAppStatus()
-  if (!status.connected) {
-    if (message) clipboard.writeText(message)
-    if (!status.desktopInstalled && !status.webOpen) {
-      return { ok: false, error: 'whatsapp_unavailable' }
-    }
-    return { ok: false, error: 'whatsapp_not_connected' }
-  }
-
-  if (message) clipboard.writeText(message)
-
-  const shortEnough = message.length > 0 && message.length <= 1200
-  const encoded = shortEnough ? encodeURIComponent(message) : ''
-  const desktopUri = encoded
-    ? `whatsapp://send?phone=${phoneNorm}&text=${encoded}`
-    : `whatsapp://send?phone=${phoneNorm}`
-  const webUri = encoded
-    ? `https://web.whatsapp.com/send?phone=${phoneNorm}&text=${encoded}`
-    : `https://web.whatsapp.com/send?phone=${phoneNorm}`
-
-  try {
-    if (status.channel === 'web' && !status.desktopRunning) {
-      await shell.openExternal(webUri)
-    } else {
-      try {
-        await shell.openExternal(desktopUri)
-      } catch {
-        await shell.openExternal(webUri)
-      }
-    }
-  } catch {
-    return { ok: false, error: 'whatsapp_unavailable' }
-  }
-
-  await wait(status.channel === 'web' ? 3200 : 2600)
-  if (message) {
-    if (encoded) {
-      await runWhatsAppKeys('enter')
-    } else {
-      await runWhatsAppKeys('paste-enter')
-    }
-    await wait(350)
-    await runWhatsAppKeys('enter')
-    await wait(250)
-  }
-
-  if (imageDataUrl) {
-    const image = nativeImage.createFromDataURL(imageDataUrl)
-    if (!image.isEmpty()) {
-      clipboard.writeImage(image)
-      await wait(400)
-      await runWhatsAppKeys('paste-enter')
-      await wait(300)
-    }
-  }
-
-  return { ok: true }
+  return { ok: false, error: 'whatsapp_unavailable' }
 }
 
 async function openWhatsAppSendTextMany(
@@ -2336,7 +2276,7 @@ async function openWhatsAppSendTextMany(
     return { ok: false, error: 'offline' }
   }
 
-  if (process.platform === 'win32') {
+  if (useEmbeddedWhatsAppWeb()) {
     for (const phone of unique) {
       const result = await sendViaEmbeddedWhatsAppWeb(
         phone,
@@ -2348,20 +2288,7 @@ async function openWhatsAppSendTextMany(
     return { ok: true }
   }
 
-  const status = await getWhatsAppStatus()
-  if (!status.connected) {
-    clipboard.writeText(text)
-    if (!status.desktopInstalled && !status.webOpen) {
-      return { ok: false, error: 'whatsapp_unavailable' }
-    }
-    return { ok: false, error: 'whatsapp_not_connected' }
-  }
-
-  for (const phone of unique) {
-    const result = await openWhatsAppSendText(phone, text, imageDataUrl)
-    if (!result.ok) return result
-  }
-  return { ok: true }
+  return { ok: false, error: 'whatsapp_unavailable' }
 }
 
 function resolveAppIcon(): string | undefined {
@@ -2840,7 +2767,7 @@ app.whenReady().then(() => {
   ipcMain.handle(
     'whatsapp:shareImage',
     async (_event, dataUrl: string) => {
-      if (process.platform === 'win32') {
+      if (useEmbeddedWhatsAppWeb()) {
         return shareImageViaEmbeddedWhatsAppWeb(String(dataUrl || ''))
       }
       const image = nativeImage.createFromDataURL(dataUrl)
@@ -2875,8 +2802,8 @@ app.whenReady().then(() => {
   setInterval(trySendDailyShiftReports, 60_000)
   setInterval(trySendMonthlyCameraReports, 60_000)
 
-  // Précharger WhatsApp Web en arrière-plan (Windows) pour un statut fiable
-  if (process.platform === 'win32') {
+  // Précharger WhatsApp Web embarqué (Windows + Mac) pour un statut fiable
+  if (useEmbeddedWhatsAppWeb()) {
     configureWhatsAppWebSession()
     setTimeout(() => {
       try {
