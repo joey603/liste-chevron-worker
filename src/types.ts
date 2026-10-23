@@ -276,6 +276,8 @@ export function whatsappStatusLabel(status: WhatsAppStatus): string | null {
       return 'WhatsApp Web לא מחובר — לחצו כאן לסריקת קוד QR'
     case 'web_loading':
       return 'בודק חיבור WhatsApp Web… לחצו כאן אם צריך להתחבר'
+    case 'web_socket_dead':
+      return 'WhatsApp Web נותק — לחצו כאן לחיבור מחדש'
     case 'web_not_open':
       return 'לחצו כאן להתחברות WhatsApp Web'
     case 'desktop_login':

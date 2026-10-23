@@ -1273,6 +1273,193 @@ let isAppQuitting = false
 /** Dernier numéro ouvert dans la fenêtre embarquée (évite un reload /send). */
 let lastEmbeddedChatPhone = ''
 
+type WaTrackedSocket = { url: string; open: boolean }
+const waSocketsById = new Map<string, WaTrackedSocket>()
+let waSocketEverOpen = false
+let lastWaSocketReloadAt = 0
+
+function isWhatsAppSocketUrl(url: string): boolean {
+  return /whatsapp\.(com|net)/i.test(url)
+}
+
+function liveWhatsAppSocketCount(): number {
+  let n = 0
+  for (const socket of waSocketsById.values()) {
+    if (socket.open && isWhatsAppSocketUrl(socket.url)) n += 1
+  }
+  return n
+}
+
+function resetWhatsAppSocketTracking() {
+  waSocketsById.clear()
+  waSocketEverOpen = false
+}
+
+const WA_WS_HOOK_JS = `(() => {
+  if (window.__chevronWaWsHook) return true
+  window.__chevronWaWsHook = true
+  const Native = window.WebSocket
+  const bag = new Set()
+  const wrap = (ws, url) => {
+    const rec = { ws, url: String(url || ws.url || '') }
+    bag.add(rec)
+    const drop = () => bag.delete(rec)
+    ws.addEventListener('close', drop)
+    ws.addEventListener('error', drop)
+  }
+  const Patched = function (url, protocols) {
+    const ws = protocols !== undefined ? new Native(url, protocols) : new Native(url)
+    wrap(ws, url)
+    return ws
+  }
+  Patched.prototype = Native.prototype
+  Object.assign(Patched, Native)
+  window.WebSocket = Patched
+  window.__chevronWaWsLive = () => {
+    let n = 0
+    for (const { ws, url } of bag) {
+      if (ws.readyState === 1 && /whatsapp/i.test(String(url))) n += 1
+    }
+    return n
+  }
+  return true
+})()`
+
+async function injectWhatsAppWebSocketHook(win: BrowserWindow): Promise<void> {
+  if (win.isDestroyed()) return
+  try {
+    await win.webContents.executeJavaScript(WA_WS_HOOK_JS, true)
+  } catch {
+    /* page pas encore prête */
+  }
+}
+
+async function pageHookLiveSocketCount(
+  win: BrowserWindow,
+): Promise<number | null> {
+  if (win.isDestroyed()) return null
+  try {
+    const n = await win.webContents.executeJavaScript(
+      `(() => (typeof window.__chevronWaWsLive === 'function' ? window.__chevronWaWsLive() : null))()`,
+      true,
+    )
+    return typeof n === 'number' ? n : null
+  } catch {
+    return null
+  }
+}
+
+async function hasLiveWhatsAppSocket(win: BrowserWindow): Promise<boolean> {
+  if (liveWhatsAppSocketCount() > 0) return true
+  const hooked = await pageHookLiveSocketCount(win)
+  return (hooked ?? 0) > 0
+}
+
+function attachWhatsAppSocketMonitor(win: BrowserWindow) {
+  const wc = win.webContents
+  if ((wc as Electron.WebContents & { __chevronWaWs?: boolean }).__chevronWaWs) {
+    return
+  }
+  ;(wc as Electron.WebContents & { __chevronWaWs?: boolean }).__chevronWaWs =
+    true
+
+  const dbg = wc.debugger
+  const onMessage = (
+    _event: unknown,
+    method: string,
+    params: { requestId?: string; url?: string },
+  ) => {
+    const id = String(params?.requestId || '')
+    if (!id) return
+    if (method === 'Network.webSocketCreated') {
+      waSocketsById.set(id, { url: String(params.url || ''), open: false })
+    }
+    if (method === 'Network.webSocketHandshakeResponseReceived') {
+      const prev = waSocketsById.get(id) || { url: '', open: false }
+      prev.open = true
+      waSocketsById.set(id, prev)
+      if (isWhatsAppSocketUrl(prev.url)) waSocketEverOpen = true
+    }
+    if (
+      method === 'Network.webSocketClosed' ||
+      method === 'Network.webSocketFrameError'
+    ) {
+      const prev = waSocketsById.get(id)
+      if (prev) prev.open = false
+    }
+  }
+
+  try {
+    if (!dbg.isAttached()) dbg.attach('1.3')
+    dbg.on('message', onMessage)
+    void dbg.sendCommand('Network.enable')
+  } catch {
+    /* CDP indisponible : on se rabat sur le hook page */
+  }
+
+  wc.on('did-start-loading', () => {
+    void injectWhatsAppWebSocketHook(win)
+  })
+  wc.on('dom-ready', () => {
+    void injectWhatsAppWebSocketHook(win)
+  })
+  wc.on('destroyed', () => {
+    resetWhatsAppSocketTracking()
+    try {
+      if (dbg.isAttached()) dbg.detach()
+    } catch {
+      /* ignore */
+    }
+  })
+}
+
+/**
+ * Si plus aucun WebSocket WhatsApp ouvert : un seul reload.
+ * Sinon on garde la session (même logique d'envoi).
+ */
+async function reviveWhatsAppIfSocketDead(
+  win: BrowserWindow,
+): Promise<boolean> {
+  if (win.isDestroyed()) return false
+  await injectWhatsAppWebSocketHook(win)
+  if (await hasLiveWhatsAppSocket(win)) return true
+  await wait(350)
+  if (await hasLiveWhatsAppSocket(win)) return true
+
+  const state = await inspectWhatsAppWebDom(win)
+  if (state === 'login') return false
+  if (!waSocketEverOpen) {
+    if (state !== 'connected') return false
+    const waitForHs = Date.now()
+    while (Date.now() - waitForHs < 2000) {
+      if (await hasLiveWhatsAppSocket(win)) return true
+      await wait(150)
+    }
+    // DOM connecté, aucun WS vu : ne pas recharger en boucle (CDP/hook raté)
+    return true
+  }
+
+  const now = Date.now()
+  if (now - lastWaSocketReloadAt < 12_000) {
+    return hasLiveWhatsAppSocket(win)
+  }
+  lastWaSocketReloadAt = now
+  lastEmbeddedChatPhone = ''
+  resetWhatsAppSocketTracking()
+  await win.loadURL('https://web.whatsapp.com/', {
+    userAgent: WHATSAPP_WEB_USER_AGENT,
+  })
+  await waitForWebContentsIdle(win, 15000)
+  const started = Date.now()
+  while (Date.now() - started < 10000) {
+    const next = await inspectWhatsAppWebDom(win)
+    if (next === 'login') return false
+    if (await hasLiveWhatsAppSocket(win)) return true
+    await wait(200)
+  }
+  return hasLiveWhatsAppSocket(win)
+}
+
 /** WhatsApp Web refuse souvent Electron : se faire passer pour Chrome. */
 const WHATSAPP_WEB_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
@@ -1302,6 +1489,7 @@ function destroyWhatsAppWebWindow() {
   }
   whatsappWebWin = null
   lastEmbeddedChatPhone = ''
+  resetWhatsAppSocketTracking()
 }
 
 /** Remet Liste Chevron au premier plan après un envoi WhatsApp. */
@@ -1342,6 +1530,7 @@ function ensureWhatsAppWebWindow(show: boolean): BrowserWindow {
 
   if (whatsappWebWin && !whatsappWebWin.isDestroyed()) {
     whatsappWebWin.webContents.setUserAgent(WHATSAPP_WEB_USER_AGENT)
+    attachWhatsAppSocketMonitor(whatsappWebWin)
     if (show) {
       whatsappWebWin.show()
       whatsappWebWin.focus()
@@ -1371,6 +1560,7 @@ function ensureWhatsAppWebWindow(show: boolean): BrowserWindow {
   })
 
   whatsappWebWin.webContents.setUserAgent(WHATSAPP_WEB_USER_AGENT)
+  attachWhatsAppSocketMonitor(whatsappWebWin)
 
   whatsappWebWin.on('close', (event) => {
     // Garder la session en vie (fenêtre cachée) pour le statut de connexion
@@ -1738,6 +1928,18 @@ async function probeWindowsWhatsAppWeb(): Promise<
       state = await inspectWhatsAppWebDom(win)
     }
     if (state === 'connected') {
+      const live = await hasLiveWhatsAppSocket(win)
+      if (!live && waSocketEverOpen) {
+        return {
+          whatsappAvailable: false,
+          channel: 'web',
+          connected: false,
+          desktopInstalled: false,
+          desktopRunning: false,
+          webOpen: true,
+          detail: 'web_socket_dead',
+        }
+      }
       return {
         whatsappAvailable: true,
         channel: 'web',
@@ -2293,6 +2495,10 @@ async function sendViaEmbeddedWhatsAppWebNow(
   const win = ensureWhatsAppWebWindow(true)
   win.show()
   win.focus()
+  const socketOk = await reviveWhatsAppIfSocketDead(win)
+  if (!socketOk) {
+    return { ok: false, error: 'whatsapp_not_connected' }
+  }
 
   // Ne pas faire /send?phone= si déjà connecté : ça recharge WA (barre de chargement).
   await openEmbeddedWhatsAppChat(win, phoneNorm)
