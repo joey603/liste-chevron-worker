@@ -98,6 +98,10 @@ export type AppSettings = {
   shiftReportSmtpPort?: number
   shiftReportSmtpUser?: string
   shiftReportSmtpPass?: string
+  /** מספר WhatsApp להתראות כניסה/יציאה כשהעובד הנבחר לא באתר */
+  absenceWatchPhone?: string
+  /** מזהה העובד למעקב נוכחות */
+  absenceWatchWorkerId?: string
 }
 
 export const VISITOR_COUNT = 30
@@ -530,6 +534,29 @@ export function isWorkerPresent(data: AppData, workerId: string): boolean {
   )
 }
 
+/**
+ * מעקב כניסות/יציאות פעיל רק אם העובד הנבחר אינו באתר.
+ * לא שולחים הודעה על העובד עצמו (עובד למעקב).
+ */
+export function shouldNotifyAbsenceWatch(
+  data: AppData,
+  person?: PersonEntry,
+): boolean {
+  const phone = data.settings.absenceWatchPhone?.trim() ?? ''
+  const workerId = data.settings.absenceWatchWorkerId?.trim() ?? ''
+  if (!phone || !workerId || !normalizeWhatsAppPhone(phone)) return false
+  if (person?.workerId && person.workerId === workerId) return false
+  return !isWorkerPresent(data, workerId)
+}
+
+export function buildAbsenceWatchMessage(
+  person: PersonEntry,
+  kind: 'enter' | 'exit',
+): string {
+  const name = displayName(person)
+  return kind === 'enter' ? `${name} נכנס/ה לאתר` : `${name} יצא/ה מהאתר`
+}
+
 export function isVisitorPresent(data: AppData, visitorNumber: number): boolean {
   return data.people.some(
     (p) => p.kind === 'visitor' && p.visitorNumber === visitorNumber && isPresent(p),
@@ -861,6 +888,14 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
     shiftReportSmtpPass:
       typeof rawSettings?.shiftReportSmtpPass === 'string'
         ? rawSettings.shiftReportSmtpPass
+        : '',
+    absenceWatchPhone:
+      typeof rawSettings?.absenceWatchPhone === 'string'
+        ? rawSettings.absenceWatchPhone.trim()
+        : '',
+    absenceWatchWorkerId:
+      typeof rawSettings?.absenceWatchWorkerId === 'string'
+        ? rawSettings.absenceWatchWorkerId.trim()
         : '',
   }
   settings.directorPhone = settings.emergencyPhones[0]?.phone ?? ''

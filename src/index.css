@@ -1579,6 +1579,11 @@ button.emergency-status-button:hover {
   align-items: end;
 }
 
+.presence-watch-grid {
+  margin-top: 8px;
+  grid-template-columns: 1fr 1fr;
+}
+
 .presence-last-sync {
   display: flex;
   flex-direction: column;

@@ -10,6 +10,8 @@ export type AppData = {
       emergency: boolean
     }>
     siteName: string
+    absenceWatchPhone?: string
+    absenceWatchWorkerId?: string
     visitorSlots: Record<
       string,
       { access: 'closed' | 'open_temp' | 'open_constant'; openUntil: string | null }

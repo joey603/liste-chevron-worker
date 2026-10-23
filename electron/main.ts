@@ -554,6 +554,8 @@ type AppSettings = {
   shiftReportSmtpPort?: number
   shiftReportSmtpUser?: string
   shiftReportSmtpPass?: string
+  absenceWatchPhone?: string
+  absenceWatchWorkerId?: string
 }
 
 type BannedPerson = {
@@ -823,6 +825,14 @@ function normalize(raw: Partial<AppData>): AppData {
     shiftReportSmtpPass:
       typeof raw.settings?.shiftReportSmtpPass === 'string'
         ? raw.settings.shiftReportSmtpPass
+        : '',
+    absenceWatchPhone:
+      typeof raw.settings?.absenceWatchPhone === 'string'
+        ? raw.settings.absenceWatchPhone.trim()
+        : '',
+    absenceWatchWorkerId:
+      typeof raw.settings?.absenceWatchWorkerId === 'string'
+        ? raw.settings.absenceWatchWorkerId.trim()
         : '',
   }
 
@@ -1289,6 +1299,39 @@ function destroyWhatsAppWebWindow() {
     whatsappWebWin.destroy()
   }
   whatsappWebWin = null
+}
+
+/** Remet Liste Chevron au premier plan après un envoi WhatsApp. */
+function bringMainAppToFront() {
+  const wa =
+    whatsappWebWin && !whatsappWebWin.isDestroyed() ? whatsappWebWin : null
+  const main = BrowserWindow.getAllWindows().find(
+    (w) => !w.isDestroyed() && w !== wa,
+  )
+  if (!main) return
+  if (main.isMinimized()) main.restore()
+  if (process.platform === 'darwin') {
+    try {
+      app.focus({ steal: true })
+    } catch {
+      app.focus()
+    }
+  }
+  main.show()
+  main.moveTop()
+  main.focus()
+  try {
+    main.webContents.focus()
+  } catch {
+    /* ignore */
+  }
+  if (process.platform === 'win32') {
+    main.setAlwaysOnTop(true)
+    main.focus()
+    setTimeout(() => {
+      if (!main.isDestroyed()) main.setAlwaysOnTop(false)
+    }, 250)
+  }
 }
 
 function ensureWhatsAppWebWindow(show: boolean): BrowserWindow {
@@ -2033,19 +2076,23 @@ async function sendViaEmbeddedWhatsAppWeb(
     if (imageDataUrl) {
       await sendImageInOpenWhatsAppChat(win, imageDataUrl)
     }
+    await wait(200)
+    bringMainAppToFront()
     return { ok: true }
   }
 
   // Texte (חירום, etc.) : même logique d'envoi trusted que la photo
   await ensureWhatsAppComposeHasText(win, message, Boolean(encoded))
   await clickWhatsAppComposeSend(win, 4000)
-  await wait(150)
+  await wait(200)
 
   // Photo en plus (si fournie)
   if (imageDataUrl) {
     await sendImageInOpenWhatsAppChat(win, imageDataUrl)
+    await wait(200)
   }
 
+  bringMainAppToFront()
   return { ok: true }
 }
 

@@ -50,6 +50,7 @@ import {
   VisitorAccess,
   Worker,
   bannedDisplayName,
+  buildAbsenceWatchMessage,
   buildEmergencyMessage,
   cardlessDisplayName,
   comparePresentByName,
@@ -70,6 +71,7 @@ import {
   normalizeData,
   normalizeWhatsAppPhone,
   purgeExpiredWorkers,
+  shouldNotifyAbsenceWatch,
   visitorAffiliatedName,
   WhatsAppStatus,
   whatsappStatusLabel,
@@ -1193,6 +1195,20 @@ export default function App() {
     if (message) setToast({ message })
   }
 
+  function notifyAbsenceWatch(
+    snapshot: AppData,
+    person: PersonEntry,
+    kind: 'enter' | 'exit',
+  ) {
+    if (!shouldNotifyAbsenceWatch(snapshot, person)) return
+    const phone = snapshot.settings.absenceWatchPhone?.trim() ?? ''
+    const text = buildAbsenceWatchMessage(person, kind)
+    if (!window.listeApi?.sendWhatsAppText) return
+    void window.listeApi.sendWhatsAppText(phone, text).catch(() => {
+      /* ignore */
+    })
+  }
+
   const onShiftReportChange = useCallback((next: ShiftReport) => {
     setData((prev) => {
       if (!prev) return prev
@@ -1530,6 +1546,7 @@ export default function App() {
         { ...data, people: [entry, ...data.people] },
         `${workerDisplayName(worker)} נוסף/ה`,
       )
+      notifyAbsenceWatch(data, entry, 'enter')
     })
   }
 
@@ -1563,6 +1580,7 @@ export default function App() {
           ? `ויזיטור ${visitorNumber} · ${nameLabel} נוסף`
           : `ויזיטור ${visitorNumber} נוסף`,
       )
+      notifyAbsenceWatch(data, entry, 'enter')
     }
     if (firstName || lastName) {
       await withEntryAuthorization(firstName, lastName, doAdd)
@@ -1741,6 +1759,7 @@ export default function App() {
         { ...data, people: [entry, ...data.people] },
         `ויזיטור ${visitorNumber} · ${display} נוסף`,
       )
+      notifyAbsenceWatch(data, entry, 'enter')
       clearCardlessSelection()
     })
   }
@@ -1796,6 +1815,7 @@ export default function App() {
           ? `${display} נוסף (זמני עד חצות)`
           : `${display} נוסף (קבוע)`,
       )
+      notifyAbsenceWatch(data, entry, 'enter')
       setShowNewWorker(false)
       resetNewWorkerForm()
     })
@@ -1864,6 +1884,9 @@ export default function App() {
     ) {
       return
     }
+    const removed = data.people.filter(
+      (p) => p.workerId === worker.id && isPresent(p),
+    )
     await persist(
       {
         ...data,
@@ -1872,6 +1895,9 @@ export default function App() {
       },
       'העובד נמחק',
     )
+    for (const person of removed) {
+      notifyAbsenceWatch(data, person, 'exit')
+    }
   }
 
   async function markExit(id: string) {
@@ -1882,6 +1908,7 @@ export default function App() {
       { ...data, people: data.people.filter((p) => p.id !== id) },
       `${displayName(person)} הוסר מהאתר`,
     )
+    notifyAbsenceWatch(data, person, 'exit')
   }
 
   async function setVisitorSlotAccess(
@@ -3266,6 +3293,82 @@ export default function App() {
                 </strong>
               </div>
             </div>
+
+            <h3>התראות כניסה / יציאה</h3>
+            <p className="shift-settings-note">
+              בחרו מספר ועובד. כל עוד העובד אינו ברשימת הנוכחות — כל כניסה
+              ויציאה תישלח ב־WhatsApp. אם הוא באתר, לא נשלח כלום.
+            </p>
+            <div className="shift-settings-grid presence-watch-grid">
+              <label className="shift-field">
+                <span>מספר WhatsApp</span>
+                <select
+                  value={data.settings.absenceWatchPhone ?? ''}
+                  onChange={(e) => {
+                    const absenceWatchPhone = e.target.value
+                    void persist({
+                      ...data,
+                      settings: { ...data.settings, absenceWatchPhone },
+                    })
+                  }}
+                >
+                  <option value="">— ללא מספר —</option>
+                  {data.settings.absenceWatchPhone &&
+                  !(data.settings.emergencyPhones ?? []).some(
+                    (c) => c.phone === data.settings.absenceWatchPhone,
+                  ) ? (
+                    <option value={data.settings.absenceWatchPhone}>
+                      {data.settings.absenceWatchPhone}
+                    </option>
+                  ) : null}
+                  {(data.settings.emergencyPhones ?? []).map((contact) => (
+                    <option key={contact.id} value={contact.phone}>
+                      {contactDisplayName(contact)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="shift-field">
+                <span>עובד למעקב</span>
+                <select
+                  value={data.settings.absenceWatchWorkerId ?? ''}
+                  onChange={(e) => {
+                    const absenceWatchWorkerId = e.target.value
+                    void persist({
+                      ...data,
+                      settings: { ...data.settings, absenceWatchWorkerId },
+                    })
+                  }}
+                >
+                  <option value="">— ללא עובד —</option>
+                  {data.settings.absenceWatchWorkerId &&
+                  !data.workers.some(
+                    (w) => w.id === data.settings.absenceWatchWorkerId,
+                  ) ? (
+                    <option value={data.settings.absenceWatchWorkerId}>
+                      עובד שנמחק
+                    </option>
+                  ) : null}
+                  {[...data.workers]
+                    .sort((a, b) =>
+                      workerDisplayName(a).localeCompare(
+                        workerDisplayName(b),
+                        'he',
+                      ),
+                    )
+                    .map((worker) => (
+                      <option key={worker.id} value={worker.id}>
+                        {workerDisplayName(worker)}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            </div>
+            {(data.settings.emergencyPhones ?? []).length === 0 ? (
+              <p className="shift-settings-test-hint">
+                אין מספרים — הוסיפו מספר ב«מספרים» למטה.
+              </p>
+            ) : null}
           </section>
         ) : null}
 
