@@ -134,11 +134,31 @@ export default function CameraReportPanel({
   const saveTimer = useRef<number | null>(null)
   const onChangeRef = useRef(onChange)
   const reportRef = useRef(report)
+  /** Éditions locales pas encore reprises par le parent (évite d’écraser les סריקות). */
+  const editEpoch = useRef(0)
+  const syncedEpoch = useRef(0)
   onChangeRef.current = onChange
   reportRef.current = report
 
   useEffect(() => {
-    setReport(normalizeCameraReport(value))
+    const next = normalizeCameraReport(value)
+    setReport((prev) => {
+      const sameContext =
+        prev.date === next.date && prev.shift === next.shift
+      // Parent encore en retard (debounce) → ne pas effacer les ajouts rapides
+      if (sameContext && editEpoch.current !== syncedEpoch.current) {
+        return prev
+      }
+      if (!sameContext) {
+        editEpoch.current = 0
+        syncedEpoch.current = 0
+        if (saveTimer.current != null) {
+          window.clearTimeout(saveTimer.current)
+          saveTimer.current = null
+        }
+      }
+      return next
+    })
   }, [value])
 
   function clearPendingSave() {
@@ -150,15 +170,20 @@ export default function CameraReportPanel({
 
   function flushPendingSave() {
     clearPendingSave()
+    const epoch = editEpoch.current
     onChangeRef.current(reportRef.current)
+    syncedEpoch.current = epoch
   }
 
   function queueSave(next: CameraReport) {
     reportRef.current = next
+    editEpoch.current += 1
+    const epoch = editEpoch.current
     clearPendingSave()
     saveTimer.current = window.setTimeout(() => {
       saveTimer.current = null
       onChangeRef.current(next)
+      syncedEpoch.current = epoch
     }, 200)
   }
 
@@ -272,6 +297,8 @@ export default function CameraReportPanel({
     )
     const shift: ShiftKind = 'morning'
     const next = createEmptyCameraReport(shiftDateToDate(date), shift, date)
+    editEpoch.current = 0
+    syncedEpoch.current = 0
     setReport(next)
     onChangeRef.current(next)
   }
