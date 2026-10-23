@@ -3296,8 +3296,9 @@ export default function App() {
 
             <h3>התראות כניסה / יציאה</h3>
             <p className="shift-settings-note">
-              בחרו מספר ועובד. כל עוד העובד אינו ברשימת הנוכחות — כל כניסה
-              ויציאה תישלח ב־WhatsApp. אם הוא באתר, לא נשלח כלום.
+              בחרו מספר ועובד. מ־07:00 ואילך, כל עוד העובד אינו ברשימת
+              הנוכחות — כל כניסה ויציאה תישלח ב־WhatsApp. לפני 07:00 או אם הוא
+              באתר — לא נשלח כלום.
             </p>
             <div className="shift-settings-grid presence-watch-grid">
               <label className="shift-field">
