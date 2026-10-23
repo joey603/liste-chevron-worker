@@ -1565,12 +1565,36 @@ async function probeWindowsWhatsAppWeb(): Promise<
 
 const WA_CLICK_SEND_JS = `(() => {
   const findSend = () => {
-    const byTestId = document.querySelector('[data-testid="send"]')
-    if (byTestId) return byTestId
-    const byIcon = document.querySelector(
-      'span[data-icon="send"], span[data-icon="wds-ic-send-filled"]'
-    )
-    if (byIcon) return byIcon.closest('button') || byIcon.parentElement
+    const roots = [
+      document.querySelector('[data-testid="drawer-right"]'),
+      document.querySelector('[data-testid="media-editor"]'),
+      document.querySelector('[data-testid="drawer-middle"]')?.closest('div'),
+      document.querySelector('[data-animate-modal-body="true"]')?.parentElement,
+      document.body,
+    ].filter(Boolean)
+    for (const root of roots) {
+      const byTestId = root.querySelector(
+        '[data-testid="send"], [data-testid="compose-btn-send"], [data-testid="drawer-btn-send"]'
+      )
+      if (byTestId) {
+        const btn = byTestId.closest('button') || byTestId
+        const r = btn.getBoundingClientRect()
+        if (r.width > 0 && r.height > 0) return btn
+      }
+      const byIcon = root.querySelector(
+        'span[data-icon="send"], span[data-icon="wds-ic-send-filled"], span[data-icon="send-light"]'
+      )
+      if (byIcon) {
+        const btn =
+          byIcon.closest('button') ||
+          byIcon.closest('[role="button"]') ||
+          byIcon.parentElement
+        if (btn) {
+          const r = btn.getBoundingClientRect()
+          if (r.width > 0 && r.height > 0) return btn
+        }
+      }
+    }
     const buttons = Array.from(
       document.querySelectorAll('button,[role="button"]'),
     )
@@ -1584,6 +1608,7 @@ const WA_CLICK_SEND_JS = `(() => {
         return (
           label.includes('send') ||
           label.includes('שליחה') ||
+          label.includes('שלח') ||
           label.includes('envoyer')
         )
       }) || null
@@ -1592,11 +1617,14 @@ const WA_CLICK_SEND_JS = `(() => {
   const click = () => {
     const sendBtn = findSend()
     if (sendBtn) {
-      sendBtn.click()
+      sendBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      sendBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+      sendBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      if (typeof sendBtn.click === 'function') sendBtn.click()
       return true
     }
     const input = document.querySelector(
-      '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
+      '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"], [data-testid="media-caption-input"]'
     )
     if (!input) return false
     const opts = {
@@ -1608,66 +1636,169 @@ const WA_CLICK_SEND_JS = `(() => {
       cancelable: true,
     }
     input.dispatchEvent(new KeyboardEvent('keydown', opts))
+    input.dispatchEvent(new KeyboardEvent('keypress', opts))
     input.dispatchEvent(new KeyboardEvent('keyup', opts))
     return true
   }
   click()
   setTimeout(click, 80)
+  setTimeout(click, 200)
   return true
 })()`
-
-/** Attend le bouton Send du média (aperçu photo) puis clique. */
-async function clickWhatsAppMediaSend(
-  win: BrowserWindow,
-  maxMs = 4000,
-): Promise<boolean> {
-  return Boolean(
-    await win.webContents.executeJavaScript(
-      `(() => new Promise((resolve) => {
-        const started = Date.now()
-        const maxMs = ${maxMs}
-        const findSend = () => {
-          const mediaSend = document.querySelector(
-            '[data-testid="send"], [data-testid="compose-btn-send"], [data-testid="drawer-btn-send"], span[data-icon="send"], span[data-icon="wds-ic-send-filled"], span[data-icon="send-light"]'
-          )
-          if (mediaSend) {
-            return mediaSend.closest('button') || mediaSend.closest('[role="button"]') || mediaSend
-          }
-          return null
-        }
-        const tryClick = () => {
-          const btn = findSend()
-          if (btn) {
-            btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
-            btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
-            btn.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-            if (typeof btn.click === 'function') btn.click()
-            resolve(true)
-            return
-          }
-          if (Date.now() - started >= maxMs) {
-            resolve(false)
-            return
-          }
-          setTimeout(tryClick, 25)
-        }
-        tryClick()
-      }))()`,
-      true,
-    ),
-  )
-}
 
 const WA_MEDIA_READY_JS = `(() => !!(
   document.querySelector('[data-testid="media-canvas"]') ||
   document.querySelector('[data-testid="media-editor"]') ||
   document.querySelector('[data-testid="drawer-middle"]') ||
   document.querySelector('[data-testid="media-caption-input"]') ||
-  document.querySelector('[data-testid="send"]') ||
-  document.querySelector('span[data-icon="send"]') ||
   document.querySelector('div[data-animate-modal-body="true"] img') ||
   document.querySelector('div[data-animate-modal-body="true"] canvas')
 ))()`
+
+async function isWhatsAppMediaPreviewOpen(win: BrowserWindow): Promise<boolean> {
+  try {
+    return Boolean(
+      await win.webContents.executeJavaScript(WA_MEDIA_READY_JS, true),
+    )
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Clique Send via événements Electron (trusted).
+ * Les click() DOM sont souvent ignorés par WhatsApp Web, surtout sur Windows.
+ */
+async function clickWhatsAppMediaSend(
+  win: BrowserWindow,
+  maxMs = 6000,
+): Promise<boolean> {
+  const started = Date.now()
+  let sawMedia = false
+
+  while (Date.now() - started < maxMs) {
+    if (win.isDestroyed()) return false
+
+    const state = (await win.webContents.executeJavaScript(
+      `(() => {
+        const mediaReady = !!(
+          document.querySelector('[data-testid="media-canvas"]') ||
+          document.querySelector('[data-testid="media-editor"]') ||
+          document.querySelector('[data-testid="drawer-middle"]') ||
+          document.querySelector('[data-testid="media-caption-input"]') ||
+          document.querySelector('div[data-animate-modal-body="true"] canvas') ||
+          document.querySelector('div[data-animate-modal-body="true"] img')
+        )
+        const roots = [
+          document.querySelector('[data-testid="drawer-right"]'),
+          document.querySelector('[data-testid="media-editor"]'),
+          document.querySelector('[data-testid="drawer-middle"]')?.closest('[role="dialog"], div'),
+          document.querySelector('[data-animate-modal-body="true"]')?.parentElement,
+          document.body,
+        ].filter(Boolean)
+        let x = 0
+        let y = 0
+        let found = false
+        for (const root of roots) {
+          const candidates = [
+            ...root.querySelectorAll(
+              '[data-testid="send"], [data-testid="compose-btn-send"], [data-testid="drawer-btn-send"]'
+            ),
+            ...root.querySelectorAll(
+              'span[data-icon="send"], span[data-icon="wds-ic-send-filled"], span[data-icon="send-light"]'
+            ),
+          ]
+          for (const el of candidates) {
+            const btn = el.closest('button') || el.closest('[role="button"]') || el
+            const r = btn.getBoundingClientRect()
+            if (r.width < 8 || r.height < 8) continue
+            x = r.x + r.width / 2
+            y = r.y + r.height / 2
+            found = true
+            break
+          }
+          if (found) break
+        }
+        if (!found) {
+          const buttons = Array.from(document.querySelectorAll('button,[role="button"]'))
+          for (const b of buttons) {
+            const label = (b.getAttribute('aria-label') || b.textContent || '').toLowerCase()
+            if (
+              !(
+                label.includes('send') ||
+                label.includes('שליחה') ||
+                label.includes('שלח') ||
+                label.includes('envoyer')
+              )
+            ) {
+              continue
+            }
+            const r = b.getBoundingClientRect()
+            if (r.width < 8 || r.height < 8) continue
+            if (r.top < window.innerHeight * 0.35) continue
+            x = r.x + r.width / 2
+            y = r.y + r.height / 2
+            found = true
+            break
+          }
+        }
+        return { mediaReady, found, x, y }
+      })()`,
+      true,
+    )) as { mediaReady: boolean; found: boolean; x: number; y: number }
+
+    if (state?.mediaReady) sawMedia = true
+
+    if (state?.mediaReady && state.found) {
+      win.focus()
+      win.webContents.focus()
+      const x = Math.round(state.x)
+      const y = Math.round(state.y)
+      win.webContents.sendInputEvent({ type: 'mouseMove', x, y })
+      win.webContents.sendInputEvent({
+        type: 'mouseDown',
+        x,
+        y,
+        button: 'left',
+        clickCount: 1,
+      })
+      win.webContents.sendInputEvent({
+        type: 'mouseUp',
+        x,
+        y,
+        button: 'left',
+        clickCount: 1,
+      })
+      await wait(80)
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
+      win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
+      await wait(180)
+      if (!(await isWhatsAppMediaPreviewOpen(win))) return true
+      await win.webContents.executeJavaScript(WA_CLICK_SEND_JS, true)
+      await wait(120)
+      return true
+    }
+
+    if (sawMedia && !state?.found) {
+      win.focus()
+      win.webContents.focus()
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
+      win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
+      await wait(180)
+      if (!(await isWhatsAppMediaPreviewOpen(win))) return true
+    }
+
+    await wait(40)
+  }
+
+  await win.webContents.executeJavaScript(WA_CLICK_SEND_JS, true)
+  win.focus()
+  win.webContents.focus()
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
+  await wait(150)
+  return sawMedia
+}
 
 async function sendImageInOpenWhatsAppChat(
   win: BrowserWindow,
@@ -1715,9 +1846,11 @@ async function sendImageInOpenWhatsAppChat(
     const again = await win.webContents.executeJavaScript(WA_MEDIA_READY_JS, true)
     if (again) break
   }
-  const sent = await clickWhatsAppMediaSend(win, 2500)
-  if (!sent) {
+  const sent = await clickWhatsAppMediaSend(win, 6000)
+  if (!sent || (await isWhatsAppMediaPreviewOpen(win))) {
     await win.webContents.executeJavaScript(WA_CLICK_SEND_JS, true)
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
   }
 }
 
@@ -2123,9 +2256,13 @@ async function pasteClipboardImageAndSend(
   }
 
   if (autoSend) {
-    const sent = await clickWhatsAppMediaSend(win, 2500)
-    if (!sent) {
+    const sent = await clickWhatsAppMediaSend(win, 6000)
+    if (!sent || (await isWhatsAppMediaPreviewOpen(win))) {
       await win.webContents.executeJavaScript(WA_CLICK_SEND_JS, true)
+      win.focus()
+      win.webContents.focus()
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
+      win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
     }
   }
   return true
@@ -2180,13 +2317,13 @@ async function shareImageViaEmbeddedWhatsAppWeb(
   win.focus()
   clipboard.writeImage(image)
 
-  // Attendre la VRAIE sélection du destinataire, puis coller (pas d'envoi auto)
+  // Attendre la sélection du destinataire, puis coller + envoyer
   void (async () => {
     try {
       const selected = await waitForWhatsAppRecipientSelected(win, 120_000)
       if (!selected) return
       clipboard.writeImage(image)
-      await pasteClipboardImageAndSend(win, image, false)
+      await pasteClipboardImageAndSend(win, image, true)
     } catch {
       /* ignore */
     }
