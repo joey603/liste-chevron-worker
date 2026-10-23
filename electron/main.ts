@@ -1854,6 +1854,154 @@ async function sendImageInOpenWhatsAppChat(
   }
 }
 
+/** Coordonnées du bouton Send (texte) dans le compose WhatsApp Web. */
+async function findWhatsAppComposeSendPoint(
+  win: BrowserWindow,
+): Promise<{ x: number; y: number } | null> {
+  try {
+    const point = (await win.webContents.executeJavaScript(
+      `(() => {
+        const candidates = [
+          ...document.querySelectorAll(
+            '[data-testid="send"], [data-testid="compose-btn-send"], footer [data-testid="send"]'
+          ),
+          ...document.querySelectorAll(
+            'footer span[data-icon="send"], footer span[data-icon="wds-ic-send-filled"], footer span[data-icon="send-light"]'
+          ),
+        ]
+        for (const el of candidates) {
+          const btn = el.closest('button') || el.closest('[role="button"]') || el
+          const r = btn.getBoundingClientRect()
+          if (r.width < 8 || r.height < 8) continue
+          return { x: r.x + r.width / 2, y: r.y + r.height / 2 }
+        }
+        const buttons = Array.from(document.querySelectorAll('button,[role="button"]'))
+        for (const b of buttons) {
+          const label = (b.getAttribute('aria-label') || b.textContent || '').toLowerCase()
+          if (
+            !(
+              label.includes('send') ||
+              label.includes('שליחה') ||
+              label.includes('שלח') ||
+              label.includes('envoyer')
+            )
+          ) {
+            continue
+          }
+          const r = b.getBoundingClientRect()
+          if (r.width < 8 || r.height < 8) continue
+          if (r.top < window.innerHeight * 0.45) continue
+          return { x: r.x + r.width / 2, y: r.y + r.height / 2 }
+        }
+        return null
+      })()`,
+      true,
+    )) as { x: number; y: number } | null
+    return point
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Envoi texte (חירום, etc.) : clic Send trusted + Enter.
+ * Même logique fiable que l'envoi photo (Windows ignore souvent click() DOM).
+ */
+async function clickWhatsAppComposeSend(
+  win: BrowserWindow,
+  maxMs = 4000,
+): Promise<boolean> {
+  const started = Date.now()
+  while (Date.now() - started < maxMs) {
+    if (win.isDestroyed()) return false
+    const point = await findWhatsAppComposeSendPoint(win)
+    win.focus()
+    win.webContents.focus()
+    if (point) {
+      const x = Math.round(point.x)
+      const y = Math.round(point.y)
+      win.webContents.sendInputEvent({ type: 'mouseMove', x, y })
+      win.webContents.sendInputEvent({
+        type: 'mouseDown',
+        x,
+        y,
+        button: 'left',
+        clickCount: 1,
+      })
+      win.webContents.sendInputEvent({
+        type: 'mouseUp',
+        x,
+        y,
+        button: 'left',
+        clickCount: 1,
+      })
+      await wait(60)
+    }
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
+    await wait(120)
+    await win.webContents.executeJavaScript(WA_CLICK_SEND_JS, true)
+    // Si le bouton Send a disparu, le message est parti
+    const still = await findWhatsAppComposeSendPoint(win)
+    if (!still) return true
+    if (point) return true
+    await wait(50)
+  }
+  return false
+}
+
+async function ensureWhatsAppComposeHasText(
+  win: BrowserWindow,
+  message: string,
+  alreadyInUrl: boolean,
+): Promise<void> {
+  await focusWhatsAppCompose(win)
+  if (alreadyInUrl) {
+    // Le texte peut déjà être dans l'URL /send?text= — vérifier le champ
+    const hasText = await win.webContents.executeJavaScript(
+      `(() => {
+        const input = document.querySelector(
+          '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
+        )
+        if (!input) return false
+        const t = (input.textContent || '').trim()
+        return t.length > 0
+      })()`,
+      true,
+    )
+    if (hasText) return
+  }
+
+  clipboard.writeText(message)
+  await wait(30)
+  await focusWhatsAppCompose(win)
+  win.webContents.focus()
+  // Remplir via DOM (fiable pour l'hébreu) puis collage en secours
+  const filled = await win.webContents.executeJavaScript(
+    `(() => {
+      const message = ${JSON.stringify(message)}
+      const input = document.querySelector(
+        '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
+      )
+      if (!input) return false
+      input.focus()
+      try {
+        document.execCommand('selectAll', false)
+        document.execCommand('insertText', false, message)
+      } catch (_) {
+        input.textContent = message
+        input.dispatchEvent(new InputEvent('input', { bubbles: true }))
+      }
+      return ((input.textContent || '').trim().length > 0)
+    })()`,
+    true,
+  )
+  if (!filled) {
+    win.webContents.paste()
+    await wait(80)
+  }
+}
+
 async function sendViaEmbeddedWhatsAppWeb(
   phoneNorm: string,
   text: string,
@@ -1888,95 +2036,12 @@ async function sendViaEmbeddedWhatsAppWeb(
     return { ok: true }
   }
 
-  // Une seule passe DOM : attendre le champ, remplir si besoin, cliquer Send aussitôt
-  const sent = await win.webContents.executeJavaScript(
-    `(() => new Promise((resolve) => {
-      const message = ${JSON.stringify(message)}
-      const alreadyFilled = ${encoded ? 'true' : 'false'}
-      let tries = 0
+  // Texte (חירום, etc.) : même logique d'envoi trusted que la photo
+  await ensureWhatsAppComposeHasText(win, message, Boolean(encoded))
+  await clickWhatsAppComposeSend(win, 4000)
+  await wait(150)
 
-      const findInput = () =>
-        document.querySelector(
-          '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
-        )
-
-      const findSend = () => {
-        const byTestId = document.querySelector('[data-testid="send"]')
-        if (byTestId) return byTestId
-        const byIcon = document.querySelector('span[data-icon="send"]')
-        if (byIcon) return byIcon.closest('button') || byIcon.parentElement
-        const buttons = Array.from(document.querySelectorAll('button,[role="button"]'))
-        return buttons.find((b) => {
-          const label = (b.getAttribute('aria-label') || b.textContent || '').toLowerCase()
-          return (
-            label.includes('send') ||
-            label.includes('שליחה') ||
-            label.includes('envoyer')
-          )
-        }) || null
-      }
-
-      const clickSend = (input) => {
-        const sendBtn = findSend()
-        if (sendBtn) {
-          sendBtn.click()
-          return true
-        }
-        const opts = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }
-        input.dispatchEvent(new KeyboardEvent('keydown', opts))
-        input.dispatchEvent(new KeyboardEvent('keypress', opts))
-        input.dispatchEvent(new KeyboardEvent('keyup', opts))
-        return true
-      }
-
-      const tick = () => {
-        tries += 1
-        const okBtn = document.querySelector(
-          '[data-testid="popup-controls-ok"], button[data-testid="popup-controls-ok"]'
-        )
-        if (okBtn) okBtn.click()
-
-        const input = findInput()
-        if (!input) {
-          if (tries >= 50) {
-            resolve(false)
-            return
-          }
-          setTimeout(tick, 80)
-          return
-        }
-
-        input.focus()
-        if (!alreadyFilled) {
-          try {
-            document.execCommand('selectAll', false)
-            document.execCommand('insertText', false, message)
-          } catch (_) {
-            input.textContent = message
-            input.dispatchEvent(new InputEvent('input', { bubbles: true }))
-          }
-        }
-
-        clickSend(input)
-        setTimeout(() => clickSend(input), 60)
-        resolve(true)
-      }
-      tick()
-    }))()`,
-    true,
-  )
-
-  if (!sent) {
-    win.webContents.paste()
-    await wait(60)
-    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
-    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
-    await wait(60)
-  } else {
-    await wait(120)
-  }
-
-  // Urgence : envoyer aussi la photo de la liste (comme le preview)
+  // Photo en plus (si fournie)
   if (imageDataUrl) {
     await sendImageInOpenWhatsAppChat(win, imageDataUrl)
   }
