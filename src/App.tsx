@@ -2,6 +2,7 @@ import { CSSProperties, FormEvent, ReactNode, useCallback, useEffect, useMemo, u
 import { createPortal } from 'react-dom'
 import {
   captureElementToPng,
+  installUiInteractivityWatchdog,
   restoreUiInteractivity,
 } from './captureDomToPng'
 import ShiftReportPanel from './ShiftReportPanel'
@@ -694,9 +695,11 @@ export default function App() {
     window.addEventListener('focus', onResume)
     document.addEventListener('visibilitychange', onVisibility)
     restoreUiInteractivity()
+    const stopWatchdog = installUiInteractivityWatchdog()
     return () => {
       window.removeEventListener('focus', onResume)
       document.removeEventListener('visibilitychange', onVisibility)
+      stopWatchdog()
     }
   }, [])
 

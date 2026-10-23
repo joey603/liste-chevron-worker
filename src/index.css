@@ -97,6 +97,22 @@ select {
   font: inherit;
 }
 
+/* Filet : un parent pointer-events:none (capture PNG) ne doit pas bloquer la saisie. */
+input:not(:disabled),
+textarea:not(:disabled),
+select:not(:disabled),
+[contenteditable='true'] {
+  pointer-events: auto !important;
+  user-select: text;
+}
+
+/* Chromium RTL : les champs time/date ne reçoivent pas toujours le clic sur les chiffres. */
+input[type='time'],
+input[type='date'] {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
 button {
   cursor: pointer;
   border: none;

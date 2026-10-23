@@ -2,6 +2,9 @@ import { domToPng } from 'modern-screenshot'
 
 const CAPTURE_TIMEOUT_MS = 12_000
 
+const FIELD_SELECTOR =
+  'input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [contenteditable="true"]'
+
 /** Supprime tout calque de capture orphelin qui pourrait bloquer les clics. */
 export function purgeCaptureHosts(): void {
   document
@@ -9,18 +12,22 @@ export function purgeCaptureHosts(): void {
     .forEach((node) => node.remove())
 }
 
-/**
- * Remet l’UI cliquable après capture / dialogue natif / perte de focus.
- * Ne change aucune logique métier — nettoyage défensif uniquement.
- */
-export function restoreUiInteractivity(): void {
-  purgeCaptureHosts()
+function clearInlinePointerEvents(root: ParentNode): void {
+  const clear = (node: HTMLElement) => {
+    if (node.closest('[data-capture-host]')) return
+    if (node.style.getPropertyValue('pointer-events') === 'none') {
+      node.style.removeProperty('pointer-events')
+    }
+  }
+  if (root instanceof HTMLElement) clear(root)
+  root.querySelectorAll<HTMLElement>('[style*="pointer-events"]').forEach(clear)
+}
 
-  document
-    .querySelectorAll('.list-capture-share.is-capturing')
-    .forEach((node) => node.classList.remove('is-capturing'))
+function unlockLiveUi(): void {
+  document.body?.removeAttribute('inert')
+  document.documentElement.removeAttribute('inert')
+  document.getElementById('root')?.removeAttribute('inert')
 
-  // Styles/inline accidentels qui bloquent toute la page
   if (document.body.style.pointerEvents === 'none') {
     document.body.style.pointerEvents = ''
   }
@@ -28,10 +35,73 @@ export function restoreUiInteractivity(): void {
     document.documentElement.style.pointerEvents = ''
   }
 
+  const liveRoot = document.getElementById('root')
+  if (liveRoot) clearInlinePointerEvents(liveRoot)
+}
+
+function purgeUiBlockers(): void {
+  purgeCaptureHosts()
+
+  document
+    .querySelectorAll('.list-capture-share.is-capturing')
+    .forEach((node) => node.classList.remove('is-capturing'))
+
+  unlockLiveUi()
+}
+
+/**
+ * Remet l’UI cliquable après capture / dialogue natif / perte de focus.
+ * Ne change aucune logique métier — nettoyage défensif uniquement.
+ */
+export function restoreUiInteractivity(): void {
+  purgeUiBlockers()
+
   try {
     window.focus()
   } catch {
     /* ignore */
+  }
+}
+
+let watchdogInstalled = false
+
+/**
+ * Si un calque orphelin recouvre un champ, le clic n’y arrive pas (le collage
+ * clavier continue de marcher). On nettoie au pointerdown et on focus le champ.
+ */
+export function installUiInteractivityWatchdog(): () => void {
+  if (watchdogInstalled) return () => {}
+  watchdogInstalled = true
+
+  const onPointerDown = (event: PointerEvent) => {
+    unlockLiveUi()
+
+    const target = event.target
+    if (target instanceof HTMLElement) {
+      const captureHost = target.closest('[data-capture-host]')
+      if (captureHost) {
+        captureHost.remove()
+        const field = document
+          .elementsFromPoint(event.clientX, event.clientY)
+          .find(
+            (node): node is HTMLElement =>
+              node instanceof HTMLElement && node.matches(FIELD_SELECTOR),
+          )
+        field?.focus()
+        return
+      }
+
+      const clickedField = target.closest(FIELD_SELECTOR)
+      if (clickedField instanceof HTMLElement) {
+        if (document.activeElement !== clickedField) clickedField.focus()
+      }
+    }
+  }
+
+  document.addEventListener('pointerdown', onPointerDown, true)
+  return () => {
+    document.removeEventListener('pointerdown', onPointerDown, true)
+    watchdogInstalled = false
   }
 }
 
