@@ -535,8 +535,9 @@ export function isWorkerPresent(data: AppData, workerId: string): boolean {
 }
 
 /**
- * מעקב כניסות/יציאות פעיל רק אם העובד הנבחר אינו באתר.
- * לא שולחים הודעה על העובד עצמו (עובד למעקב).
+ * התראות כניסה/יציאה:
+ * - מספר בלבד (בלי עובד) → שולחים על כולם
+ * - מספר + עובד → שולחים רק כשהעובד אינו באתר (ולא על העובד עצמו)
  */
 export function shouldNotifyAbsenceWatch(
   data: AppData,
@@ -544,7 +545,8 @@ export function shouldNotifyAbsenceWatch(
 ): boolean {
   const phone = data.settings.absenceWatchPhone?.trim() ?? ''
   const workerId = data.settings.absenceWatchWorkerId?.trim() ?? ''
-  if (!phone || !workerId || !normalizeWhatsAppPhone(phone)) return false
+  if (!phone || !normalizeWhatsAppPhone(phone)) return false
+  if (!workerId) return true
   if (person?.workerId && person.workerId === workerId) return false
   return !isWorkerPresent(data, workerId)
 }
