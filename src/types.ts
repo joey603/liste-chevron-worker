@@ -534,14 +534,9 @@ export function isWorkerPresent(data: AppData, workerId: string): boolean {
   )
 }
 
-/** מעקב כניסה/יציאה רק מ־07:00 ואילך */
-export function isAbsenceWatchHours(now = new Date()): boolean {
-  return now.getHours() * 60 + now.getMinutes() >= 7 * 60
-}
-
 /**
- * מעקב כניסות/יציאות פעיל רק אם העובד הנבחר אינו באתר,
- * ורק אחרי 07:00. לא שולחים הודעה על העובד עצמו (עובד למעקב).
+ * מעקב כניסות/יציאות פעיל רק אם העובד הנבחר אינו באתר.
+ * לא שולחים הודעה על העובד עצמו (עובד למעקב).
  */
 export function shouldNotifyAbsenceWatch(
   data: AppData,
@@ -550,7 +545,6 @@ export function shouldNotifyAbsenceWatch(
   const phone = data.settings.absenceWatchPhone?.trim() ?? ''
   const workerId = data.settings.absenceWatchWorkerId?.trim() ?? ''
   if (!phone || !workerId || !normalizeWhatsAppPhone(phone)) return false
-  if (!isAbsenceWatchHours()) return false
   if (person?.workerId && person.workerId === workerId) return false
   return !isWorkerPresent(data, workerId)
 }
