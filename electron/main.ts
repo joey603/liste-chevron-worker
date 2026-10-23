@@ -1270,6 +1270,8 @@ type WhatsAppWebDomState = 'connected' | 'login' | 'loading' | 'error'
 
 let whatsappWebWin: BrowserWindow | null = null
 let isAppQuitting = false
+/** Dernier numéro ouvert dans la fenêtre embarquée (évite un reload /send). */
+let lastEmbeddedChatPhone = ''
 
 /** WhatsApp Web refuse souvent Electron : se faire passer pour Chrome. */
 const WHATSAPP_WEB_USER_AGENT =
@@ -1299,6 +1301,7 @@ function destroyWhatsAppWebWindow() {
     whatsappWebWin.destroy()
   }
   whatsappWebWin = null
+  lastEmbeddedChatPhone = ''
 }
 
 /** Remet Liste Chevron au premier plan après un envoi WhatsApp. */
@@ -1443,6 +1446,178 @@ async function navigateWhatsAppWeb(
   await win.loadURL(url, { userAgent: WHATSAPP_WEB_USER_AGENT })
   await waitForWebContentsIdle(win, hardTimeoutMs)
   return 'hard'
+}
+
+function localWhatsAppPhoneVariants(phoneNorm: string): string[] {
+  const variants = [phoneNorm, `+${phoneNorm}`]
+  if (phoneNorm.startsWith('972') && phoneNorm.length > 3) {
+    variants.push(`0${phoneNorm.slice(3)}`)
+  }
+  return Array.from(new Set(variants.filter(Boolean)))
+}
+
+/**
+ * Ouvre le chat depuis la liste / recherche, SANS recharger WhatsApp Web
+ * (location.assign(/send?phone=) affiche la barre de chargement à chaque fois).
+ */
+async function openChatViaSidebarSearch(
+  win: BrowserWindow,
+  phoneNorm: string,
+): Promise<boolean> {
+  const queries = localWhatsAppPhoneVariants(phoneNorm)
+  return Boolean(
+    await win.webContents.executeJavaScript(
+      `(() => new Promise((resolve) => {
+        const queries = ${JSON.stringify(queries)}
+        const started = Date.now()
+        const maxMs = 7000
+        let qi = 0
+        let typedAt = 0
+        let clicked = false
+
+        const findSearch = () =>
+          document.querySelector(
+            '[data-testid="chat-list-search"] [contenteditable="true"], #side div[contenteditable="true"][data-tab="3"], #side div[contenteditable="true"], div[title="Search input textbox"]'
+          )
+
+        const findCompose = () =>
+          document.querySelector(
+            '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
+          )
+
+        const dismissPopups = () => {
+          const okBtn = document.querySelector(
+            '[data-testid="popup-controls-ok"], button[data-testid="popup-controls-ok"]'
+          )
+          if (okBtn) okBtn.click()
+        }
+
+        const typeQuery = (el, q) => {
+          el.focus()
+          el.click()
+          try {
+            document.execCommand('selectAll', false)
+            document.execCommand('insertText', false, q)
+          } catch (_) {
+            el.textContent = q
+            el.dispatchEvent(new InputEvent('input', { bubbles: true }))
+          }
+        }
+
+        const clickCell = (cell) => {
+          cell.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+          cell.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+          cell.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+          if (typeof cell.click === 'function') cell.click()
+        }
+
+        const clickSearchResult = () => {
+          const needles = queries.map((q) => q.replace(/\\D/g, '')).filter(Boolean)
+          const cells = Array.from(
+            document.querySelectorAll(
+              '#pane-side [data-testid="cell-frame-container"], #side [data-testid="cell-frame-container"], #pane-side [role="listitem"], #side [role="listitem"]'
+            ),
+          )
+          for (const cell of cells) {
+            const digits = (cell.innerText || '').replace(/\\D/g, '')
+            if (
+              needles.some(
+                (n) =>
+                  digits.includes(n) ||
+                  (n.length >= 8 && digits.slice(-9).includes(n.slice(-9))),
+              )
+            ) {
+              clickCell(cell)
+              return true
+            }
+          }
+          const startChat = cells.find((c) =>
+            /message|שלח|chat|הודעה/i.test(c.innerText || ''),
+          )
+          if (startChat) {
+            clickCell(startChat)
+            return true
+          }
+          if (Date.now() - typedAt > 500 && cells.length > 0) {
+            clickCell(cells[0])
+            return true
+          }
+          return false
+        }
+
+        const tick = () => {
+          dismissPopups()
+          if (clicked && findCompose()) {
+            resolve(true)
+            return
+          }
+          if (Date.now() - started >= maxMs) {
+            resolve(!!findCompose())
+            return
+          }
+
+          const search = findSearch()
+          if (!search) {
+            const icon = document.querySelector(
+              '[data-testid="chat-list-search"], span[data-icon="search"], span[data-icon="search-refreshed"]'
+            )
+            if (icon) (icon.closest('button') || icon.closest('[role="button"]') || icon).click()
+            setTimeout(tick, 80)
+            return
+          }
+
+          if (!typedAt) {
+            typeQuery(search, queries[qi] || queries[0])
+            typedAt = Date.now()
+            setTimeout(tick, 350)
+            return
+          }
+
+          if (!clicked) {
+            if (clickSearchResult()) {
+              clicked = true
+              setTimeout(tick, 120)
+              return
+            }
+            if (Date.now() - typedAt > 900 && qi + 1 < queries.length) {
+              qi += 1
+              typedAt = 0
+              clicked = false
+            }
+            setTimeout(tick, 120)
+            return
+          }
+
+          setTimeout(tick, 60)
+        }
+        tick()
+      }))()`,
+      true,
+    ),
+  )
+}
+
+async function openEmbeddedWhatsAppChat(
+  win: BrowserWindow,
+  phoneNorm: string,
+): Promise<boolean> {
+  if (isWhatsAppWebAlreadyLoaded(win)) {
+    if (lastEmbeddedChatPhone === phoneNorm) {
+      const ready = await waitForWhatsAppComposeReady(win, 800)
+      if (ready) return true
+    }
+    const opened = await openChatViaSidebarSearch(win, phoneNorm)
+    if (opened || (await waitForWhatsAppComposeReady(win, 2500))) {
+      lastEmbeddedChatPhone = phoneNorm
+      return true
+    }
+  }
+
+  const url = `https://web.whatsapp.com/send?phone=${phoneNorm}`
+  await navigateWhatsAppWeb(win, url)
+  const ready = await waitForWhatsAppComposeReady(win, 12000)
+  if (ready) lastEmbeddedChatPhone = phoneNorm
+  return ready
 }
 
 /** Attend la zone de saisie du chat (après /send?phone=…). */
@@ -1993,65 +2168,122 @@ async function clickWhatsAppComposeSend(
   return false
 }
 
+async function readWhatsAppComposeText(win: BrowserWindow): Promise<string> {
+  try {
+    return String(
+      await win.webContents.executeJavaScript(
+        `(() => {
+          const input = document.querySelector(
+            '#main footer [contenteditable="true"], [data-testid="conversation-compose-box-input"]'
+          )
+          if (!input) return ''
+          return (input.innerText || input.textContent || '')
+            .replace(/[\\u200e\\u200f]/g, '')
+            .replace(/\\n+$/g, '')
+            .trim()
+        })()`,
+        true,
+      ),
+    )
+  } catch {
+    return ''
+  }
+}
+
+function isDoubledComposeText(got: string, want: string): boolean {
+  const g = got.trim()
+  const w = want.trim()
+  if (!w || !g) return false
+  return g === w + w || g === `${w}\n${w}` || g === `${w} ${w}`
+}
+
+async function selectAllWhatsAppCompose(win: BrowserWindow): Promise<void> {
+  const pasteMod = process.platform === 'darwin' ? 'meta' : 'control'
+  await focusWhatsAppCompose(win)
+  win.webContents.focus()
+  win.webContents.sendInputEvent({
+    type: 'keyDown',
+    keyCode: 'A',
+    modifiers: [pasteMod],
+  })
+  win.webContents.sendInputEvent({
+    type: 'keyUp',
+    keyCode: 'A',
+    modifiers: [pasteMod],
+  })
+  await wait(40)
+}
+
+/**
+ * Remplit le compose UNE fois (Mac: insertText Electron double souvent le texte).
+ * Cmd/Ctrl+A puis collage unique.
+ */
 async function ensureWhatsAppComposeHasText(
   win: BrowserWindow,
   message: string,
-  alreadyInUrl: boolean,
+  _alreadyInUrl: boolean,
 ): Promise<void> {
+  const want = message.trim()
+  if (!want) return
   await focusWhatsAppCompose(win)
-  if (alreadyInUrl) {
-    // Le texte peut déjà être dans l'URL /send?text= — vérifier le champ
-    const hasText = await win.webContents.executeJavaScript(
-      `(() => {
-        const input = document.querySelector(
-          '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
-        )
-        if (!input) return false
-        const t = (input.textContent || '').trim()
-        return t.length > 0
-      })()`,
-      true,
-    )
-    if (hasText) return
+  const current = await readWhatsAppComposeText(win)
+  if (current === want) return
+  if (isDoubledComposeText(current, want)) {
+    await selectAllWhatsAppCompose(win)
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Backspace' })
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Backspace' })
+    await wait(40)
   }
 
-  clipboard.writeText(message)
-  await wait(30)
-  await focusWhatsAppCompose(win)
-  win.webContents.focus()
-  // Remplir via DOM (fiable pour l'hébreu) puis collage en secours
-  const filled = await win.webContents.executeJavaScript(
-    `(() => {
-      const message = ${JSON.stringify(message)}
-      const input = document.querySelector(
-        '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
-      )
-      if (!input) return false
-      input.focus()
-      try {
-        document.execCommand('selectAll', false)
-        document.execCommand('insertText', false, message)
-      } catch (_) {
-        input.textContent = message
-        input.dispatchEvent(new InputEvent('input', { bubbles: true }))
-      }
-      return ((input.textContent || '').trim().length > 0)
-    })()`,
-    true,
-  )
-  if (!filled) {
+  clipboard.writeText(want)
+  await wait(20)
+  await selectAllWhatsAppCompose(win)
+  win.webContents.paste()
+  await wait(100)
+
+  let got = await readWhatsAppComposeText(win)
+  if (got === want) return
+  if (isDoubledComposeText(got, want) || (got.includes(want) && got.length > want.length)) {
+    await selectAllWhatsAppCompose(win)
+    clipboard.writeText(want)
+    await wait(20)
+    win.webContents.paste()
+    await wait(100)
+    got = await readWhatsAppComposeText(win)
+    if (got === want) return
+    await selectAllWhatsAppCompose(win)
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Backspace' })
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Backspace' })
+    await wait(40)
+    clipboard.writeText(want)
     win.webContents.paste()
     await wait(80)
   }
 }
+
+let embeddedWhatsAppSendQueue: Promise<unknown> = Promise.resolve()
 
 async function sendViaEmbeddedWhatsAppWeb(
   phoneNorm: string,
   text: string,
   imageDataUrl?: string,
 ): Promise<WhatsAppSendResult> {
+  const run = (): Promise<WhatsAppSendResult> =>
+    sendViaEmbeddedWhatsAppWebNow(phoneNorm, text, imageDataUrl)
+  const pending = embeddedWhatsAppSendQueue.then(run, run)
+  embeddedWhatsAppSendQueue = pending.then(
+    () => undefined,
+    () => undefined,
+  )
+  return pending
+}
+
+async function sendViaEmbeddedWhatsAppWebNow(
+  phoneNorm: string,
+  text: string,
+  imageDataUrl?: string,
+): Promise<WhatsAppSendResult> {
   const message = text.trim()
-  if (message) clipboard.writeText(message)
   const status = await probeWindowsWhatsAppWeb()
   if (!status.connected) {
     ensureWhatsAppWebWindow(true)
@@ -2061,15 +2293,9 @@ async function sendViaEmbeddedWhatsAppWeb(
   const win = ensureWhatsAppWebWindow(true)
   win.show()
   win.focus()
-  const shortEnough = message.length > 0 && message.length <= 1200
-  const encoded = shortEnough ? encodeURIComponent(message) : ''
-  const url = encoded
-    ? `https://web.whatsapp.com/send?phone=${phoneNorm}&text=${encoded}`
-    : `https://web.whatsapp.com/send?phone=${phoneNorm}`
 
-  // Soft nav si déjà connecté (Windows + Mac) — pas de reload Electron
-  await navigateWhatsAppWeb(win, url)
-  await waitForWhatsAppComposeReady(win, 12000)
+  // Ne pas faire /send?phone= si déjà connecté : ça recharge WA (barre de chargement).
+  await openEmbeddedWhatsAppChat(win, phoneNorm)
 
   // Photo seule : pas de texte à envoyer
   if (!message) {
@@ -2082,7 +2308,7 @@ async function sendViaEmbeddedWhatsAppWeb(
   }
 
   // Texte (חירום, etc.) : même logique d'envoi trusted que la photo
-  await ensureWhatsAppComposeHasText(win, message, Boolean(encoded))
+  await ensureWhatsAppComposeHasText(win, message, false)
   await clickWhatsAppComposeSend(win, 4000)
   await wait(200)
 
