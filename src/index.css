@@ -486,6 +486,7 @@ button.app-version {
   flex-wrap: wrap;
 }
 
+.telegram-bar,
 .whatsapp-bar {
   position: relative;
   display: flex;
@@ -718,13 +719,6 @@ button.emergency-status-button:hover {
   font-size: 0.82rem;
 }
 
-.btn-whatsapp {
-  width: auto;
-  min-width: 180px;
-  max-width: 360px;
-  white-space: nowrap;
-}
-
 .preview-actions {
   display: flex;
   flex-direction: row;
@@ -735,8 +729,8 @@ button.emergency-status-button:hover {
   flex-wrap: wrap;
 }
 
-.preview-actions .btn-whatsapp,
-.preview-actions .btn-preview-close {
+.preview-actions .btn-preview-close,
+.preview-actions .btn-primary {
   align-self: center;
   flex: 0 0 auto;
   width: auto;

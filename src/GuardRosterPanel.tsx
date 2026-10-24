@@ -4,12 +4,9 @@ import {
   restoreUiInteractivity,
 } from './captureDomToPng'
 import {
-  contactDisplayName,
   createId,
   formatDateTime,
   guardDisplayName,
-  normalizeWhatsAppPhone,
-  type ContactPhone,
   type GuardRosterEntry,
 } from './types'
 
@@ -33,8 +30,6 @@ type Props = {
   onChange: (next: GuardRosterEntry[], message?: string) => void | Promise<void>
   onToast?: (message: string) => void
   toastMessage?: string | null
-  /** מספרי WhatsApp לשליחה (אותם אנשי קשר מההגדרות — לא רשימת נוכחים) */
-  shareContacts?: ContactPhone[]
   siteName?: string
   excelPath?: string
   onExcelPathChange?: (path: string) => void | Promise<void>
@@ -45,7 +40,6 @@ export default function GuardRosterPanel({
   onChange,
   onToast,
   toastMessage,
-  shareContacts = [],
   siteName = 'אתר Chevron',
   excelPath = '',
   onExcelPathChange,
@@ -53,8 +47,6 @@ export default function GuardRosterPanel({
   const [showAdd, setShowAdd] = useState(false)
   const [draft, setDraft] = useState<GuardForm>(emptyGuard)
   const [editing, setEditing] = useState<GuardRosterEntry | null>(null)
-  const [showShare, setShowShare] = useState(false)
-  const [sharePhoneDraft, setSharePhoneDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [excelBusy, setExcelBusy] = useState(false)
   const captureRef = useRef<HTMLDivElement>(null)
@@ -188,15 +180,6 @@ export default function GuardRosterPanel({
     }
   }
 
-  function openSharePicker() {
-    if (guards.length === 0) {
-      notify('אין שומרים ברוסטר לשליחה')
-      return
-    }
-    setSharePhoneDraft(shareContacts[0]?.phone ?? '')
-    setShowShare(true)
-  }
-
   async function captureRosterImageDataUrl(): Promise<string | null> {
     const source = captureRef.current
     if (!source) return null
@@ -233,19 +216,17 @@ export default function GuardRosterPanel({
     }
   }
 
-  /** שליחת תמונת הרוסטר בלבד — לא רשימת נוכחים/עובדים */
-  async function shareRosterOnWhatsAppToPhone(phoneRaw: string) {
-    const phone = phoneRaw.trim()
-    if (!normalizeWhatsAppPhone(phone)) {
-      notify('מספר לא תקין')
-      return
-    }
+  /** שליחת תמונת הרוסטר לקבוצת Telegram */
+  async function shareRosterOnTelegram() {
     if (guards.length === 0) {
       notify('אין שומרים ברוסטר לשליחה')
       return
     }
+    if (!window.listeApi?.sendTelegramPhoto) {
+      notify('שליחת Telegram זמינה רק באפליקציה המותקנת')
+      return
+    }
 
-    setShowShare(false)
     setSending(true)
     try {
       const dataUrl = await captureRosterImageDataUrl()
@@ -253,55 +234,22 @@ export default function GuardRosterPanel({
         notify('שגיאה ביצירת התמונה')
         return
       }
-
-      if (window.listeApi?.sendWhatsAppText) {
-        notify('שולח את התמונה ב־WhatsApp…')
-        const result = await window.listeApi.sendWhatsAppText(
-          phone,
-          '',
-          dataUrl,
-        )
-        const ok = typeof result === 'boolean' ? result : result.ok
-        const error = typeof result === 'boolean' ? undefined : result.error
-        if (!ok) {
-          if (error === 'whatsapp_not_connected') {
-            notify(
-              'WhatsApp Web לא מחובר — לחצו על מצב החיבור וסרקו QR. התמונה הועתקה',
-            )
-            void window.listeApi.copyImage?.(dataUrl)
-            void window.listeApi.openWhatsAppWebSession?.()
-          } else if (error === 'offline') {
-            notify('אין אינטרנט — לא ניתן לשלוח כרגע')
-          } else {
-            notify('שליחת התמונה נכשלה')
-          }
-          return
-        }
-        notify('התמונה נשלחה ב־WhatsApp')
-        return
-      }
-
-      if (window.listeApi?.shareImageToWhatsApp) {
-        const result = await window.listeApi.shareImageToWhatsApp(dataUrl)
-        const ok = typeof result === 'boolean' ? result : result.ok
-        notify(
-          ok
-            ? 'בחרו איש קשר ב־WhatsApp — התמונה תודבק'
-            : 'שיתוף התמונה נכשל',
-        )
-        return
-      }
-
-      const blob = await (await fetch(dataUrl)).blob()
-      await navigator.clipboard.write([
-        new ClipboardItem({ 'image/png': blob }),
-      ])
-      const phoneNorm = normalizeWhatsAppPhone(phone)
-      window.open(
-        `https://web.whatsapp.com/send?phone=${phoneNorm}`,
-        '_blank',
+      notify('שולח את התמונה ב־Telegram…')
+      const result = await window.listeApi.sendTelegramPhoto(
+        dataUrl,
+        `רוסטר שומרים — ${siteName}`,
       )
-      notify('התמונה הועתקה — הדביקו (Ctrl+V) ושלחו')
+      if (!result.ok) {
+        if (result.error === 'telegram_not_configured') {
+          notify('הגדירו Token ו-chat_id של Telegram בהגדרות נוכחות')
+        } else if (result.error === 'offline') {
+          notify('אין אינטרנט — לא ניתן לשלוח כרגע')
+        } else {
+          notify('שליחת התמונה נכשלה')
+        }
+        return
+      }
+      notify('התמונה נשלחה ב־Telegram')
     } catch {
       notify('שגיאה בשליחת התמונה')
     } finally {
@@ -571,13 +519,13 @@ export default function GuardRosterPanel({
         <div className="main-header-actions">
           <button
             type="button"
-            className="btn btn-primary btn-whatsapp"
+            className="btn btn-primary"
             style={{ width: 'auto' }}
             disabled={sending || sorted.length === 0}
-            onClick={openSharePicker}
-            title="שליחת רוסטר השומרים בלבד (לא רשימת נוכחים)"
+            onClick={() => void shareRosterOnTelegram()}
+            title="שליחת תמונת הרוסטר לקבוצת Telegram"
           >
-            שליחה ב־WhatsApp
+            {sending ? 'שולח…' : 'שליחה ב־Telegram'}
           </button>
           <button
             type="button"
@@ -808,97 +756,6 @@ export default function GuardRosterPanel({
         </div>
       ) : null}
 
-      {showShare ? (
-        <div
-          className="modal-backdrop"
-          onClick={() => setShowShare(false)}
-        >
-          <div
-            className="modal modal-share-target"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3>שליחת הרשימה ב־WhatsApp</h3>
-            <p className="settings-note" style={{ marginBottom: 12 }}>
-              בחרו מספר — התמונה תישלח ישירות לצ׳אט (בלי בחירה בתוך WhatsApp).
-            </p>
-
-            {shareContacts.length > 0 ? (
-              <div className="emergency-phone-scroll">
-                <ul className="emergency-phone-list share-target-list">
-                  {shareContacts.map((contact) => (
-                    <li key={contact.id}>
-                      <div className="contact-phone-meta">
-                        <strong>{contactDisplayName(contact)}</strong>
-                        <span dir="ltr">{contact.phone}</span>
-                        {contact.emergency ? (
-                          <span className="contact-phone-badge emergency">
-                            חירום
-                          </span>
-                        ) : null}
-                      </div>
-                      <button
-                        type="button"
-                        className="btn btn-primary"
-                        style={{ width: 'auto' }}
-                        disabled={sending}
-                        onClick={() =>
-                          void shareRosterOnWhatsAppToPhone(contact.phone)
-                        }
-                      >
-                        שלח
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : (
-              <p className="settings-note" style={{ marginBottom: 10 }}>
-                אין מספרים שמורים — הזינו מספר למטה.
-              </p>
-            )}
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault()
-                void shareRosterOnWhatsAppToPhone(sharePhoneDraft)
-              }}
-            >
-              <div className="field">
-                <label htmlFor="rosterSharePhone">מספר אחר</label>
-                <input
-                  id="rosterSharePhone"
-                  type="tel"
-                  inputMode="tel"
-                  value={sharePhoneDraft}
-                  onChange={(e) => setSharePhoneDraft(e.target.value)}
-                  placeholder="0501234567"
-                  autoComplete="tel"
-                  dir="ltr"
-                />
-              </div>
-              <div className="modal-actions">
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={() => setShowShare(false)}
-                >
-                  ביטול
-                </button>
-                <button
-                  type="submit"
-                  className="btn btn-primary btn-whatsapp"
-                  style={{ width: 'auto' }}
-                  disabled={
-                    sending || !normalizeWhatsAppPhone(sharePhoneDraft)
-                  }
-                >
-                  שלח תמונה
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
     </main>
   )
 }

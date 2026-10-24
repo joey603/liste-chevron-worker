@@ -184,49 +184,15 @@ const api = {
   }) => ipcRenderer.invoke('cameraReport:sendMonthlyEmail', payload),
   copyImage: (dataUrl: string): Promise<boolean> =>
     ipcRenderer.invoke('clipboard:writeImage', dataUrl),
-  openWhatsApp: (): Promise<boolean> => ipcRenderer.invoke('whatsapp:open'),
-  shareImageToWhatsApp: (
-    dataUrl: string,
-  ): Promise<{
-    ok: boolean
-    error?: 'whatsapp_not_connected' | 'no_chat' | 'pending_chat' | 'failed'
-  }> => ipcRenderer.invoke('whatsapp:shareImage', dataUrl),
-  getWhatsAppStatus: (): Promise<{
-    online: boolean
-    whatsappAvailable: boolean
-    channel: 'desktop' | 'web' | 'none'
-    connected: boolean
-    desktopInstalled: boolean
-    desktopRunning: boolean
-    webOpen: boolean
-    detail: string
-  }> => ipcRenderer.invoke('whatsapp:status'),
-  openWhatsAppWebSession: (): Promise<{
-    online: boolean
-    whatsappAvailable: boolean
-    channel: 'desktop' | 'web' | 'none'
-    connected: boolean
-    desktopInstalled: boolean
-    desktopRunning: boolean
-    webOpen: boolean
-    detail: string
-  }> => ipcRenderer.invoke('whatsapp:openWebSession'),
-  sendWhatsAppText: (
-    phone: string | string[],
-    text: string,
-    imageDataUrl?: string,
-  ): Promise<{
-    ok: boolean
-    error?:
-      | 'offline'
-      | 'whatsapp_unavailable'
-      | 'whatsapp_not_connected'
-      | 'failed'
-  }> => ipcRenderer.invoke('whatsapp:sendText', phone, text, imageDataUrl),
   sendTelegramText: (
     text: string,
   ): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('telegram:sendText', text),
+  sendTelegramPhoto: (
+    imageDataUrl: string,
+    caption?: string,
+  ): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('telegram:sendPhoto', imageDataUrl, caption),
   testTelegram: (): Promise<{
     ok: boolean
     error?: string

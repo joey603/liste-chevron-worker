@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import electron from 'vite-plugin-electron/simple'
-import { copyFileSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -21,17 +21,6 @@ export default defineConfig({
       main: {
         entry: 'electron/main.ts',
         vite: {
-          plugins: [
-            {
-              name: 'copy-whatsapp-preload',
-              closeBundle() {
-                copyFileSync(
-                  path.join(rootDir, 'electron/whatsapp-preload.js'),
-                  path.join(rootDir, 'dist-electron/whatsapp-preload.js'),
-                )
-              },
-            },
-          ],
           build: {
             rollupOptions: {
               external: ['electron', 'electron-updater'],

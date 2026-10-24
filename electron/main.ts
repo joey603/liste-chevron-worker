@@ -6,15 +6,10 @@ import {
   ipcMain,
   nativeImage,
   net,
-  session,
-  shell,
-  type NativeImage,
 } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
-import os from 'node:os'
 import https from 'node:https'
-import { execFile } from 'node:child_process'
 import { autoUpdater } from 'electron-updater'
 import nodemailer from 'nodemailer'
 import {
@@ -1109,1901 +1104,24 @@ function wait(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))
 }
 
-function runWindowsPs1(script: string): Promise<string> {
-  return new Promise((resolve) => {
-    const scriptPath = path.join(
-      os.tmpdir(),
-      `liste-wa-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.ps1`,
-    )
-    try {
-      fs.writeFileSync(scriptPath, script, 'utf8')
-    } catch {
-      resolve('')
-      return
-    }
-    execFile(
-      'powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
-      { windowsHide: true, timeout: 20000 },
-      (err, stdout) => {
-        try {
-          fs.unlinkSync(scriptPath)
-        } catch {
-          /* ignore */
-        }
-        resolve(err ? '' : String(stdout || '').trim())
-      },
-    )
-  })
-}
+type TelegramSendResult = { ok: boolean; error?: string }
 
-function runWhatsAppKeys(keys: 'paste' | 'enter' | 'paste-enter'): Promise<void> {
-  return new Promise((resolve) => {
-    if (process.platform === 'win32') {
-      // Windows: uniquement WhatsApp Web (navigateur) — jamais l'app Desktop/Beta.
-      const mode =
-        keys === 'paste' ? 'paste' : keys === 'enter' ? 'enter' : 'paste-enter'
-      const script = `
-$ErrorActionPreference = 'SilentlyContinue'
-$Mode = '${mode}'
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-public static class WaKeys {
-  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
-  [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
-  [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
-  const uint KEYEVENTF_KEYUP = 0x0002;
-  const byte VK_CONTROL = 0x11;
-  const byte VK_RETURN = 0x0D;
-  const byte VK_V = 0x56;
-  public static void Chord(byte mod, byte key) {
-    keybd_event(mod, 0, 0, UIntPtr.Zero);
-    keybd_event(key, 0, 0, UIntPtr.Zero);
-    keybd_event(key, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-    keybd_event(mod, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-  }
-  public static void Paste() { Chord(VK_CONTROL, VK_V); }
-  public static void CtrlEnter() { Chord(VK_CONTROL, VK_RETURN); }
-  public static void Enter() {
-    keybd_event(VK_RETURN, 0, 0, UIntPtr.Zero);
-    keybd_event(VK_RETURN, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-  }
-}
-"@
-$browsers = @('chrome','msedge','brave','firefox','opera','vivaldi','msedgewebview2')
-$proc = $null
-foreach ($b in $browsers) {
-  $hit = Get-Process -Name $b -ErrorAction SilentlyContinue |
-    Where-Object { $_.MainWindowTitle -match 'WhatsApp' -and $_.MainWindowHandle -ne 0 } |
-    Select-Object -First 1
-  if ($null -ne $hit) { $proc = $hit; break }
-}
-if ($null -eq $proc) { exit 0 }
-[void][WaKeys]::ShowWindowAsync($proc.MainWindowHandle, 9)
-[void][WaKeys]::SetForegroundWindow($proc.MainWindowHandle)
-$wshell = New-Object -ComObject wscript.shell
-[void]$wshell.AppActivate($proc.Id)
-Start-Sleep -Milliseconds 350
-if ($Mode -eq 'paste' -or $Mode -eq 'paste-enter') {
-  [WaKeys]::Paste()
-  Start-Sleep -Milliseconds 120
-  [System.Windows.Forms.SendKeys]::SendWait('^v')
-  Start-Sleep -Milliseconds 280
-}
-if ($Mode -eq 'enter' -or $Mode -eq 'paste-enter') {
-  # WhatsApp Web: Enter envoie souvent ; Ctrl+Enter en secours
-  [WaKeys]::Enter()
-  Start-Sleep -Milliseconds 120
-  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-  Start-Sleep -Milliseconds 140
-  [WaKeys]::CtrlEnter()
-  Start-Sleep -Milliseconds 120
-  [System.Windows.Forms.SendKeys]::SendWait('^{ENTER}')
-}
-`
-      void runWindowsPs1(script).then(() => resolve())
-      return
-    }
-
-    if (process.platform === 'darwin') {
-      const action =
-        keys === 'paste'
-          ? `keystroke "v" using command down`
-          : keys === 'enter'
-            ? `keystroke return using control down
-          delay 0.2
-          keystroke return`
-            : `keystroke "v" using command down
-          delay 0.25
-          keystroke return using control down
-          delay 0.12
-          keystroke return
-          delay 0.12
-          keystroke return using control down`
-      const script = `
-        try
-          tell application "WhatsApp Beta" to activate
-        on error
-          try
-            tell application "WhatsApp" to activate
-          end try
-        end try
-        delay 0.25
-        tell application "System Events"
-          ${action}
-        end tell
-      `
-      execFile('osascript', ['-e', script], () => resolve())
-      return
-    }
-
-    resolve()
-  })
-}
-
-function scheduleWhatsAppPasteAndSend(delaysMs: number[]) {
-  for (const ms of delaysMs) {
-    setTimeout(() => {
-      void runWhatsAppKeys('paste-enter')
-    }, ms)
-  }
-}
-
-function normalizeWhatsAppPhone(phone: string): string {
-  let digits = String(phone || '').replace(/\D/g, '')
-  if (!digits) return ''
-  if (digits.startsWith('00')) digits = digits.slice(2)
-  if (digits.startsWith('0')) digits = `972${digits.slice(1)}`
-  return digits
-}
-
-type WhatsAppSendError =
-  | 'offline'
-  | 'whatsapp_unavailable'
-  | 'whatsapp_not_connected'
-  | 'failed'
-type WhatsAppSendResult = { ok: boolean; error?: WhatsAppSendError }
-type WhatsAppChannel = 'desktop' | 'web' | 'none'
-type WhatsAppStatus = {
-  online: boolean
-  /** true si une session WhatsApp semble réellement connectée (app ou Web) */
-  whatsappAvailable: boolean
-  channel: WhatsAppChannel
-  connected: boolean
-  /** desktop installé/détecté même si pas connecté */
-  desktopInstalled: boolean
-  desktopRunning: boolean
-  webOpen: boolean
-  detail: string
-}
-
-type WhatsAppWebDomState = 'connected' | 'login' | 'loading' | 'error'
-
-let whatsappWebWin: BrowserWindow | null = null
-let isAppQuitting = false
-/** Dernier numéro ouvert dans la fenêtre embarquée (évite un reload /send). */
-let lastEmbeddedChatPhone = ''
-
-type WaTrackedSocket = { url: string; open: boolean }
-const waSocketsById = new Map<string, WaTrackedSocket>()
-let waSocketEverOpen = false
-let lastWaSocketReloadAt = 0
-
-function isWhatsAppSocketUrl(url: string): boolean {
-  return /whatsapp\.(com|net)/i.test(url)
-}
-
-function liveWhatsAppSocketCount(): number {
-  let n = 0
-  for (const socket of waSocketsById.values()) {
-    if (socket.open && isWhatsAppSocketUrl(socket.url)) n += 1
-  }
-  return n
-}
-
-function resetWhatsAppSocketTracking() {
-  waSocketsById.clear()
-  waSocketEverOpen = false
-}
-
-const WA_WS_HOOK_JS = `(() => {
-  if (window.__chevronWaWsHook) return true
-  window.__chevronWaWsHook = true
-  const Native = window.WebSocket
-  const bag = new Set()
-  const wrap = (ws, url) => {
-    const rec = { ws, url: String(url || ws.url || '') }
-    bag.add(rec)
-    const drop = () => bag.delete(rec)
-    ws.addEventListener('close', drop)
-    ws.addEventListener('error', drop)
-  }
-  const Patched = function (url, protocols) {
-    const ws = protocols !== undefined ? new Native(url, protocols) : new Native(url)
-    wrap(ws, url)
-    return ws
-  }
-  Patched.prototype = Native.prototype
-  Object.assign(Patched, Native)
-  window.WebSocket = Patched
-  window.__chevronWaWsLive = () => {
-    let n = 0
-    for (const { ws, url } of bag) {
-      if (ws.readyState === 1 && /whatsapp/i.test(String(url))) n += 1
-    }
-    return n
-  }
-  return true
-})()`
-
-async function injectWhatsAppWebSocketHook(win: BrowserWindow): Promise<void> {
-  if (win.isDestroyed()) return
+function parseTelegramResponse(raw: string): TelegramSendResult {
   try {
-    await win.webContents.executeJavaScript(WA_WS_HOOK_JS, true)
+    const parsed = JSON.parse(raw) as { ok?: boolean; description?: string }
+    if (parsed.ok) return { ok: true }
+    return { ok: false, error: parsed.description || 'telegram_failed' }
   } catch {
-    /* page pas encore prête */
+    return { ok: false, error: 'telegram_failed' }
   }
 }
 
-async function pageHookLiveSocketCount(
-  win: BrowserWindow,
-): Promise<number | null> {
-  if (win.isDestroyed()) return null
-  try {
-    const n = await win.webContents.executeJavaScript(
-      `(() => (typeof window.__chevronWaWsLive === 'function' ? window.__chevronWaWsLive() : null))()`,
-      true,
-    )
-    return typeof n === 'number' ? n : null
-  } catch {
-    return null
-  }
-}
-
-async function hasLiveWhatsAppSocket(win: BrowserWindow): Promise<boolean> {
-  if (liveWhatsAppSocketCount() > 0) return true
-  const hooked = await pageHookLiveSocketCount(win)
-  return (hooked ?? 0) > 0
-}
-
-function attachWhatsAppSocketMonitor(win: BrowserWindow) {
-  const wc = win.webContents
-  if ((wc as Electron.WebContents & { __chevronWaWs?: boolean }).__chevronWaWs) {
-    return
-  }
-  ;(wc as Electron.WebContents & { __chevronWaWs?: boolean }).__chevronWaWs =
-    true
-
-  const dbg = wc.debugger
-  const onMessage = (
-    _event: unknown,
-    method: string,
-    params: { requestId?: string; url?: string },
-  ) => {
-    const id = String(params?.requestId || '')
-    if (!id) return
-    if (method === 'Network.webSocketCreated') {
-      waSocketsById.set(id, { url: String(params.url || ''), open: false })
-    }
-    if (method === 'Network.webSocketHandshakeResponseReceived') {
-      const prev = waSocketsById.get(id) || { url: '', open: false }
-      prev.open = true
-      waSocketsById.set(id, prev)
-      if (isWhatsAppSocketUrl(prev.url)) waSocketEverOpen = true
-    }
-    if (
-      method === 'Network.webSocketClosed' ||
-      method === 'Network.webSocketFrameError'
-    ) {
-      const prev = waSocketsById.get(id)
-      if (prev) prev.open = false
-    }
-  }
-
-  try {
-    if (!dbg.isAttached()) dbg.attach('1.3')
-    dbg.on('message', onMessage)
-    void dbg.sendCommand('Network.enable')
-  } catch {
-    /* CDP indisponible : on se rabat sur le hook page */
-  }
-
-  wc.on('did-start-loading', () => {
-    void injectWhatsAppWebSocketHook(win)
-  })
-  wc.on('dom-ready', () => {
-    void injectWhatsAppWebSocketHook(win)
-  })
-  wc.on('destroyed', () => {
-    resetWhatsAppSocketTracking()
-    try {
-      if (dbg.isAttached()) dbg.detach()
-    } catch {
-      /* ignore */
-    }
-  })
-}
-
-/**
- * Si plus aucun WebSocket WhatsApp ouvert : un seul reload.
- * Sinon on garde la session (même logique d'envoi).
- */
-async function reviveWhatsAppIfSocketDead(
-  win: BrowserWindow,
-): Promise<boolean> {
-  if (win.isDestroyed()) return false
-  await injectWhatsAppWebSocketHook(win)
-  if (await hasLiveWhatsAppSocket(win)) return true
-  await wait(350)
-  if (await hasLiveWhatsAppSocket(win)) return true
-
-  const state = await inspectWhatsAppWebDom(win)
-  if (state === 'login') return false
-  if (!waSocketEverOpen) {
-    if (state !== 'connected') return false
-    const waitForHs = Date.now()
-    while (Date.now() - waitForHs < 2000) {
-      if (await hasLiveWhatsAppSocket(win)) return true
-      await wait(150)
-    }
-    // DOM connecté, aucun WS vu : ne pas recharger en boucle (CDP/hook raté)
-    return true
-  }
-
-  const now = Date.now()
-  if (now - lastWaSocketReloadAt < 12_000) {
-    return hasLiveWhatsAppSocket(win)
-  }
-  lastWaSocketReloadAt = now
-  lastEmbeddedChatPhone = ''
-  resetWhatsAppSocketTracking()
-  await win.loadURL('https://web.whatsapp.com/', {
-    userAgent: WHATSAPP_WEB_USER_AGENT,
-  })
-  await waitForWebContentsIdle(win, 15000)
-  const started = Date.now()
-  while (Date.now() - started < 10000) {
-    const next = await inspectWhatsAppWebDom(win)
-    if (next === 'login') return false
-    if (await hasLiveWhatsAppSocket(win)) return true
-    await wait(200)
-  }
-  return hasLiveWhatsAppSocket(win)
-}
-
-/** WhatsApp Web refuse souvent Electron : se faire passer pour Chrome. */
-const WHATSAPP_WEB_USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-
-/** Fenêtre WhatsApp Web embarquée (Windows + Mac) — jamais Safari ni l'app Desktop. */
-function useEmbeddedWhatsAppWeb(): boolean {
-  return process.platform === 'win32' || process.platform === 'darwin'
-}
-
-function isNetworkOnline(): boolean {
-  try {
-    return net.isOnline()
-  } catch {
-    return true
-  }
-}
-
-function configureWhatsAppWebSession() {
-  const ses = session.fromPartition('persist:whatsapp-web')
-  ses.setUserAgent(WHATSAPP_WEB_USER_AGENT)
-  return ses
-}
-
-function destroyWhatsAppWebWindow() {
-  if (whatsappWebWin && !whatsappWebWin.isDestroyed()) {
-    whatsappWebWin.destroy()
-  }
-  whatsappWebWin = null
-  lastEmbeddedChatPhone = ''
-  resetWhatsAppSocketTracking()
-}
-
-/** Remet Liste Chevron au premier plan après un envoi WhatsApp. */
-function bringMainAppToFront() {
-  const wa =
-    whatsappWebWin && !whatsappWebWin.isDestroyed() ? whatsappWebWin : null
-  const main = BrowserWindow.getAllWindows().find(
-    (w) => !w.isDestroyed() && w !== wa,
-  )
-  if (!main) return
-  if (main.isMinimized()) main.restore()
-  if (process.platform === 'darwin') {
-    try {
-      app.focus({ steal: true })
-    } catch {
-      app.focus()
-    }
-  }
-  main.show()
-  main.moveTop()
-  main.focus()
-  try {
-    main.webContents.focus()
-  } catch {
-    /* ignore */
-  }
-  if (process.platform === 'win32') {
-    main.setAlwaysOnTop(true)
-    main.focus()
-    setTimeout(() => {
-      if (!main.isDestroyed()) main.setAlwaysOnTop(false)
-    }, 250)
-  }
-}
-
-function ensureWhatsAppWebWindow(show: boolean): BrowserWindow {
-  configureWhatsAppWebSession()
-
-  if (whatsappWebWin && !whatsappWebWin.isDestroyed()) {
-    whatsappWebWin.webContents.setUserAgent(WHATSAPP_WEB_USER_AGENT)
-    attachWhatsAppSocketMonitor(whatsappWebWin)
-    if (show) {
-      whatsappWebWin.show()
-      whatsappWebWin.focus()
-    }
-    return whatsappWebWin
-  }
-
-  const icon = resolveAppIcon()
-  const preloadPath = path.join(__dirname, 'whatsapp-preload.js')
-  whatsappWebWin = new BrowserWindow({
-    width: 1100,
-    height: 820,
-    minWidth: 800,
-    minHeight: 600,
-    show: false,
-    title: 'WhatsApp Web — Chevron',
-    backgroundColor: '#111b21',
-    ...(icon ? { icon } : {}),
-    webPreferences: {
-      // Session persistante = on peut vraiment savoir si Web est connecté
-      partition: 'persist:whatsapp-web',
-      ...(fs.existsSync(preloadPath) ? { preload: preloadPath } : {}),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  })
-
-  whatsappWebWin.webContents.setUserAgent(WHATSAPP_WEB_USER_AGENT)
-  attachWhatsAppSocketMonitor(whatsappWebWin)
-
-  whatsappWebWin.on('close', (event) => {
-    // Garder la session en vie (fenêtre cachée) pour le statut de connexion
-    if (!isAppQuitting) {
-      event.preventDefault()
-      whatsappWebWin?.hide()
-    }
-  })
-
-  void whatsappWebWin.loadURL('https://web.whatsapp.com/', {
-    userAgent: WHATSAPP_WEB_USER_AGENT,
-  })
-  if (show) {
-    whatsappWebWin.once('ready-to-show', () => {
-      whatsappWebWin?.show()
-    })
-  }
-  return whatsappWebWin
-}
-
-async function waitForWebContentsIdle(
-  win: BrowserWindow,
-  timeoutMs = 12000,
-): Promise<void> {
-  if (win.isDestroyed()) return
-  if (!win.webContents.isLoading()) {
-    await wait(20)
-    return
-  }
-  await Promise.race([
-    new Promise<void>((resolve) => {
-      win.webContents.once('did-finish-load', () => resolve())
-    }),
-    wait(timeoutMs),
-  ])
-  await wait(20)
-}
-
-function isWhatsAppWebAlreadyLoaded(win: BrowserWindow): boolean {
-  if (win.isDestroyed()) return false
-  try {
-    const url = win.webContents.getURL()
-    return url.includes('web.whatsapp.com') && !win.webContents.isLoading()
-  } catch {
-    return false
-  }
-}
-
-/**
- * Navigue dans WhatsApp Web sans recharger toute la page si possible.
- * Un loadURL Electron à chaque envoi provoquait une reconnexion (splash / WebSocket).
- * Windows + Mac (fenêtre embarquée).
- */
-async function navigateWhatsAppWeb(
-  win: BrowserWindow,
-  url: string,
-  hardTimeoutMs = 15000,
-): Promise<'soft' | 'hard'> {
-  if (isWhatsAppWebAlreadyLoaded(win)) {
-    await win.webContents.executeJavaScript(
-      `(() => {
-        const next = ${JSON.stringify(url)}
-        if (window.location.href === next) return 'same'
-        // Navigation SPA (garde la session / cookies, évite le reload Electron)
-        window.location.assign(next)
-        return 'assigned'
-      })()`,
-      true,
-    )
-    await wait(40)
-    return 'soft'
-  }
-  await win.loadURL(url, { userAgent: WHATSAPP_WEB_USER_AGENT })
-  await waitForWebContentsIdle(win, hardTimeoutMs)
-  return 'hard'
-}
-
-function localWhatsAppPhoneVariants(phoneNorm: string): string[] {
-  const variants = [phoneNorm, `+${phoneNorm}`]
-  if (phoneNorm.startsWith('972') && phoneNorm.length > 3) {
-    variants.push(`0${phoneNorm.slice(3)}`)
-  }
-  return Array.from(new Set(variants.filter(Boolean)))
-}
-
-/**
- * Ouvre le chat depuis la liste / recherche, SANS recharger WhatsApp Web
- * (location.assign(/send?phone=) affiche la barre de chargement à chaque fois).
- */
-async function openChatViaSidebarSearch(
-  win: BrowserWindow,
-  phoneNorm: string,
-): Promise<boolean> {
-  const queries = localWhatsAppPhoneVariants(phoneNorm)
-  return Boolean(
-    await win.webContents.executeJavaScript(
-      `(() => new Promise((resolve) => {
-        const queries = ${JSON.stringify(queries)}
-        const started = Date.now()
-        const maxMs = 7000
-        let qi = 0
-        let typedAt = 0
-        let clicked = false
-
-        const findSearch = () =>
-          document.querySelector(
-            '[data-testid="chat-list-search"] [contenteditable="true"], #side div[contenteditable="true"][data-tab="3"], #side div[contenteditable="true"], div[title="Search input textbox"]'
-          )
-
-        const findCompose = () =>
-          document.querySelector(
-            '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
-          )
-
-        const dismissPopups = () => {
-          const okBtn = document.querySelector(
-            '[data-testid="popup-controls-ok"], button[data-testid="popup-controls-ok"]'
-          )
-          if (okBtn) okBtn.click()
-        }
-
-        const typeQuery = (el, q) => {
-          el.focus()
-          el.click()
-          try {
-            document.execCommand('selectAll', false)
-            document.execCommand('insertText', false, q)
-          } catch (_) {
-            el.textContent = q
-            el.dispatchEvent(new InputEvent('input', { bubbles: true }))
-          }
-        }
-
-        const clickCell = (cell) => {
-          cell.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
-          cell.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
-          cell.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-          if (typeof cell.click === 'function') cell.click()
-        }
-
-        const clickSearchResult = () => {
-          const needles = queries.map((q) => q.replace(/\\D/g, '')).filter(Boolean)
-          const cells = Array.from(
-            document.querySelectorAll(
-              '#pane-side [data-testid="cell-frame-container"], #side [data-testid="cell-frame-container"], #pane-side [role="listitem"], #side [role="listitem"]'
-            ),
-          )
-          for (const cell of cells) {
-            const digits = (cell.innerText || '').replace(/\\D/g, '')
-            if (
-              needles.some(
-                (n) =>
-                  digits.includes(n) ||
-                  (n.length >= 8 && digits.slice(-9).includes(n.slice(-9))),
-              )
-            ) {
-              clickCell(cell)
-              return true
-            }
-          }
-          const startChat = cells.find((c) =>
-            /message|שלח|chat|הודעה/i.test(c.innerText || ''),
-          )
-          if (startChat) {
-            clickCell(startChat)
-            return true
-          }
-          if (Date.now() - typedAt > 500 && cells.length > 0) {
-            clickCell(cells[0])
-            return true
-          }
-          return false
-        }
-
-        const tick = () => {
-          dismissPopups()
-          if (clicked && findCompose()) {
-            resolve(true)
-            return
-          }
-          if (Date.now() - started >= maxMs) {
-            resolve(!!findCompose())
-            return
-          }
-
-          const search = findSearch()
-          if (!search) {
-            const icon = document.querySelector(
-              '[data-testid="chat-list-search"], span[data-icon="search"], span[data-icon="search-refreshed"]'
-            )
-            if (icon) (icon.closest('button') || icon.closest('[role="button"]') || icon).click()
-            setTimeout(tick, 80)
-            return
-          }
-
-          if (!typedAt) {
-            typeQuery(search, queries[qi] || queries[0])
-            typedAt = Date.now()
-            setTimeout(tick, 350)
-            return
-          }
-
-          if (!clicked) {
-            if (clickSearchResult()) {
-              clicked = true
-              setTimeout(tick, 120)
-              return
-            }
-            if (Date.now() - typedAt > 900 && qi + 1 < queries.length) {
-              qi += 1
-              typedAt = 0
-              clicked = false
-            }
-            setTimeout(tick, 120)
-            return
-          }
-
-          setTimeout(tick, 60)
-        }
-        tick()
-      }))()`,
-      true,
-    ),
-  )
-}
-
-async function openEmbeddedWhatsAppChat(
-  win: BrowserWindow,
-  phoneNorm: string,
-): Promise<boolean> {
-  if (isWhatsAppWebAlreadyLoaded(win)) {
-    if (lastEmbeddedChatPhone === phoneNorm) {
-      const ready = await waitForWhatsAppComposeReady(win, 800)
-      if (ready) return true
-    }
-    const opened = await openChatViaSidebarSearch(win, phoneNorm)
-    if (opened || (await waitForWhatsAppComposeReady(win, 2500))) {
-      lastEmbeddedChatPhone = phoneNorm
-      return true
-    }
-  }
-
-  const url = `https://web.whatsapp.com/send?phone=${phoneNorm}`
-  await navigateWhatsAppWeb(win, url)
-  const ready = await waitForWhatsAppComposeReady(win, 12000)
-  if (ready) lastEmbeddedChatPhone = phoneNorm
-  return ready
-}
-
-/** Attend la zone de saisie du chat (après /send?phone=…). */
-async function waitForWhatsAppComposeReady(
-  win: BrowserWindow,
-  maxMs = 20000,
-): Promise<boolean> {
-  return Boolean(
-    await win.webContents.executeJavaScript(
-      `(() => new Promise((resolve) => {
-        const maxMs = ${maxMs}
-        const started = Date.now()
-        let done = false
-        const finish = (ok) => {
-          if (done) return
-          done = true
-          resolve(ok)
-        }
-        const tick = () => {
-          const okBtn = document.querySelector(
-            '[data-testid="popup-controls-ok"], button[data-testid="popup-controls-ok"]'
-          )
-          if (okBtn) okBtn.click()
-          const input = document.querySelector(
-            '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
-          )
-          if (input) {
-            input.focus()
-            finish(true)
-            return
-          }
-          if (Date.now() - started >= maxMs) {
-            finish(false)
-            return
-          }
-          setTimeout(tick, 30)
-        }
-        const observer = new MutationObserver(tick)
-        try {
-          observer.observe(document.body, { childList: true, subtree: true })
-        } catch (_) {}
-        tick()
-      }))()`,
-      true,
-    ),
-  )
-}
-
-async function inspectWhatsAppWebDom(
-  win: BrowserWindow,
-): Promise<WhatsAppWebDomState> {
-  if (win.isDestroyed()) return 'error'
-  try {
-    await waitForWebContentsIdle(win)
-    const state = (await win.webContents.executeJavaScript(
-      `(() => {
-        const qr = document.querySelector(
-          '[data-testid="qrcode"], canvas[aria-label*="QR"], canvas[aria-label*="qr"], div[data-ref]'
-        );
-        const side = document.querySelector(
-          '#pane-side, [data-testid="chat-list"], #side, [aria-label*="Chat list"], [aria-label*="רשימת הצ׳אטים"]'
-        );
-        const compose = document.querySelector(
-          '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
-        );
-        const text = (document.body && document.body.innerText || '').slice(0, 2500);
-        const loginText = /QR code|Link with phone|Link a device|קישור למכשיר|סרוק את הקוד|Log in|התחברות/i.test(text);
-        if (side || compose) return 'connected';
-        if (qr || loginText) return 'login';
-        return 'loading';
-      })()`,
-      true,
-    )) as WhatsAppWebDomState
-    if (
-      state === 'connected' ||
-      state === 'login' ||
-      state === 'loading' ||
-      state === 'error'
-    ) {
-      return state
-    }
-    return 'loading'
-  } catch {
-    return 'error'
-  }
-}
-
-async function openWhatsAppWebSessionWindow(): Promise<WhatsAppStatus> {
-  const win = ensureWhatsAppWebWindow(true)
-  win.webContents.setUserAgent(WHATSAPP_WEB_USER_AGENT)
-  // Ne pas recharger si déjà sur WA Web (évite une reconnexion inutile)
-  if (!isWhatsAppWebAlreadyLoaded(win)) {
-    await win.loadURL('https://web.whatsapp.com/', {
-      userAgent: WHATSAPP_WEB_USER_AGENT,
-    })
-    await waitForWebContentsIdle(win, 15000)
-    await wait(1200)
-  } else {
-    win.show()
-    win.focus()
-  }
-  return getWhatsAppStatus()
-}
-
-async function probeWindowsWhatsAppWeb(): Promise<
-  Omit<WhatsAppStatus, 'online'>
-> {
-  try {
-    const win = ensureWhatsAppWebWindow(false)
-    if (!win.webContents.getURL().includes('web.whatsapp.com')) {
-      await win.loadURL('https://web.whatsapp.com/', {
-        userAgent: WHATSAPP_WEB_USER_AGENT,
-      })
-    }
-    let state = await inspectWhatsAppWebDom(win)
-    if (state === 'loading') {
-      await wait(500)
-      state = await inspectWhatsAppWebDom(win)
-    }
-    if (state === 'connected') {
-      const live = await hasLiveWhatsAppSocket(win)
-      if (!live && waSocketEverOpen) {
-        return {
-          whatsappAvailable: false,
-          channel: 'web',
-          connected: false,
-          desktopInstalled: false,
-          desktopRunning: false,
-          webOpen: true,
-          detail: 'web_socket_dead',
-        }
-      }
-      return {
-        whatsappAvailable: true,
-        channel: 'web',
-        connected: true,
-        desktopInstalled: false,
-        desktopRunning: false,
-        webOpen: true,
-        detail: 'web_connected',
-      }
-    }
-    if (state === 'login') {
-      return {
-        whatsappAvailable: false,
-        channel: 'web',
-        connected: false,
-        desktopInstalled: false,
-        desktopRunning: false,
-        webOpen: true,
-        detail: 'web_login',
-      }
-    }
-    return {
-      whatsappAvailable: false,
-      channel: 'web',
-      connected: false,
-      desktopInstalled: false,
-      desktopRunning: false,
-      webOpen: true,
-      detail: state === 'error' ? 'probe_failed' : 'web_loading',
-    }
-  } catch {
-    return {
-      whatsappAvailable: false,
-      channel: 'web',
-      connected: false,
-      desktopInstalled: false,
-      desktopRunning: false,
-      webOpen: false,
-      detail: 'probe_failed',
-    }
-  }
-}
-
-const WA_CLICK_SEND_JS = `(() => {
-  const findSend = () => {
-    const roots = [
-      document.querySelector('[data-testid="drawer-right"]'),
-      document.querySelector('[data-testid="media-editor"]'),
-      document.querySelector('[data-testid="drawer-middle"]')?.closest('div'),
-      document.querySelector('[data-animate-modal-body="true"]')?.parentElement,
-      document.body,
-    ].filter(Boolean)
-    for (const root of roots) {
-      const byTestId = root.querySelector(
-        '[data-testid="send"], [data-testid="compose-btn-send"], [data-testid="drawer-btn-send"]'
-      )
-      if (byTestId) {
-        const btn = byTestId.closest('button') || byTestId
-        const r = btn.getBoundingClientRect()
-        if (r.width > 0 && r.height > 0) return btn
-      }
-      const byIcon = root.querySelector(
-        'span[data-icon="send"], span[data-icon="wds-ic-send-filled"], span[data-icon="send-light"]'
-      )
-      if (byIcon) {
-        const btn =
-          byIcon.closest('button') ||
-          byIcon.closest('[role="button"]') ||
-          byIcon.parentElement
-        if (btn) {
-          const r = btn.getBoundingClientRect()
-          if (r.width > 0 && r.height > 0) return btn
-        }
-      }
-    }
-    const buttons = Array.from(
-      document.querySelectorAll('button,[role="button"]'),
-    )
-    return (
-      buttons.find((b) => {
-        const label = (
-          b.getAttribute('aria-label') ||
-          b.textContent ||
-          ''
-        ).toLowerCase()
-        return (
-          label.includes('send') ||
-          label.includes('שליחה') ||
-          label.includes('שלח') ||
-          label.includes('envoyer')
-        )
-      }) || null
-    )
-  }
-  const click = () => {
-    const sendBtn = findSend()
-    if (sendBtn) {
-      sendBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
-      sendBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
-      sendBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-      if (typeof sendBtn.click === 'function') sendBtn.click()
-      return true
-    }
-    const input = document.querySelector(
-      '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"], [data-testid="media-caption-input"]'
-    )
-    if (!input) return false
-    const opts = {
-      key: 'Enter',
-      code: 'Enter',
-      keyCode: 13,
-      which: 13,
-      bubbles: true,
-      cancelable: true,
-    }
-    input.dispatchEvent(new KeyboardEvent('keydown', opts))
-    input.dispatchEvent(new KeyboardEvent('keypress', opts))
-    input.dispatchEvent(new KeyboardEvent('keyup', opts))
-    return true
-  }
-  click()
-  setTimeout(click, 80)
-  setTimeout(click, 200)
-  return true
-})()`
-
-const WA_MEDIA_READY_JS = `(() => !!(
-  document.querySelector('[data-testid="media-canvas"]') ||
-  document.querySelector('[data-testid="media-editor"]') ||
-  document.querySelector('[data-testid="drawer-middle"]') ||
-  document.querySelector('[data-testid="media-caption-input"]') ||
-  document.querySelector('div[data-animate-modal-body="true"] img') ||
-  document.querySelector('div[data-animate-modal-body="true"] canvas')
-))()`
-
-async function isWhatsAppMediaPreviewOpen(win: BrowserWindow): Promise<boolean> {
-  try {
-    return Boolean(
-      await win.webContents.executeJavaScript(WA_MEDIA_READY_JS, true),
-    )
-  } catch {
-    return false
-  }
-}
-
-/**
- * Clique Send via événements Electron (trusted).
- * Les click() DOM sont souvent ignorés par WhatsApp Web, surtout sur Windows.
- */
-async function clickWhatsAppMediaSend(
-  win: BrowserWindow,
-  maxMs = 6000,
-): Promise<boolean> {
-  const started = Date.now()
-  let sawMedia = false
-
-  while (Date.now() - started < maxMs) {
-    if (win.isDestroyed()) return false
-
-    const state = (await win.webContents.executeJavaScript(
-      `(() => {
-        const mediaReady = !!(
-          document.querySelector('[data-testid="media-canvas"]') ||
-          document.querySelector('[data-testid="media-editor"]') ||
-          document.querySelector('[data-testid="drawer-middle"]') ||
-          document.querySelector('[data-testid="media-caption-input"]') ||
-          document.querySelector('div[data-animate-modal-body="true"] canvas') ||
-          document.querySelector('div[data-animate-modal-body="true"] img')
-        )
-        const roots = [
-          document.querySelector('[data-testid="drawer-right"]'),
-          document.querySelector('[data-testid="media-editor"]'),
-          document.querySelector('[data-testid="drawer-middle"]')?.closest('[role="dialog"], div'),
-          document.querySelector('[data-animate-modal-body="true"]')?.parentElement,
-          document.body,
-        ].filter(Boolean)
-        let x = 0
-        let y = 0
-        let found = false
-        for (const root of roots) {
-          const candidates = [
-            ...root.querySelectorAll(
-              '[data-testid="send"], [data-testid="compose-btn-send"], [data-testid="drawer-btn-send"]'
-            ),
-            ...root.querySelectorAll(
-              'span[data-icon="send"], span[data-icon="wds-ic-send-filled"], span[data-icon="send-light"]'
-            ),
-          ]
-          for (const el of candidates) {
-            const btn = el.closest('button') || el.closest('[role="button"]') || el
-            const r = btn.getBoundingClientRect()
-            if (r.width < 8 || r.height < 8) continue
-            x = r.x + r.width / 2
-            y = r.y + r.height / 2
-            found = true
-            break
-          }
-          if (found) break
-        }
-        if (!found) {
-          const buttons = Array.from(document.querySelectorAll('button,[role="button"]'))
-          for (const b of buttons) {
-            const label = (b.getAttribute('aria-label') || b.textContent || '').toLowerCase()
-            if (
-              !(
-                label.includes('send') ||
-                label.includes('שליחה') ||
-                label.includes('שלח') ||
-                label.includes('envoyer')
-              )
-            ) {
-              continue
-            }
-            const r = b.getBoundingClientRect()
-            if (r.width < 8 || r.height < 8) continue
-            if (r.top < window.innerHeight * 0.35) continue
-            x = r.x + r.width / 2
-            y = r.y + r.height / 2
-            found = true
-            break
-          }
-        }
-        return { mediaReady, found, x, y }
-      })()`,
-      true,
-    )) as { mediaReady: boolean; found: boolean; x: number; y: number }
-
-    if (state?.mediaReady) sawMedia = true
-
-    if (state?.mediaReady && state.found) {
-      win.focus()
-      win.webContents.focus()
-      const x = Math.round(state.x)
-      const y = Math.round(state.y)
-      win.webContents.sendInputEvent({ type: 'mouseMove', x, y })
-      win.webContents.sendInputEvent({
-        type: 'mouseDown',
-        x,
-        y,
-        button: 'left',
-        clickCount: 1,
-      })
-      win.webContents.sendInputEvent({
-        type: 'mouseUp',
-        x,
-        y,
-        button: 'left',
-        clickCount: 1,
-      })
-      await wait(80)
-      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
-      win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
-      await wait(180)
-      if (!(await isWhatsAppMediaPreviewOpen(win))) return true
-      await win.webContents.executeJavaScript(WA_CLICK_SEND_JS, true)
-      await wait(120)
-      return true
-    }
-
-    if (sawMedia && !state?.found) {
-      win.focus()
-      win.webContents.focus()
-      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
-      win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
-      await wait(180)
-      if (!(await isWhatsAppMediaPreviewOpen(win))) return true
-    }
-
-    await wait(40)
-  }
-
-  await win.webContents.executeJavaScript(WA_CLICK_SEND_JS, true)
-  win.focus()
-  win.webContents.focus()
-  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
-  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
-  await wait(150)
-  return sawMedia
-}
-
-async function sendImageInOpenWhatsAppChat(
-  win: BrowserWindow,
-  imageDataUrl: string,
-): Promise<void> {
-  const image = nativeImage.createFromDataURL(imageDataUrl)
-  if (image.isEmpty()) return
-  clipboard.writeImage(image)
-  await win.webContents.executeJavaScript(
-    `(() => {
-      const input = document.querySelector(
-        '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
-      )
-      if (input) {
-        input.focus()
-        input.click()
-      }
-      return !!input
-    })()`,
-    true,
-  )
-  win.focus()
-  win.webContents.focus()
-  const pasteMod = process.platform === 'darwin' ? 'meta' : 'control'
-  for (let i = 0; i < 2; i++) {
-    clipboard.writeImage(image)
-    win.webContents.paste()
-    await wait(80)
-    const mediaReady = await win.webContents.executeJavaScript(
-      WA_MEDIA_READY_JS,
-      true,
-    )
-    if (mediaReady) break
-    win.webContents.sendInputEvent({
-      type: 'keyDown',
-      keyCode: 'V',
-      modifiers: [pasteMod],
-    })
-    win.webContents.sendInputEvent({
-      type: 'keyUp',
-      keyCode: 'V',
-      modifiers: [pasteMod],
-    })
-    await wait(100)
-    const again = await win.webContents.executeJavaScript(WA_MEDIA_READY_JS, true)
-    if (again) break
-  }
-  const sent = await clickWhatsAppMediaSend(win, 6000)
-  if (!sent || (await isWhatsAppMediaPreviewOpen(win))) {
-    await win.webContents.executeJavaScript(WA_CLICK_SEND_JS, true)
-    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
-    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
-  }
-}
-
-/** Coordonnées du bouton Send (texte) dans le compose WhatsApp Web. */
-async function findWhatsAppComposeSendPoint(
-  win: BrowserWindow,
-): Promise<{ x: number; y: number } | null> {
-  try {
-    const point = (await win.webContents.executeJavaScript(
-      `(() => {
-        const candidates = [
-          ...document.querySelectorAll(
-            '[data-testid="send"], [data-testid="compose-btn-send"], footer [data-testid="send"]'
-          ),
-          ...document.querySelectorAll(
-            'footer span[data-icon="send"], footer span[data-icon="wds-ic-send-filled"], footer span[data-icon="send-light"]'
-          ),
-        ]
-        for (const el of candidates) {
-          const btn = el.closest('button') || el.closest('[role="button"]') || el
-          const r = btn.getBoundingClientRect()
-          if (r.width < 8 || r.height < 8) continue
-          return { x: r.x + r.width / 2, y: r.y + r.height / 2 }
-        }
-        const buttons = Array.from(document.querySelectorAll('button,[role="button"]'))
-        for (const b of buttons) {
-          const label = (b.getAttribute('aria-label') || b.textContent || '').toLowerCase()
-          if (
-            !(
-              label.includes('send') ||
-              label.includes('שליחה') ||
-              label.includes('שלח') ||
-              label.includes('envoyer')
-            )
-          ) {
-            continue
-          }
-          const r = b.getBoundingClientRect()
-          if (r.width < 8 || r.height < 8) continue
-          if (r.top < window.innerHeight * 0.45) continue
-          return { x: r.x + r.width / 2, y: r.y + r.height / 2 }
-        }
-        return null
-      })()`,
-      true,
-    )) as { x: number; y: number } | null
-    return point
-  } catch {
-    return null
-  }
-}
-
-/**
- * Envoi texte (חירום, etc.) : clic Send trusted + Enter.
- * Même logique fiable que l'envoi photo (Windows ignore souvent click() DOM).
- */
-async function clickWhatsAppComposeSend(
-  win: BrowserWindow,
-  maxMs = 4000,
-): Promise<boolean> {
-  const started = Date.now()
-  while (Date.now() - started < maxMs) {
-    if (win.isDestroyed()) return false
-    const point = await findWhatsAppComposeSendPoint(win)
-    win.focus()
-    win.webContents.focus()
-    if (point) {
-      const x = Math.round(point.x)
-      const y = Math.round(point.y)
-      win.webContents.sendInputEvent({ type: 'mouseMove', x, y })
-      win.webContents.sendInputEvent({
-        type: 'mouseDown',
-        x,
-        y,
-        button: 'left',
-        clickCount: 1,
-      })
-      win.webContents.sendInputEvent({
-        type: 'mouseUp',
-        x,
-        y,
-        button: 'left',
-        clickCount: 1,
-      })
-      await wait(60)
-    }
-    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
-    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
-    await wait(120)
-    await win.webContents.executeJavaScript(WA_CLICK_SEND_JS, true)
-    // Si le bouton Send a disparu, le message est parti
-    const still = await findWhatsAppComposeSendPoint(win)
-    if (!still) return true
-    if (point) return true
-    await wait(50)
-  }
-  return false
-}
-
-async function readWhatsAppComposeText(win: BrowserWindow): Promise<string> {
-  try {
-    return String(
-      await win.webContents.executeJavaScript(
-        `(() => {
-          const input = document.querySelector(
-            '#main footer [contenteditable="true"], [data-testid="conversation-compose-box-input"]'
-          )
-          if (!input) return ''
-          return (input.innerText || input.textContent || '')
-            .replace(/[\\u200e\\u200f]/g, '')
-            .replace(/\\n+$/g, '')
-            .trim()
-        })()`,
-        true,
-      ),
-    )
-  } catch {
-    return ''
-  }
-}
-
-function isDoubledComposeText(got: string, want: string): boolean {
-  const g = got.trim()
-  const w = want.trim()
-  if (!w || !g) return false
-  return g === w + w || g === `${w}\n${w}` || g === `${w} ${w}`
-}
-
-async function selectAllWhatsAppCompose(win: BrowserWindow): Promise<void> {
-  const pasteMod = process.platform === 'darwin' ? 'meta' : 'control'
-  await focusWhatsAppCompose(win)
-  win.webContents.focus()
-  win.webContents.sendInputEvent({
-    type: 'keyDown',
-    keyCode: 'A',
-    modifiers: [pasteMod],
-  })
-  win.webContents.sendInputEvent({
-    type: 'keyUp',
-    keyCode: 'A',
-    modifiers: [pasteMod],
-  })
-  await wait(40)
-}
-
-/**
- * Remplit le compose UNE fois (Mac: insertText Electron double souvent le texte).
- * Cmd/Ctrl+A puis collage unique.
- */
-async function ensureWhatsAppComposeHasText(
-  win: BrowserWindow,
-  message: string,
-  _alreadyInUrl: boolean,
-): Promise<void> {
-  const want = message.trim()
-  if (!want) return
-  await focusWhatsAppCompose(win)
-  const current = await readWhatsAppComposeText(win)
-  if (current === want) return
-  if (isDoubledComposeText(current, want)) {
-    await selectAllWhatsAppCompose(win)
-    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Backspace' })
-    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Backspace' })
-    await wait(40)
-  }
-
-  clipboard.writeText(want)
-  await wait(20)
-  await selectAllWhatsAppCompose(win)
-  win.webContents.paste()
-  await wait(100)
-
-  let got = await readWhatsAppComposeText(win)
-  if (got === want) return
-  if (isDoubledComposeText(got, want) || (got.includes(want) && got.length > want.length)) {
-    await selectAllWhatsAppCompose(win)
-    clipboard.writeText(want)
-    await wait(20)
-    win.webContents.paste()
-    await wait(100)
-    got = await readWhatsAppComposeText(win)
-    if (got === want) return
-    await selectAllWhatsAppCompose(win)
-    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Backspace' })
-    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Backspace' })
-    await wait(40)
-    clipboard.writeText(want)
-    win.webContents.paste()
-    await wait(80)
-  }
-}
-
-let embeddedWhatsAppSendQueue: Promise<unknown> = Promise.resolve()
-
-async function sendViaEmbeddedWhatsAppWeb(
-  phoneNorm: string,
-  text: string,
-  imageDataUrl?: string,
-): Promise<WhatsAppSendResult> {
-  const run = (): Promise<WhatsAppSendResult> =>
-    sendViaEmbeddedWhatsAppWebNow(phoneNorm, text, imageDataUrl)
-  const pending = embeddedWhatsAppSendQueue.then(run, run)
-  embeddedWhatsAppSendQueue = pending.then(
-    () => undefined,
-    () => undefined,
-  )
-  return pending
-}
-
-async function sendViaEmbeddedWhatsAppWebNow(
-  phoneNorm: string,
-  text: string,
-  imageDataUrl?: string,
-): Promise<WhatsAppSendResult> {
-  const message = text.trim()
-  const status = await probeWindowsWhatsAppWeb()
-  if (!status.connected) {
-    ensureWhatsAppWebWindow(true)
-    return { ok: false, error: 'whatsapp_not_connected' }
-  }
-
-  const win = ensureWhatsAppWebWindow(true)
-  win.show()
-  win.focus()
-  const socketOk = await reviveWhatsAppIfSocketDead(win)
-  if (!socketOk) {
-    return { ok: false, error: 'whatsapp_not_connected' }
-  }
-
-  // Ne pas faire /send?phone= si déjà connecté : ça recharge WA (barre de chargement).
-  await openEmbeddedWhatsAppChat(win, phoneNorm)
-
-  // Photo seule : pas de texte à envoyer
-  if (!message) {
-    if (imageDataUrl) {
-      await sendImageInOpenWhatsAppChat(win, imageDataUrl)
-    }
-    await wait(200)
-    bringMainAppToFront()
-    return { ok: true }
-  }
-
-  // Texte (חירום, etc.) : même logique d'envoi trusted que la photo
-  await ensureWhatsAppComposeHasText(win, message, false)
-  await clickWhatsAppComposeSend(win, 4000)
-  await wait(200)
-
-  // Photo en plus (si fournie)
-  if (imageDataUrl) {
-    await sendImageInOpenWhatsAppChat(win, imageDataUrl)
-    await wait(200)
-  }
-
-  bringMainAppToFront()
-  return { ok: true }
-}
-
-async function probeWhatsAppConnection(): Promise<
-  Omit<WhatsAppStatus, 'online'>
-> {
-  if (useEmbeddedWhatsAppWeb()) {
-    // Session WhatsApp Web embarquée (statut DOM réel)
-    return probeWindowsWhatsAppWeb()
-  }
-
-  return {
-    whatsappAvailable: true,
-    channel: 'desktop',
-    connected: true,
-    desktopInstalled: true,
-    desktopRunning: true,
-    webOpen: false,
-    detail: 'unknown',
-  }
-}
-
-async function getWhatsAppStatus(): Promise<WhatsAppStatus> {
-  const online = isNetworkOnline()
-  const probe = await probeWhatsAppConnection()
-  return { online, ...probe }
-}
-
-type WhatsAppShareImageResult = {
-  ok: boolean
-  error?: 'whatsapp_not_connected' | 'no_chat' | 'pending_chat' | 'failed'
-}
-
-const WA_OPEN_SEND_PICKER_JS = `(() => {
-  const hasPicker = () =>
-    !!(
-      document.querySelector('[data-testid="popup"]') ||
-      document.querySelector('[data-testid="contact-list-popup"]') ||
-      document.querySelector('[data-animate-modal-popup="true"]') ||
-      document.querySelector('div[role="dialog"]') ||
-      document.querySelector('[data-testid="new-chat-drawer"]') ||
-      document.querySelector('div[aria-label*="Search"] input, div[aria-label*="חיפוש"] input')
-    )
-  if (hasPicker()) return 'already'
-
-  const selectors = [
-    '[data-testid="chat-new-chat-button"]',
-    '[data-testid="new-chat-button"]',
-    '[data-icon="new-chat-outline"]',
-    '[data-icon="new-chat"]',
-    'span[data-icon="new-chat-outline"]',
-    'span[data-icon="new-chat"]',
-  ]
-  for (const sel of selectors) {
-    const el = document.querySelector(sel)
-    if (!el) continue
-    const btn = el.closest('button') || el
-    btn.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    return 'clicked'
-  }
-  const byLabel = Array.from(
-    document.querySelectorAll('button[aria-label], div[role="button"][aria-label]'),
-  ).find((el) => {
-    const label = (el.getAttribute('aria-label') || '').toLowerCase()
-    return (
-      label.includes('new chat') ||
-      label.includes('צ׳אט חדש') ||
-      label.includes("צ'אט חדש")
-    )
-  })
-  if (byLabel) {
-    byLabel.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    return 'clicked'
-  }
-  return 'none'
-})()`
-
-/**
- * WhatsApp Web n'expose PAS d'ID contact fiable dans le DOM/URL.
- * Signal réel d'un chat ouvert = header[data-testid="conversation-header"]
- * avec un nom, + zone de saisie, APRÈS fermeture du picker « שליחה אל… ».
- *
- * Étapes :
- * 1) attendre que le picker/liste contacts soit visible
- * 2) mémoriser le header à ce moment-là (baseline)
- * 3) coller seulement si picker fermé + header différent + compose présent
- */
-async function waitForWhatsAppRecipientSelected(
-  win: BrowserWindow,
-  maxWaitMs = 120_000,
-): Promise<boolean> {
-  return Boolean(
-    await win.webContents.executeJavaScript(
-      `(() => new Promise((resolve) => {
-        const maxWaitMs = ${maxWaitMs}
-        const started = Date.now()
-        let settled = false
-        let observer = null
-        let iv = null
-        let baselineHeader = null
-        let sawPicker = false
-
-        const composeSel =
-          '[data-testid="conversation-compose-box-input"], #main footer div[contenteditable="true"]'
-
-        // Nom du chat actif — seul signal fiable côté DOM moderne
-        const activeChatName = () => {
-          const header = document.querySelector(
-            'header[data-testid="conversation-header"]',
-          )
-          if (!header) return ''
-          const titled = header.querySelector('span[title], [title]')
-          if (titled) {
-            const t = (titled.getAttribute('title') || titled.textContent || '')
-              .trim()
-            if (t) return t.slice(0, 200)
-          }
-          const spans = Array.from(header.querySelectorAll('span'))
-          for (const span of spans) {
-            const text = (span.textContent || '').trim()
-            if (!text || text.length < 1) continue
-            if (span.closest('[data-icon]') || span.getAttribute('data-icon')) continue
-            if (/^[\\uE000-\\uF8FF]+$/.test(text)) continue
-            return text.slice(0, 200)
-          }
-          return (header.innerText || '').trim().split('\\n')[0].slice(0, 200)
-        }
-
-        const hasCompose = () => {
-          const input = document.querySelector(composeSel)
-          if (!input) return false
-          // Ignorer un compose caché derrière un modal
-          const style = window.getComputedStyle(input)
-          return style.display !== 'none' && style.visibility !== 'hidden'
-        }
-
-        const hasPicker = () => {
-          // Uniquement les vrais sélecteurs "nouveau message / send to / new chat"
-          // (pas tout role=dialog — trop large, déclenchait le collage trop tôt)
-          return !!(
-            document.querySelector('[data-testid="contact-list-popup"]') ||
-            document.querySelector('[data-testid="new-chat-drawer"]') ||
-            document.querySelector('[data-testid="chat-list-search"]') ||
-            document.querySelector('[data-animate-modal-popup="true"]') ||
-            document.querySelector(
-              '[data-testid="popup"] [data-testid="cell-frame-container"]',
-            ) ||
-            document.querySelector(
-              'div[data-animate-modal-body="true"] [data-testid="cell-frame-container"]',
-            )
-          )
-        }
-
-        const done = (ok) => {
-          if (settled) return
-          settled = true
-          if (iv) clearInterval(iv)
-          try { if (observer) observer.disconnect() } catch (_) {}
-          resolve(ok)
-        }
-
-        const check = () => {
-          const picker = hasPicker()
-          const compose = hasCompose()
-          const name = activeChatName()
-
-          if (picker) {
-            sawPicker = true
-            // Baseline pendant que le picker est ouvert (souvent header vide / ancien chat)
-            if (baselineHeader === null) {
-              baselineHeader = name
-            }
-          }
-
-          // Ne coller QUE si :
-          // - on a bien vu le picker au moins une fois
-          // - le picker est fermé
-          // - un header de conversation avec un nom est visible
-          // - ce nom a changé par rapport à la baseline (vraie sélection)
-          // - la zone de saisie du chat est là
-          const selected =
-            sawPicker &&
-            !picker &&
-            baselineHeader !== null &&
-            !!name &&
-            name !== baselineHeader &&
-            compose
-
-          if (selected) {
-            const input = document.querySelector(composeSel)
-            if (input) input.focus()
-            done(true)
-            return
-          }
-          if (Date.now() - started >= maxWaitMs) done(false)
-        }
-
-        observer = new MutationObserver(check)
-        observer.observe(document.body, {
-          childList: true,
-          subtree: true,
-          attributes: true,
-        })
-        iv = setInterval(check, 80)
-        check()
-      }))()`,
-      true,
-    ),
-  )
-}
-
-async function focusWhatsAppCompose(win: BrowserWindow): Promise<boolean> {
-  return Boolean(
-    await win.webContents.executeJavaScript(
-      `(() => {
-        const input = document.querySelector(
-          '[data-testid="conversation-compose-box-input"], footer div[contenteditable="true"]'
-        )
-        if (!input) return false
-        input.focus()
-        input.click()
-        return true
-      })()`,
-      true,
-    ),
-  )
-}
-
-/** Colle l'image (plusieurs tentatives) ; envoi optionnel. */
-async function pasteClipboardImageAndSend(
-  win: BrowserWindow,
-  image: NativeImage,
-  autoSend = true,
-): Promise<boolean> {
-  if (image.isEmpty()) return false
-
-  const focused = await focusWhatsAppCompose(win)
-  if (!focused) return false
-
-  // Réécrire le presse-papiers juste avant collage
-  clipboard.writeImage(image)
-  await wait(40)
-
-  win.focus()
-  win.webContents.focus()
-  await focusWhatsAppCompose(win)
-
-  const pasteMod = process.platform === 'darwin' ? 'meta' : 'control'
-  for (let i = 0; i < 2; i++) {
-    clipboard.writeImage(image)
-    await focusWhatsAppCompose(win)
-    win.webContents.focus()
-    win.webContents.paste()
-    await wait(80)
-    const mediaReady = await win.webContents.executeJavaScript(
-      WA_MEDIA_READY_JS,
-      true,
-    )
-    if (mediaReady) break
-    win.webContents.sendInputEvent({
-      type: 'keyDown',
-      keyCode: 'V',
-      modifiers: [pasteMod],
-    })
-    win.webContents.sendInputEvent({
-      type: 'keyUp',
-      keyCode: 'V',
-      modifiers: [pasteMod],
-    })
-    await wait(100)
-    const again = await win.webContents.executeJavaScript(WA_MEDIA_READY_JS, true)
-    if (again) break
-  }
-
-  if (autoSend) {
-    const sent = await clickWhatsAppMediaSend(win, 6000)
-    if (!sent || (await isWhatsAppMediaPreviewOpen(win))) {
-      await win.webContents.executeJavaScript(WA_CLICK_SEND_JS, true)
-      win.focus()
-      win.webContents.focus()
-      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
-      win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
-    }
-  }
-  return true
-}
-
-async function shareImageViaEmbeddedWhatsAppWeb(
-  dataUrl: string,
-): Promise<WhatsAppShareImageResult> {
-  const image = nativeImage.createFromDataURL(dataUrl)
-  if (image.isEmpty()) return { ok: false, error: 'failed' }
-
-  if (!isNetworkOnline()) {
-    clipboard.writeImage(image)
-    return { ok: false, error: 'failed' }
-  }
-
-  const status = await probeWindowsWhatsAppWeb()
-  clipboard.writeImage(image)
-
-  if (!status.connected) {
-    ensureWhatsAppWebWindow(true)
-    return { ok: false, error: 'whatsapp_not_connected' }
-  }
-
-  const win = ensureWhatsAppWebWindow(true)
-  win.show()
-  win.focus()
-
-  // Ouvrir le picker sans reload Electron si WA est déjà chargé (Windows + Mac)
-  const pickerUrl = `https://web.whatsapp.com/send?text=${encodeURIComponent('.')}`
-  if (isWhatsAppWebAlreadyLoaded(win)) {
-    try {
-      const opened = await win.webContents.executeJavaScript(
-        WA_OPEN_SEND_PICKER_JS,
-        true,
-      )
-      if (opened === 'none') {
-        await navigateWhatsAppWeb(win, pickerUrl, 8000)
-      }
-    } catch {
-      await navigateWhatsAppWeb(win, pickerUrl, 8000)
-    }
-  } else {
-    await navigateWhatsAppWeb(win, pickerUrl, 10000)
-    try {
-      await win.webContents.executeJavaScript(WA_OPEN_SEND_PICKER_JS, true)
-    } catch {
-      /* ignore */
-    }
-  }
-
-  win.focus()
-  clipboard.writeImage(image)
-
-  // Attendre la sélection du destinataire, puis coller + envoyer
-  void (async () => {
-    try {
-      const selected = await waitForWhatsAppRecipientSelected(win, 120_000)
-      if (!selected) return
-      clipboard.writeImage(image)
-      await pasteClipboardImageAndSend(win, image, true)
-    } catch {
-      /* ignore */
-    }
-  })()
-  return { ok: true, error: 'pending_chat' }
-}
-
-async function openWhatsAppAndPaste() {
-  // Un "." ouvre l'écran "à qui envoyer" ; l'image reste dans le presse-papiers
-  const text = encodeURIComponent('.')
-  const image = clipboard.readImage()
-  if (useEmbeddedWhatsAppWeb()) {
-    const win = ensureWhatsAppWebWindow(true)
-    const pickerUrl = `https://web.whatsapp.com/send?text=${text}`
-    if (isWhatsAppWebAlreadyLoaded(win)) {
-      try {
-        await win.webContents.executeJavaScript(WA_OPEN_SEND_PICKER_JS, true)
-      } catch {
-        await navigateWhatsAppWeb(win, pickerUrl, 8000)
-      }
-    } else {
-      await navigateWhatsAppWeb(win, pickerUrl, 10000)
-    }
-    win.show()
-    win.focus()
-    if (!image.isEmpty()) clipboard.writeImage(image)
-    const selected = await waitForWhatsAppRecipientSelected(win, 120_000)
-    if (!selected) return
-    if (!image.isEmpty()) {
-      await pasteClipboardImageAndSend(win, image, true)
-    } else {
-      await focusWhatsAppCompose(win)
-      win.webContents.paste()
-      await clickWhatsAppMediaSend(win, 3000)
-    }
-    return
-  }
-  try {
-    await shell.openExternal(`whatsapp://send?text=${text}`)
-  } catch {
-    await shell.openExternal(`https://web.whatsapp.com/send?text=${text}`)
-  }
-  // Collage + envoi auto après choix du contact / ouverture
-  scheduleWhatsAppPasteAndSend([2000, 3800, 5500])
-}
-
-async function openWhatsAppSendText(
-  phone: string,
-  text: string,
-  imageDataUrl?: string,
-): Promise<WhatsAppSendResult> {
-  const phoneNorm = normalizeWhatsAppPhone(phone)
-  const message = text.trim()
-  if (!phoneNorm || (!message && !imageDataUrl)) {
-    return { ok: false, error: 'failed' }
-  }
-
-  if (!isNetworkOnline()) {
-    if (message) clipboard.writeText(message)
-    return { ok: false, error: 'offline' }
-  }
-
-  // WhatsApp Web embarqué dans l'app (Windows + Mac)
-  if (useEmbeddedWhatsAppWeb()) {
-    return sendViaEmbeddedWhatsAppWeb(phoneNorm, message, imageDataUrl)
-  }
-
-  return { ok: false, error: 'whatsapp_unavailable' }
-}
-
-async function openWhatsAppSendTextMany(
-  phones: string[],
-  text: string,
-  imageDataUrl?: string,
-): Promise<WhatsAppSendResult> {
-  const unique = Array.from(
-    new Set(
-      phones
-        .map((p) => normalizeWhatsAppPhone(p))
-        .filter(Boolean),
-    ),
-  )
-  if (unique.length === 0) return { ok: false, error: 'failed' }
-
-  if (!isNetworkOnline()) {
-    clipboard.writeText(text)
-    return { ok: false, error: 'offline' }
-  }
-
-  if (useEmbeddedWhatsAppWeb()) {
-    for (const phone of unique) {
-      const result = await sendViaEmbeddedWhatsAppWeb(
-        phone,
-        text,
-        imageDataUrl,
-      )
-      if (!result.ok) return result
-    }
-    return { ok: true }
-  }
-
-  return { ok: false, error: 'whatsapp_unavailable' }
-}
-
-function resolveAppIcon(): string | undefined {
-  const candidates = [
-    path.join(__dirname, '../build/icon.ico'),
-    path.join(__dirname, '../build/icon.png'),
-    path.join(process.resourcesPath, 'build/icon.ico'),
-    path.join(process.resourcesPath, 'icon.ico'),
-  ]
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return candidate
-  }
-  return undefined
-}
-
-function telegramApiPost(
+function telegramHttpsRequest(
   token: string,
   method: string,
-  body: Record<string, string>,
-): Promise<{ ok: boolean; error?: string; result?: unknown }> {
-  const payload = JSON.stringify(body)
+  payload: Buffer,
+  contentType: string,
+): Promise<TelegramSendResult> {
   return new Promise((resolve) => {
     const req = https.request(
       {
@@ -3011,30 +1129,16 @@ function telegramApiPost(
         path: `/bot${token}/${method}`,
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(payload),
+          'Content-Type': contentType,
+          'Content-Length': payload.length,
         },
       },
       (res) => {
         const chunks: Buffer[] = []
         res.on('data', (c) => chunks.push(c as Buffer))
-        res.on('end', () => {
-          const raw = Buffer.concat(chunks).toString('utf8')
-          try {
-            const parsed = JSON.parse(raw) as {
-              ok?: boolean
-              description?: string
-            }
-            if (parsed.ok) resolve({ ok: true, result: parsed })
-            else
-              resolve({
-                ok: false,
-                error: parsed.description || 'telegram_failed',
-              })
-          } catch {
-            resolve({ ok: false, error: 'telegram_failed' })
-          }
-        })
+        res.on('end', () =>
+          resolve(parseTelegramResponse(Buffer.concat(chunks).toString('utf8'))),
+        )
       },
     )
     req.on('error', () => resolve({ ok: false, error: 'offline' }))
@@ -3043,21 +1147,111 @@ function telegramApiPost(
   })
 }
 
+function telegramApiPost(
+  token: string,
+  method: string,
+  body: Record<string, string>,
+): Promise<TelegramSendResult> {
+  const payload = Buffer.from(JSON.stringify(body), 'utf8')
+  return telegramHttpsRequest(token, method, payload, 'application/json')
+}
+
+function telegramApiMultipart(
+  token: string,
+  method: string,
+  fields: Record<string, string>,
+  file: { field: string; filename: string; buffer: Buffer; mime: string },
+): Promise<TelegramSendResult> {
+  const boundary = `chevron${Date.now().toString(16)}`
+  const parts: Buffer[] = []
+  for (const [key, value] of Object.entries(fields)) {
+    parts.push(
+      Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="${key}"\r\n\r\n${value}\r\n`,
+        'utf8',
+      ),
+    )
+  }
+  parts.push(
+    Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="${file.field}"; filename="${file.filename}"\r\nContent-Type: ${file.mime}\r\n\r\n`,
+      'utf8',
+    ),
+  )
+  parts.push(file.buffer)
+  parts.push(Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8'))
+  return telegramHttpsRequest(
+    token,
+    method,
+    Buffer.concat(parts),
+    `multipart/form-data; boundary=${boundary}`,
+  )
+}
+
+function readTelegramSettings(): { token: string; chatId: string } {
+  const data = readData()
+  return {
+    token: (data.settings.telegramBotToken ?? '').trim(),
+    chatId: (data.settings.telegramChatId ?? '').trim(),
+  }
+}
+
 async function sendTelegramText(
   token: string,
   chatId: string,
   text: string,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<TelegramSendResult> {
   const bot = token.trim()
   const chat = chatId.trim()
   const message = text.trim()
   if (!bot || !chat) return { ok: false, error: 'telegram_not_configured' }
   if (!message) return { ok: false, error: 'failed' }
-  const sent = await telegramApiPost(bot, 'sendMessage', {
-    chat_id: chat,
-    text: message,
+  // Telegram limite ~4096 caractères par message
+  const chunks: string[] = []
+  let rest = message
+  while (rest.length > 4000) {
+    let cut = rest.lastIndexOf('\n', 4000)
+    if (cut < 1000) cut = 4000
+    chunks.push(rest.slice(0, cut))
+    rest = rest.slice(cut).replace(/^\n+/, '')
+  }
+  if (rest) chunks.push(rest)
+  for (const chunk of chunks) {
+    const sent = await telegramApiPost(bot, 'sendMessage', {
+      chat_id: chat,
+      text: chunk,
+    })
+    if (!sent.ok) return sent
+  }
+  return { ok: true }
+}
+
+async function sendTelegramPhoto(
+  token: string,
+  chatId: string,
+  imageDataUrl: string,
+  caption?: string,
+): Promise<TelegramSendResult> {
+  const bot = token.trim()
+  const chat = chatId.trim()
+  if (!bot || !chat) return { ok: false, error: 'telegram_not_configured' }
+  const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s.exec(
+    imageDataUrl.trim(),
+  )
+  if (!match) return { ok: false, error: 'failed' }
+  const mime = match[1]
+  const buffer = Buffer.from(match[2], 'base64')
+  if (buffer.length === 0) return { ok: false, error: 'failed' }
+  const fields: Record<string, string> = { chat_id: chat }
+  const cap = (caption ?? '').trim()
+  if (cap) fields.caption = cap.slice(0, 1024)
+  const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg'
+  return telegramApiMultipart(bot, 'sendPhoto', fields, {
+    field: 'photo',
+    filename: `list.${ext}`,
+    buffer,
+    mime,
   })
-  return sent.ok ? { ok: true } : { ok: false, error: sent.error || 'failed' }
 }
 
 function createWindow() {
@@ -3078,10 +1272,7 @@ function createWindow() {
   })
 
   win.on('closed', () => {
-    // La fenêtre WhatsApp Web cachée empêcherait sinon la fermeture de l'app
     if (process.platform !== 'darwin') {
-      isAppQuitting = true
-      destroyWhatsAppWebWindow()
       app.quit()
     }
   })
@@ -3111,53 +1302,32 @@ app.whenReady().then(() => {
     path: shiftReportLocalPath(),
   }))
 
-  ipcMain.handle('whatsapp:open', async () => {
-    await openWhatsAppAndPaste()
-    return true
-  })
-
-  ipcMain.handle('whatsapp:status', async () => getWhatsAppStatus())
-
-  ipcMain.handle('whatsapp:openWebSession', async () => {
-    return openWhatsAppWebSessionWindow()
+  ipcMain.handle('telegram:sendText', async (_event, text: string) => {
+    const { token, chatId } = readTelegramSettings()
+    return sendTelegramText(token, chatId, String(text || ''))
   })
 
   ipcMain.handle(
-    'whatsapp:sendText',
-    async (
-      _event,
-      phone: string | string[],
-      text: string,
-      imageDataUrl?: string,
-    ) => {
-      const phones = Array.isArray(phone) ? phone : [phone]
-      return openWhatsAppSendTextMany(
-        phones.map((p) => String(p || '')),
-        String(text || ''),
-        imageDataUrl ? String(imageDataUrl) : undefined,
+    'telegram:sendPhoto',
+    async (_event, imageDataUrl: string, caption?: string) => {
+      const { token, chatId } = readTelegramSettings()
+      return sendTelegramPhoto(
+        token,
+        chatId,
+        String(imageDataUrl || ''),
+        caption ? String(caption) : undefined,
       )
     },
   )
 
-  ipcMain.handle('telegram:sendText', async (_event, text: string) => {
-    const data = readData()
-    return sendTelegramText(
-      data.settings.telegramBotToken ?? '',
-      data.settings.telegramChatId ?? '',
-      String(text || ''),
-    )
-  })
-
   ipcMain.handle('telegram:test', async () => {
-    const data = readData()
-    const token = data.settings.telegramBotToken ?? ''
-    const chatId = data.settings.telegramChatId ?? ''
+    const { token, chatId } = readTelegramSettings()
     const sent = await sendTelegramText(
       token,
       chatId,
       'בדיקת Telegram — Chevron',
     )
-    if (sent.ok) return { ok: true as const, chatId: chatId.trim() }
+    if (sent.ok) return { ok: true as const, chatId }
     return sent
   })
 
@@ -3542,20 +1712,6 @@ app.whenReady().then(() => {
       }),
   )
 
-  ipcMain.handle(
-    'whatsapp:shareImage',
-    async (_event, dataUrl: string) => {
-      if (useEmbeddedWhatsAppWeb()) {
-        return shareImageViaEmbeddedWhatsAppWeb(String(dataUrl || ''))
-      }
-      const image = nativeImage.createFromDataURL(dataUrl)
-      if (image.isEmpty()) return { ok: false, error: 'failed' as const }
-      clipboard.writeImage(image)
-      await openWhatsAppAndPaste()
-      return { ok: true }
-    },
-  )
-
   let mainWindow: BrowserWindow | null = null
 
   ipcMain.handle('update:download', async () => {
@@ -3580,28 +1736,11 @@ app.whenReady().then(() => {
   setInterval(trySendDailyShiftReports, 60_000)
   setInterval(trySendMonthlyCameraReports, 60_000)
 
-  // Précharger WhatsApp Web embarqué (Windows + Mac) pour un statut fiable
-  if (useEmbeddedWhatsAppWeb()) {
-    configureWhatsAppWebSession()
-    setTimeout(() => {
-      try {
-        ensureWhatsAppWebWindow(false)
-      } catch {
-        /* ignore */
-      }
-    }, 2500)
-  }
-
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       mainWindow = createWindow()
     }
   })
-})
-
-app.on('before-quit', () => {
-  isAppQuitting = true
-  destroyWhatsAppWebWindow()
 })
 
 app.on('window-all-closed', () => {

@@ -45,7 +45,6 @@ import {
   BannedPerson,
   CardlessAssignment,
   CardlessPerson,
-  ContactPhone,
   PersonEntry,
   VISITOR_COUNT,
   VisitorAccess,
@@ -53,12 +52,11 @@ import {
   bannedDisplayName,
   buildAbsenceWatchMessage,
   buildEmergencyMessage,
+  buildPresenceListMessage,
   cardlessDisplayName,
   comparePresentByName,
-  contactDisplayName,
   createId,
   displayName,
-  emergencyDialPhones,
   endOfTodayMidnight,
   formatDateTime,
   formatTime,
@@ -70,13 +68,10 @@ import {
   isVisitorPresent,
   isWorkerPresent,
   normalizeData,
-  normalizeWhatsAppPhone,
   hasTelegramWatch,
   purgeExpiredWorkers,
   shouldNotifyAbsenceWatch,
   visitorAffiliatedName,
-  WhatsAppStatus,
-  whatsappStatusLabel,
   workerDisplayName,
 } from './types'
 import chevronLogo from './assets/chevron-logo.png'
@@ -248,19 +243,17 @@ function IconAlert({ size = 16 }: { size?: number }) {
   )
 }
 
-function IconPhone({ size = 16 }: { size?: number }) {
-  return (
-    <Icon size={size} className="icon-phone">
-      <path
-        d="M7.2 3.8 H10 L11.2 7.2 L9.3 8.4 C10.1 10.1 11.4 11.6 13.1 12.8 L14.4 11 L17.8 12.2 V15 C17.8 15.8 17.1 16.5 16.3 16.5 C10.2 16.5 5.3 11.6 5.3 5.5 C5.3 4.7 6 4 6.8 4 Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-        transform="translate(1 1.2)"
-      />
-    </Icon>
-  )
+function telegramErrorMessage(error?: string): string {
+  switch (error) {
+    case 'telegram_not_configured':
+      return 'הגדירו Token ו-chat_id של Telegram בהגדרות'
+    case 'offline':
+      return 'אין אינטרנט — לא ניתן לשלוח כרגע'
+    case 'failed':
+      return 'שליחת Telegram נכשלה'
+    default:
+      return error ? `שגיאת Telegram: ${error}` : 'שליחת Telegram נכשלה'
+  }
 }
 
 type Toast = { message: string } | null
@@ -545,8 +538,6 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [testingTelegram, setTestingTelegram] = useState(false)
   const [showListPreview, setShowListPreview] = useState(false)
-  const [showShareTarget, setShowShareTarget] = useState(false)
-  const [sharePhoneDraft, setSharePhoneDraft] = useState('')
   const [updateState, setUpdateState] = useState<
     | null
     | { phase: 'available'; version: string }
@@ -563,80 +554,8 @@ export default function App() {
   const [previewColumnChoice, setPreviewColumnChoice] =
     useState<ColumnChoice>('max')
   const [listKindFilter, setListKindFilter] = useState<ListKindFilter>('all')
-  const [whatsappStatus, setWhatsappStatus] = useState<WhatsAppStatus>({
-    online: typeof navigator !== 'undefined' ? navigator.onLine : true,
-    whatsappAvailable: true,
-    channel: 'none',
-    connected: true,
-    desktopInstalled: false,
-    desktopRunning: false,
-    webOpen: false,
-    detail: 'unknown',
-  })
-  const whatsappWarn = whatsappStatusLabel(whatsappStatus)
 
   const [viewportTick, setViewportTick] = useState(0)
-
-  async function refreshWhatsAppStatus() {
-    const online = typeof navigator !== 'undefined' ? navigator.onLine : true
-    if (window.listeApi?.getWhatsAppStatus) {
-      try {
-        const status = await window.listeApi.getWhatsAppStatus()
-        setWhatsappStatus(status)
-        return
-      } catch {
-        /* fallback below */
-      }
-    }
-    setWhatsappStatus((prev) => ({ ...prev, online }))
-  }
-
-  async function openWhatsAppWebLogin() {
-    if (!window.listeApi?.openWhatsAppWebSession) {
-      setToast({ message: 'פתיחת WhatsApp Web זמינה רק באפליקציה המותקנת' })
-      return
-    }
-    setToast({ message: 'פותח WhatsApp Web להתחברות…' })
-    try {
-      const status = await window.listeApi.openWhatsAppWebSession()
-      setWhatsappStatus(status)
-      if (status.connected || status.whatsappAvailable) {
-        setToast({ message: 'WhatsApp Web מחובר' })
-      } else {
-        setToast({
-          message: 'סרקו את קוד ה־QR בחלון WhatsApp Web שנפתח',
-        })
-      }
-    } catch {
-      setToast({ message: 'לא ניתן לפתוח את חלון WhatsApp Web' })
-    }
-  }
-
-  useEffect(() => {
-    let cancelled = false
-
-    async function refresh() {
-      if (cancelled) return
-      await refreshWhatsAppStatus()
-    }
-
-    void refresh()
-    const onOnline = () => void refresh()
-    const onOffline = () =>
-      setWhatsappStatus((prev) => ({ ...prev, online: false }))
-    const onFocus = () => void refresh()
-    window.addEventListener('online', onOnline)
-    window.addEventListener('offline', onOffline)
-    window.addEventListener('focus', onFocus)
-    const interval = window.setInterval(() => void refresh(), 8000)
-    return () => {
-      cancelled = true
-      window.removeEventListener('online', onOnline)
-      window.removeEventListener('offline', onOffline)
-      window.removeEventListener('focus', onFocus)
-      window.clearInterval(interval)
-    }
-  }, [])
 
   useEffect(() => {
     const onResize = () => setViewportTick((n) => n + 1)
@@ -671,10 +590,6 @@ export default function App() {
   const [activeWorkerLetter, setActiveWorkerLetter] = useState<string>('א')
   const [activeCardlessLetter, setActiveCardlessLetter] = useState<string>('א')
   const [showVisitorManage, setShowVisitorManage] = useState(false)
-  const [showEmergencyPhones, setShowEmergencyPhones] = useState(false)
-  const [emergencyPhoneDraft, setEmergencyPhoneDraft] = useState('')
-  const [emergencyNameDraft, setEmergencyNameDraft] = useState('')
-  const [emergencyFlagDraft, setEmergencyFlagDraft] = useState(true)
   const [visitorManageMode, setVisitorManageMode] =
     useState<VisitorAccess>('closed')
   const listRef = useRef<HTMLDivElement>(null)
@@ -1206,16 +1121,9 @@ export default function App() {
     kind: 'enter' | 'exit',
   ) {
     if (!shouldNotifyAbsenceWatch(snapshot, person)) return
+    if (!hasTelegramWatch(snapshot) || !window.listeApi?.sendTelegramText) return
     const text = buildAbsenceWatchMessage(person, kind)
-    if (hasTelegramWatch(snapshot) && window.listeApi?.sendTelegramText) {
-      void window.listeApi.sendTelegramText(text).catch(() => {
-        /* ignore */
-      })
-      return
-    }
-    const phone = snapshot.settings.absenceWatchPhone?.trim() ?? ''
-    if (!window.listeApi?.sendWhatsAppText) return
-    void window.listeApi.sendWhatsAppText(phone, text).catch(() => {
+    void window.listeApi.sendTelegramText(text).catch(() => {
       /* ignore */
     })
   }
@@ -2058,15 +1966,6 @@ export default function App() {
     )
   }
 
-  async function copyEmergencyFallback(text: string) {
-    try {
-      await navigator.clipboard.writeText(text)
-      return true
-    } catch {
-      return false
-    }
-  }
-
   async function captureListImageDataUrl(): Promise<string | null> {
     const visiblePage = document.querySelector(
       '.preview-share-wrap .preview-pdf-page',
@@ -2103,12 +2002,12 @@ export default function App() {
 
   async function sendEmergencyList() {
     if (!data) return
-    const phones = emergencyDialPhones(data.settings.emergencyPhones ?? [])
-    if (phones.length === 0) {
-      setToast({
-        message: 'הוסיפו לפחות מספר אחד מסומן כ«חירום» ב«מספרים»',
-      })
-      setShowEmergencyPhones(true)
+    if (!hasTelegramWatch(data)) {
+      setToast({ message: telegramErrorMessage('telegram_not_configured') })
+      return
+    }
+    if (!window.listeApi?.sendTelegramText) {
+      setToast({ message: 'שליחת Telegram אינה זמינה' })
       return
     }
 
@@ -2116,189 +2015,31 @@ export default function App() {
     try {
       const present = data.people.filter(isPresent)
       const text = buildEmergencyMessage(data, present)
-
-      const browserOnline =
-        typeof navigator !== 'undefined' ? navigator.onLine : true
-      if (!browserOnline || !whatsappStatus.online) {
-        const copied = await copyEmergencyFallback(text)
-        setToast({
-          message: copied
-            ? 'אין אינטרנט — ההודעה הועתקה. שלחו ידנית כשיחזור החיבור'
-            : 'אין אינטרנט — לא ניתן לשלוח חירום כרגע',
-        })
+      const result = await window.listeApi.sendTelegramText(text)
+      if (!result.ok) {
+        setToast({ message: telegramErrorMessage(result.error) })
         return
       }
-
-      if (window.listeApi?.getWhatsAppStatus) {
-        const status = await window.listeApi.getWhatsAppStatus()
-        setWhatsappStatus(status)
-        if (!status.online) {
-          const copied = await copyEmergencyFallback(text)
-          setToast({
-            message: copied
-              ? 'אין אינטרנט — ההודעה הועתקה. שלחו ידנית כשיחזור החיבור'
-              : 'אין אינטרנט — לא ניתן לשלוח חירום כרגע',
-          })
-          return
-        }
-        // Bloquer seulement si écran QR / login clairement détecté
-        if (
-          status.detail === 'web_login' ||
-          status.detail === 'desktop_login'
-        ) {
-          const copied = await copyEmergencyFallback(text)
-          const label = whatsappStatusLabel(status)
-          setToast({
-            message: copied
-              ? `${label ?? 'WhatsApp לא מחובר'} — ההודעה הועתקה`
-              : label ?? 'WhatsApp לא מחובר',
-          })
-          return
-        }
-      }
-
-      if (window.listeApi?.sendWhatsAppText) {
-        const result = await window.listeApi.sendWhatsAppText(phones, text)
-        const ok = typeof result === 'boolean' ? result : result.ok
-        const error = typeof result === 'boolean' ? undefined : result.error
-        if (!ok) {
-          if (error === 'offline') {
-            setToast({
-              message:
-                'אין אינטרנט — ההודעה הועתקה. שלחו ידנית כשיחזור החיבור',
-            })
-          } else if (error === 'whatsapp_not_connected') {
-            setToast({
-              message:
-                'WhatsApp Web לא מחובר — ההודעה הועתקה. התחברו ב־web.whatsapp.com ושלחו ידנית',
-            })
-          } else if (error === 'whatsapp_unavailable') {
-            setToast({
-              message:
-                'לא ניתן לפתוח WhatsApp Web — ההודעה הועתקה. פתחו את הדפדפן ושלחו ידנית',
-            })
-          } else {
-            setToast({ message: 'שליחת החירום נכשלה' })
-          }
-          return
-        }
-      } else {
-        for (const phone of phones) {
-          const phoneNorm = normalizeWhatsAppPhone(phone)
-          if (!phoneNorm) continue
-          window.open(
-            `https://wa.me/${phoneNorm}?text=${encodeURIComponent(text)}`,
-            '_blank',
-          )
-        }
-      }
-      setToast({
-        message:
-          phones.length === 1
-            ? 'הרשימה נשלחת אוטומטית ב־WhatsApp…'
-            : `הרשימה נשלחת אוטומטית ל־${phones.length} מספרים…`,
-      })
+      setToast({ message: 'רשימת החירום נשלחה ב־Telegram' })
     } catch {
-      setToast({ message: 'שגיאה בשליחת הודעת החירום' })
+      setToast({ message: telegramErrorMessage('failed') })
     } finally {
       setBusy(false)
+      restoreUiInteractivity()
     }
   }
 
-  function resetPhoneForm() {
-    setEmergencyPhoneDraft('')
-    setEmergencyNameDraft('')
-    setEmergencyFlagDraft(true)
-  }
-
-  async function addEmergencyPhone(e: FormEvent) {
-    e.preventDefault()
+  async function sendPreviewListPhotoToTelegram() {
     if (!data) return
-    const phone = emergencyPhoneDraft.trim()
-    const name = emergencyNameDraft.trim()
-    if (!normalizeWhatsAppPhone(phone)) {
-      setToast({ message: 'נא להזין מספר טלפון תקין' })
+    if (!hasTelegramWatch(data)) {
+      setToast({ message: telegramErrorMessage('telegram_not_configured') })
       return
     }
-    const key = normalizeWhatsAppPhone(phone)
-    const current = data.settings.emergencyPhones ?? []
-    if (current.some((p) => normalizeWhatsAppPhone(p.phone) === key)) {
-      setToast({ message: 'המספר כבר ברשימה' })
-      return
-    }
-    const contact: ContactPhone = {
-      id: createId(),
-      name,
-      phone,
-      emergency: emergencyFlagDraft,
-    }
-    const emergencyPhones = [...current, contact]
-    resetPhoneForm()
-    await persist(
-      {
-        ...data,
-        settings: {
-          ...data.settings,
-          emergencyPhones,
-          directorPhone: emergencyPhones[0]?.phone ?? '',
-        },
-      },
-      'המספר נוסף',
-    )
-  }
-
-  async function removeEmergencyPhone(contactId: string) {
-    if (!data) return
-    const emergencyPhones = (data.settings.emergencyPhones ?? []).filter(
-      (p) => p.id !== contactId,
-    )
-    await persist(
-      {
-        ...data,
-        settings: {
-          ...data.settings,
-          emergencyPhones,
-          directorPhone: emergencyPhones[0]?.phone ?? '',
-        },
-      },
-      'המספר הוסר',
-    )
-  }
-
-  async function toggleContactEmergency(contactId: string) {
-    if (!data) return
-    const emergencyPhones = (data.settings.emergencyPhones ?? []).map((c) =>
-      c.id === contactId ? { ...c, emergency: !c.emergency } : c,
-    )
-    await persist(
-      {
-        ...data,
-        settings: {
-          ...data.settings,
-          emergencyPhones,
-          directorPhone: emergencyPhones[0]?.phone ?? '',
-        },
-      },
-      'עודכן',
-    )
-  }
-
-  function openShareTargetPicker() {
-    const phones = data?.settings.emergencyPhones ?? []
-    setSharePhoneDraft(phones[0]?.phone ?? '')
-    setShowShareTarget(true)
-  }
-
-  /** שליחה ישירה לפי מספר (בלי בחירה בתוך WhatsApp) */
-  async function shareListOnWhatsAppToPhone(phoneRaw: string) {
-    if (!data) return
-    const phone = phoneRaw.trim()
-    if (!normalizeWhatsAppPhone(phone)) {
-      setToast({ message: 'מספר לא תקין' })
+    if (!window.listeApi?.sendTelegramPhoto) {
+      setToast({ message: 'שליחת Telegram אינה זמינה' })
       return
     }
 
-    setShowShareTarget(false)
     setBusy(true)
     try {
       const dataUrl = await captureListImageDataUrl()
@@ -2306,59 +2047,47 @@ export default function App() {
         setToast({ message: 'שגיאה ביצירת התמונה' })
         return
       }
-
-      if (window.listeApi?.sendWhatsAppText) {
-        setToast({ message: 'שולח את התמונה ב־WhatsApp…' })
-        const result = await window.listeApi.sendWhatsAppText(
-          phone,
-          '',
-          dataUrl,
-        )
-        const ok = typeof result === 'boolean' ? result : result.ok
-        const error = typeof result === 'boolean' ? undefined : result.error
-        if (!ok) {
-          if (error === 'whatsapp_not_connected') {
-            setToast({
-              message:
-                'WhatsApp Web לא מחובר — לחצו על מצב החיבור וסרקו QR. התמונה הועתקה',
-            })
-            void window.listeApi.copyImage?.(dataUrl)
-            void window.listeApi.openWhatsAppWebSession?.()
-          } else if (error === 'offline') {
-            setToast({ message: 'אין אינטרנט — לא ניתן לשלוח כרגע' })
-          } else {
-            setToast({ message: 'שליחת התמונה נכשלה' })
-          }
-          return
+      setToast({ message: 'שולח תמונה ל־Telegram…' })
+      const caption = `${data.settings.siteName} — רשימת נוכחים`
+      const result = await window.listeApi.sendTelegramPhoto(dataUrl, caption)
+      if (!result.ok) {
+        setToast({ message: telegramErrorMessage(result.error) })
+        if (result.error !== 'offline') {
+          void window.listeApi.copyImage?.(dataUrl)
         }
-        setToast({ message: 'התמונה נשלחה ב־WhatsApp' })
         return
       }
-
-      // Fallback דפדפן / בלי API שליחה
-      if (window.listeApi?.shareImageToWhatsApp) {
-        const result = await window.listeApi.shareImageToWhatsApp(dataUrl)
-        const ok = typeof result === 'boolean' ? result : result.ok
-        setToast({
-          message: ok
-            ? 'בחרו איש קשר ב־WhatsApp — התמונה תודבק'
-            : 'שיתוף התמונה נכשל',
-        })
-        return
-      }
-
-      const blob = await (await fetch(dataUrl)).blob()
-      await navigator.clipboard.write([
-        new ClipboardItem({ 'image/png': blob }),
-      ])
-      const phoneNorm = normalizeWhatsAppPhone(phone)
-      window.open(
-        `https://web.whatsapp.com/send?phone=${phoneNorm}`,
-        '_blank',
-      )
-      setToast({ message: 'התמונה הועתקה — הדביקו (Ctrl+V) ושלחו' })
+      setToast({ message: 'התמונה נשלחה ב־Telegram' })
     } catch {
-      setToast({ message: 'שגיאה בשליחת התמונה' })
+      setToast({ message: telegramErrorMessage('failed') })
+    } finally {
+      setBusy(false)
+      restoreUiInteractivity()
+    }
+  }
+
+  async function sendPreviewListTextToTelegram() {
+    if (!data) return
+    if (!hasTelegramWatch(data)) {
+      setToast({ message: telegramErrorMessage('telegram_not_configured') })
+      return
+    }
+    if (!window.listeApi?.sendTelegramText) {
+      setToast({ message: 'שליחת Telegram אינה זמינה' })
+      return
+    }
+
+    setBusy(true)
+    try {
+      const text = buildPresenceListMessage(data, filteredPresentPeople)
+      const result = await window.listeApi.sendTelegramText(text)
+      if (!result.ok) {
+        setToast({ message: telegramErrorMessage(result.error) })
+        return
+      }
+      setToast({ message: 'הרשימה נשלחה ב־Telegram' })
+    } catch {
+      setToast({ message: telegramErrorMessage('failed') })
     } finally {
       setBusy(false)
       restoreUiInteractivity()
@@ -3307,9 +3036,8 @@ export default function App() {
 
             <h3>התראות כניסה / יציאה</h3>
             <p className="shift-settings-note">
-              כבוי כברירת מחדל. כשפעיל — כניסה ויציאה נשלחות ב־Telegram
-              (API רשמית). אם אין Telegram מוגדר, נשלח ב־WhatsApp. העובד
-              למעקב לא מקבל הודעה.
+              כבוי כברירת מחדל. כשפעיל — כניסה ויציאה נשלחות לקבוצת Telegram
+              שהוגדרה (API רשמית). העובד למעקב לא מקבל הודעה.
             </p>
             <label className="shift-field presence-watch-enable">
               <span>שליחה אוטומטית</span>
@@ -3407,10 +3135,7 @@ export default function App() {
                         setToast({ message: 'הודעת בדיקה נשלחה ב־Telegram' })
                       } else {
                         setToast({
-                          message:
-                            result?.error === 'telegram_not_configured'
-                              ? 'חסר Token או chat_id'
-                              : `שגיאת Telegram: ${result?.error ?? 'נכשל'}`,
+                          message: telegramErrorMessage(result?.error),
                         })
                       }
                     } finally {
@@ -3424,34 +3149,6 @@ export default function App() {
               </button>
             </div>
             <div className="shift-settings-grid presence-watch-grid">
-              <label className="shift-field">
-                <span>מספר WhatsApp (גיבוי)</span>
-                <select
-                  value={data.settings.absenceWatchPhone ?? ''}
-                  onChange={(e) => {
-                    const absenceWatchPhone = e.target.value
-                    void persist({
-                      ...data,
-                      settings: { ...data.settings, absenceWatchPhone },
-                    })
-                  }}
-                >
-                  <option value="">— ללא מספר —</option>
-                  {data.settings.absenceWatchPhone &&
-                  !(data.settings.emergencyPhones ?? []).some(
-                    (c) => c.phone === data.settings.absenceWatchPhone,
-                  ) ? (
-                    <option value={data.settings.absenceWatchPhone}>
-                      {data.settings.absenceWatchPhone}
-                    </option>
-                  ) : null}
-                  {(data.settings.emergencyPhones ?? []).map((contact) => (
-                    <option key={contact.id} value={contact.phone}>
-                      {contactDisplayName(contact)}
-                    </option>
-                  ))}
-                </select>
-              </label>
               <label className="shift-field">
                 <span>עובד למעקב</span>
                 <select
@@ -3492,18 +3189,9 @@ export default function App() {
               <p className="shift-settings-test-hint">
                 השליחה האוטומטית כבויה — אין הודעה בכניסה או ביציאה.
               </p>
-            ) : hasTelegramWatch(data) ? (
+            ) : !hasTelegramWatch(data) ? (
               <p className="shift-settings-test-hint">
-                Telegram מוגדר — ההתראות יישלחו לשם (לא דרך WhatsApp).
-              </p>
-            ) : (data.settings.emergencyPhones ?? []).length === 0 ? (
-              <p className="shift-settings-test-hint">
-                אין Telegram ואין מספרים — הוסיפו Token + chat_id, או מספר
-                WhatsApp למטה.
-              </p>
-            ) : !(data.settings.absenceWatchPhone ?? '').trim() ? (
-              <p className="shift-settings-test-hint">
-                בחרו מספר WhatsApp לגיבוי, או מלאו Token + chat_id של Telegram.
+                מלאו Token ו-chat_id של Telegram כדי לאפשר שליחה אוטומטית.
               </p>
             ) : !(data.settings.absenceWatchWorkerId ?? '').trim() ? (
               <p className="shift-settings-test-hint">
@@ -3528,62 +3216,18 @@ export default function App() {
           })}
         </div>
 
-        <div className="whatsapp-bar">
+        <div className="telegram-bar">
           <div className="emergency-actions">
             <button
               type="button"
-              className={`btn btn-emergency ${
-                whatsappWarn ? 'btn-emergency-warn' : ''
-              }`}
+              className="btn btn-emergency"
               disabled={busy}
               onClick={() => void sendEmergencyList()}
-              title={whatsappWarn ?? 'שליחת רשימת נוכחים למספרי החירום'}
+              title="שליחת רשימת נוכחים לקבוצת Telegram"
             >
               <IconAlert />
               <span>חירום</span>
             </button>
-            <button
-              type="button"
-              className="btn btn-ghost btn-emergency-phones"
-              onClick={() => {
-                resetPhoneForm()
-                setShowEmergencyPhones(true)
-              }}
-              title="ניהול מספרים"
-            >
-              <IconPhone />
-              <span>
-                מספרים
-                {(data.settings.emergencyPhones?.length ?? 0) > 0
-                  ? ` (${data.settings.emergencyPhones.length})`
-                  : ''}
-              </span>
-            </button>
-            {whatsappWarn ? (
-              <button
-                type="button"
-                className={`emergency-status emergency-status-button ${
-                  !whatsappStatus.online
-                    ? 'emergency-status-offline'
-                    : 'emergency-status-whatsapp'
-                }`}
-                onClick={() => void openWhatsAppWebLogin()}
-                title="פתיחת חלון התחברות WhatsApp Web"
-              >
-                {whatsappWarn}
-              </button>
-            ) : whatsappStatus.connected || whatsappStatus.whatsappAvailable ? (
-              <button
-                type="button"
-                className="emergency-status emergency-status-ok emergency-status-button"
-                onClick={() => void openWhatsAppWebLogin()}
-                title="פתיחת WhatsApp Web"
-              >
-                {whatsappStatus.channel === 'desktop'
-                  ? 'WhatsApp מחובר'
-                  : 'WhatsApp Web מחובר'}
-              </button>
-            ) : null}
           </div>
           {toast && <div className="toast">{toast.message}</div>}
           <button
@@ -3709,7 +3353,6 @@ export default function App() {
           }
           onToast={(message) => setToast({ message })}
           toastMessage={toast?.message ?? null}
-          shareContacts={data.settings.emergencyPhones ?? []}
           siteName={data.settings.siteName}
           excelPath={data.settings.guardRosterExcelPath ?? ''}
           onExcelPathChange={(path) =>
@@ -3882,233 +3525,21 @@ export default function App() {
               </button>
               <button
                 type="button"
-                className="btn btn-primary btn-whatsapp"
+                className="btn btn-primary"
                 disabled={busy}
-                onClick={() => openShareTargetPicker()}
+                onClick={() => void sendPreviewListPhotoToTelegram()}
               >
-                שיתוף הרשימה ב־WhatsApp
+                שלח תמונה ל־Telegram
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={busy}
+                onClick={() => void sendPreviewListTextToTelegram()}
+              >
+                שלח רשימה (טקסט)
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {showShareTarget && data && (
-        <div
-          className="modal-backdrop"
-          onClick={() => setShowShareTarget(false)}
-        >
-          <div
-            className="modal modal-share-target"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3>שליחת הרשימה ב־WhatsApp</h3>
-            <p className="settings-note" style={{ marginBottom: 12 }}>
-              בחרו מספר — התמונה תישלח ישירות לצ׳אט (בלי בחירה בתוך WhatsApp).
-            </p>
-
-            {(data.settings.emergencyPhones?.length ?? 0) > 0 ? (
-              <div className="emergency-phone-scroll">
-                <ul className="emergency-phone-list share-target-list">
-                  {data.settings.emergencyPhones.map((contact) => (
-                    <li key={contact.id}>
-                      <div className="contact-phone-meta">
-                        <strong>{contactDisplayName(contact)}</strong>
-                        <span dir="ltr">{contact.phone}</span>
-                        {contact.emergency ? (
-                          <span className="contact-phone-badge emergency">חירום</span>
-                        ) : null}
-                      </div>
-                      <button
-                        type="button"
-                        className="btn btn-primary"
-                        style={{ width: 'auto' }}
-                        disabled={busy}
-                        onClick={() =>
-                          void shareListOnWhatsAppToPhone(contact.phone)
-                        }
-                      >
-                        שלח
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : (
-              <p className="settings-note" style={{ marginBottom: 10 }}>
-                אין מספרים שמורים — הזינו מספר למטה.
-              </p>
-            )}
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault()
-                void shareListOnWhatsAppToPhone(sharePhoneDraft)
-              }}
-            >
-              <div className="field">
-                <label htmlFor="sharePhone">מספר אחר</label>
-                <input
-                  id="sharePhone"
-                  type="tel"
-                  inputMode="tel"
-                  value={sharePhoneDraft}
-                  onChange={(e) => setSharePhoneDraft(e.target.value)}
-                  placeholder="0501234567"
-                  autoComplete="tel"
-                  dir="ltr"
-                />
-              </div>
-              <div className="modal-actions">
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={() => setShowShareTarget(false)}
-                >
-                  ביטול
-                </button>
-                <button
-                  type="submit"
-                  className="btn btn-primary btn-whatsapp"
-                  style={{ width: 'auto' }}
-                  disabled={busy || !normalizeWhatsAppPhone(sharePhoneDraft)}
-                >
-                  שלח תמונה
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {showEmergencyPhones && (
-        <div
-          className="modal-backdrop"
-          onClick={() => setShowEmergencyPhones(false)}
-        >
-          <div
-            className="modal modal-emergency-phones"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3>מספרים</h3>
-            <p className="settings-note" style={{ marginBottom: 12 }}>
-              מספרי WhatsApp לשיתוף הרשימה. סמנו «חירום» רק למספרים שיקבלו
-              הודעה בלחיצה על חירום.
-            </p>
-
-            {(data.settings.emergencyPhones?.length ?? 0) === 0 ? (
-              <p className="settings-note">אין מספרים עדיין.</p>
-            ) : (
-              <div className="emergency-phone-scroll">
-                <ul className="emergency-phone-list">
-                  {data.settings.emergencyPhones.map((contact) => (
-                    <li key={contact.id}>
-                      <div className="contact-phone-meta">
-                        <strong>{contactDisplayName(contact)}</strong>
-                        <span dir="ltr">{contact.phone}</span>
-                        {contact.emergency ? (
-                          <span className="contact-phone-badge emergency">חירום</span>
-                        ) : (
-                          <span className="contact-phone-badge">שיתוף</span>
-                        )}
-                      </div>
-                      <div className="contact-phone-actions">
-                        <button
-                          type="button"
-                          className={`btn btn-ghost ${
-                            contact.emergency ? 'mode-active' : ''
-                          }`}
-                          onClick={() => void toggleContactEmergency(contact.id)}
-                          title={
-                            contact.emergency
-                              ? 'הסר מסימון חירום'
-                              : 'סמן כמספר חירום'
-                          }
-                        >
-                          {contact.emergency ? 'חירום ✓' : 'חירום'}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-ghost"
-                          onClick={() => void removeEmergencyPhone(contact.id)}
-                        >
-                          הסרה
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            <form onSubmit={(e) => void addEmergencyPhone(e)}>
-              <div className="row-2">
-                <div className="field">
-                  <label htmlFor="contactName">שם</label>
-                  <input
-                    id="contactName"
-                    value={emergencyNameDraft}
-                    onChange={(e) => setEmergencyNameDraft(e.target.value)}
-                    placeholder="מנהל / שמירה…"
-                    autoFocus
-                    autoComplete="off"
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="emergencyPhone">מספר טלפון</label>
-                  <input
-                    id="emergencyPhone"
-                    type="tel"
-                    inputMode="tel"
-                    value={emergencyPhoneDraft}
-                    onChange={(e) => setEmergencyPhoneDraft(e.target.value)}
-                    placeholder="0501234567"
-                    autoComplete="tel"
-                    dir="ltr"
-                  />
-                </div>
-              </div>
-              <div className="field">
-                <label>סוג מספר</label>
-                <div className="type-toggle">
-                  <button
-                    type="button"
-                    className={`type-toggle-btn ${emergencyFlagDraft ? 'active' : ''}`}
-                    onClick={() => setEmergencyFlagDraft(true)}
-                  >
-                    חירום
-                  </button>
-                  <button
-                    type="button"
-                    className={`type-toggle-btn ${!emergencyFlagDraft ? 'active' : ''}`}
-                    onClick={() => setEmergencyFlagDraft(false)}
-                  >
-                    שיתוף בלבד
-                  </button>
-                </div>
-                <p className="settings-note" style={{ marginTop: 6 }}>
-                  {emergencyFlagDraft
-                    ? 'יכלל בשליחת חירום ובשיתוף התצוגה המקדימה'
-                    : 'רק לשיתוף התצוגה המקדימה — לא יישלח בלחיצת חירום'}
-                </p>
-              </div>
-              <div className="modal-actions">
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={() => setShowEmergencyPhones(false)}
-                >
-                  סגירה
-                </button>
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  style={{ width: 'auto' }}
-                >
-                  הוספה
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}

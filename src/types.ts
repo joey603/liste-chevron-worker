@@ -98,16 +98,16 @@ export type AppSettings = {
   shiftReportSmtpPort?: number
   shiftReportSmtpUser?: string
   shiftReportSmtpPass?: string
-  /** מספר WhatsApp להתראות כניסה/יציאה כשהעובד הנבחר לא באתר */
-  absenceWatchPhone?: string
-  /** מזהה העובד למעקב נוכחות */
+  /** מזהה העובד למעקב נוכחות (לא שולחים עליו התראות) */
   absenceWatchWorkerId?: string
-  /** שליחה אוטומטית של כניסה/יציאה ב־WhatsApp */
+  /** שליחה אוטומטית של כניסה/יציאה ב־Telegram */
   absenceWatchEnabled?: boolean
   /** Token BotFather (API officielle Telegram) */
   telegramBotToken?: string
   /** chat_id Telegram (privé ou groupe) */
   telegramChatId?: string
+  /** @deprecated ancien WhatsApp — conservé pour compat lecture */
+  absenceWatchPhone?: string
 }
 
 export const VISITOR_COUNT = 30
@@ -252,52 +252,7 @@ export type AppData = {
   cameraReportsArchive?: CameraReportsArchive
 }
 
-export type WhatsAppSendResult = {
-  ok: boolean
-  error?:
-    | 'offline'
-    | 'whatsapp_unavailable'
-    | 'whatsapp_not_connected'
-    | 'failed'
-}
-
-export type WhatsAppChannel = 'desktop' | 'web' | 'none'
-
-export type WhatsAppStatus = {
-  online: boolean
-  whatsappAvailable: boolean
-  channel?: WhatsAppChannel
-  connected?: boolean
-  desktopInstalled?: boolean
-  desktopRunning?: boolean
-  webOpen?: boolean
-  detail?: string
-}
-
-export function whatsappStatusLabel(status: WhatsAppStatus): string | null {
-  if (!status.online) return 'אין אינטרנט — שליחת חירום עלולה להיכשל'
-  if (status.connected || status.whatsappAvailable) return null
-  switch (status.detail) {
-    case 'web_login':
-      return 'WhatsApp Web לא מחובר — לחצו כאן לסריקת קוד QR'
-    case 'web_loading':
-      return 'בודק חיבור WhatsApp Web… לחצו כאן אם צריך להתחבר'
-    case 'web_socket_dead':
-      return 'WhatsApp Web נותק — לחצו כאן לחיבור מחדש'
-    case 'web_not_open':
-      return 'לחצו כאן להתחברות WhatsApp Web'
-    case 'desktop_login':
-      return 'WhatsApp פתוח אבל לא מחובר — סרקו את קוד ה־QR באפליקציה'
-    case 'desktop_not_running':
-      return 'WhatsApp מותקן אך לא פועל — פתחו את האפליקציה והתחברו'
-    case 'not_installed':
-      return 'לחצו כאן להתחברות WhatsApp Web'
-    case 'probe_failed':
-      return 'לא ניתן לבדוק את WhatsApp Web — לחצו כאן לנסות שוב'
-    default:
-      return 'WhatsApp Web לא מחובר — לחצו כאן להתחברות'
-  }
-}
+export type TelegramSendResult = { ok: boolean; error?: string }
 
 export type ListeApi = {
   getData: () => Promise<AppData>
@@ -309,29 +264,12 @@ export type ListeApi = {
     filters?: { name: string; extensions: string[] }[]
   }) => Promise<{ ok: boolean; canceled?: boolean; path?: string }>
   copyImage: (dataUrl: string) => Promise<boolean>
-  openWhatsApp: () => Promise<boolean>
-  shareImageToWhatsApp: (dataUrl: string) => Promise<
-    | boolean
-    | {
-        ok: boolean
-        error?:
-          | 'whatsapp_not_connected'
-          | 'no_chat'
-          | 'pending_chat'
-          | 'failed'
-      }
-  >
-  getWhatsAppStatus?: () => Promise<WhatsAppStatus>
-  openWhatsAppWebSession?: () => Promise<WhatsAppStatus>
-  sendWhatsAppText: (
-    phone: string | string[],
-    text: string,
-    imageDataUrl?: string,
-  ) => Promise<boolean | WhatsAppSendResult>
-  sendTelegramText?: (
-    text: string,
-  ) => Promise<{ ok: boolean; error?: string }>
-  testTelegram?: () => Promise<{ ok: boolean; error?: string; chatId?: string }>
+  sendTelegramText: (text: string) => Promise<TelegramSendResult>
+  sendTelegramPhoto: (
+    imageDataUrl: string,
+    caption?: string,
+  ) => Promise<TelegramSendResult>
+  testTelegram: () => Promise<TelegramSendResult & { chatId?: string }>
   getAppVersion: () => Promise<string>
   checkForUpdates: () => Promise<{
     status: 'available' | 'up-to-date' | 'error'
@@ -562,10 +500,8 @@ export function shouldNotifyAbsenceWatch(
   person?: PersonEntry,
 ): boolean {
   if (!data.settings.absenceWatchEnabled) return false
-  const phone = data.settings.absenceWatchPhone?.trim() ?? ''
+  if (!hasTelegramWatch(data)) return false
   const workerId = data.settings.absenceWatchWorkerId?.trim() ?? ''
-  const hasPhone = Boolean(phone && normalizeWhatsAppPhone(phone))
-  if (!hasTelegramWatch(data) && !hasPhone) return false
   if (workerId && person?.workerId && person.workerId === workerId) return false
   return true
 }
@@ -598,7 +534,8 @@ export function isCardlessBlocked(data: AppData, person: CardlessPerson): boolea
   return person.assignment === 'unique' && isCardlessPresent(data, person.id)
 }
 
-export function buildWhatsAppMessage(
+/** רשימת נוכחים לטקסט Telegram (בלי כותרת חירום). */
+export function buildPresenceListMessage(
   data: AppData,
   people?: PersonEntry[],
 ): string {
@@ -628,6 +565,9 @@ export function buildWhatsAppMessage(
 
   return lines.join('\n')
 }
+
+/** @deprecated alias */
+export const buildWhatsAppMessage = buildPresenceListMessage
 
 /** Message urgence : noms seulement + total. */
 export function buildEmergencyMessage(
