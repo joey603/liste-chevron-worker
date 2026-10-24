@@ -487,6 +487,118 @@ function trySendDailyShiftReports() {
   })
 }
 
+function localCalendarDateKey(d: Date): string {
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
+function telegramDailyListSentPath(): string {
+  return path.join(app.getPath('userData'), 'telegram-daily-list-sent.json')
+}
+
+function getTelegramDailyListLastSentDate(): string | null {
+  try {
+    const raw = JSON.parse(
+      fs.readFileSync(telegramDailyListSentPath(), 'utf-8'),
+    ) as { lastDate?: string }
+    return typeof raw.lastDate === 'string' ? raw.lastDate : null
+  } catch {
+    return null
+  }
+}
+
+function recordTelegramDailyListSent(dateKey: string) {
+  fs.writeFileSync(
+    telegramDailyListSentPath(),
+    JSON.stringify(
+      { lastDate: dateKey, sentAt: new Date().toISOString() },
+      null,
+      2,
+    ),
+    'utf-8',
+  )
+}
+
+function formatPersonTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString('he-IL', {
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  } catch {
+    return iso
+  }
+}
+
+function personDisplayName(p: PersonEntry): string {
+  if (p.kind === 'visitor' && p.visitorNumber != null) {
+    const name = `${p.firstName} ${p.lastName}`.trim()
+    return name ? `${name} · ויזיטור ${p.visitorNumber}` : `ויזיטור ${p.visitorNumber}`
+  }
+  return `${p.firstName} ${p.lastName}`.trim()
+}
+
+function buildDailyPresenceListText(data: AppData): string {
+  const present = data.people.filter((p) => !p.exitedAt)
+  const now = new Date().toLocaleString('he-IL', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+  const lines: string[] = [
+    `📋 ${data.settings.siteName}`,
+    `רשימה אוטומטית מ־${now}`,
+    '',
+    `✅ באתר (${present.length})`,
+  ]
+  if (present.length === 0) {
+    lines.push('— אין אנשים —')
+  } else {
+    present.forEach((p, i) => {
+      lines.push(
+        `${i + 1}. ${personDisplayName(p)} — כניסה ${formatPersonTime(p.enteredAt)}`,
+      )
+    })
+  }
+  return lines.join('\n')
+}
+
+let telegramDailyListSendInFlight = false
+
+function trySendDailyTelegramList() {
+  if (telegramDailyListSendInFlight) return
+  const data = readData()
+  if (!data.settings.telegramDailyListEnabled) return
+  const token = (data.settings.telegramBotToken ?? '').trim()
+  const chatId = (data.settings.telegramChatId ?? '').trim()
+  if (!token || !chatId) return
+
+  const now = new Date()
+  const targetTime = data.settings.telegramDailyListTime?.trim() || '07:00'
+  if (!hasReachedScheduledTime(now, targetTime)) return
+
+  const dateKey = localCalendarDateKey(now)
+  if (getTelegramDailyListLastSentDate() === dateKey) return
+
+  telegramDailyListSendInFlight = true
+  const text = buildDailyPresenceListText(data)
+  void sendTelegramText(token, chatId, text)
+    .then((result) => {
+      if (result.ok) {
+        recordTelegramDailyListSent(dateKey)
+      } else {
+        console.warn('[telegram-daily-list]', dateKey, result.error)
+      }
+    })
+    .finally(() => {
+      telegramDailyListSendInFlight = false
+    })
+}
+
 type EntryKind = 'named' | 'visitor'
 
 type Worker = {
@@ -555,6 +667,9 @@ type AppSettings = {
   absenceWatchEnabled?: boolean
   telegramBotToken?: string
   telegramChatId?: string
+  telegramEmergencyChatId?: string
+  telegramDailyListEnabled?: boolean
+  telegramDailyListTime?: string
 }
 
 type BannedPerson = {
@@ -842,6 +957,16 @@ function normalize(raw: Partial<AppData>): AppData {
       typeof raw.settings?.telegramChatId === 'string'
         ? raw.settings.telegramChatId.trim()
         : '',
+    telegramEmergencyChatId:
+      typeof raw.settings?.telegramEmergencyChatId === 'string'
+        ? raw.settings.telegramEmergencyChatId.trim()
+        : '',
+    telegramDailyListEnabled: raw.settings?.telegramDailyListEnabled === true,
+    telegramDailyListTime:
+      typeof raw.settings?.telegramDailyListTime === 'string' &&
+      raw.settings.telegramDailyListTime.trim()
+        ? raw.settings.telegramDailyListTime.trim()
+        : '07:00',
   }
 
   return {
@@ -1309,18 +1434,28 @@ app.whenReady().then(() => {
     path: shiftReportLocalPath(),
   }))
 
-  ipcMain.handle('telegram:sendText', async (_event, text: string) => {
-    const { token, chatId } = readTelegramSettings()
-    return sendTelegramText(token, chatId, String(text || ''))
-  })
+  ipcMain.handle(
+    'telegram:sendText',
+    async (_event, text: string, chatIdOverride?: string) => {
+      const { token, chatId } = readTelegramSettings()
+      const target = String(chatIdOverride || '').trim() || chatId
+      return sendTelegramText(token, target, String(text || ''))
+    },
+  )
 
   ipcMain.handle(
     'telegram:sendPhoto',
-    async (_event, imageDataUrl: string, caption?: string) => {
+    async (
+      _event,
+      imageDataUrl: string,
+      caption?: string,
+      chatIdOverride?: string,
+    ) => {
       const { token, chatId } = readTelegramSettings()
+      const target = String(chatIdOverride || '').trim() || chatId
       return sendTelegramPhoto(
         token,
-        chatId,
+        target,
         String(imageDataUrl || ''),
         caption ? String(caption) : undefined,
       )
@@ -1773,9 +1908,11 @@ app.whenReady().then(() => {
   setTimeout(() => {
     trySendDailyShiftReports()
     trySendMonthlyCameraReports()
+    trySendDailyTelegramList()
   }, 8_000)
   setInterval(trySendDailyShiftReports, 60_000)
   setInterval(trySendMonthlyCameraReports, 60_000)
+  setInterval(trySendDailyTelegramList, 60_000)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

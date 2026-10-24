@@ -15,6 +15,9 @@ export type AppData = {
     absenceWatchEnabled?: boolean
     telegramBotToken?: string
     telegramChatId?: string
+    telegramEmergencyChatId?: string
+    telegramDailyListEnabled?: boolean
+    telegramDailyListTime?: string
     visitorSlots: Record<
       string,
       { access: 'closed' | 'open_temp' | 'open_constant'; openUntil: string | null }
@@ -186,13 +189,15 @@ const api = {
     ipcRenderer.invoke('clipboard:writeImage', dataUrl),
   sendTelegramText: (
     text: string,
+    chatId?: string,
   ): Promise<{ ok: boolean; error?: string }> =>
-    ipcRenderer.invoke('telegram:sendText', text),
+    ipcRenderer.invoke('telegram:sendText', text, chatId),
   sendTelegramPhoto: (
     imageDataUrl: string,
     caption?: string,
+    chatId?: string,
   ): Promise<{ ok: boolean; error?: string }> =>
-    ipcRenderer.invoke('telegram:sendPhoto', imageDataUrl, caption),
+    ipcRenderer.invoke('telegram:sendPhoto', imageDataUrl, caption, chatId),
   testTelegram: (): Promise<{
     ok: boolean
     error?: string

@@ -104,8 +104,14 @@ export type AppSettings = {
   absenceWatchEnabled?: boolean
   /** Token BotFather (API officielle Telegram) */
   telegramBotToken?: string
-  /** chat_id Telegram (privé ou groupe) */
+  /** chat_id Telegram du groupe (alertes / partage) */
   telegramChatId?: string
+  /** chat_id Telegram privé pour le bouton חירום */
+  telegramEmergencyChatId?: string
+  /** שליחה יומית אוטומטית של רשימת הנוכחים לקבוצה */
+  telegramDailyListEnabled?: boolean
+  /** שעת שליחה יומית לקבוצה (HH:MM) */
+  telegramDailyListTime?: string
   /** @deprecated ancien WhatsApp — conservé pour compat lecture */
   absenceWatchPhone?: string
 }
@@ -264,10 +270,14 @@ export type ListeApi = {
     filters?: { name: string; extensions: string[] }[]
   }) => Promise<{ ok: boolean; canceled?: boolean; path?: string }>
   copyImage: (dataUrl: string) => Promise<boolean>
-  sendTelegramText: (text: string) => Promise<TelegramSendResult>
+  sendTelegramText: (
+    text: string,
+    chatId?: string,
+  ) => Promise<TelegramSendResult>
   sendTelegramPhoto: (
     imageDataUrl: string,
     caption?: string,
+    chatId?: string,
   ) => Promise<TelegramSendResult>
   testTelegram: () => Promise<TelegramSendResult & { chatId?: string }>
   getAppVersion: () => Promise<string>
@@ -492,6 +502,13 @@ export function isWorkerPresent(data: AppData, workerId: string): boolean {
 export function hasTelegramWatch(data: AppData): boolean {
   const token = data.settings.telegramBotToken?.trim() ?? ''
   const chatId = data.settings.telegramChatId?.trim() ?? ''
+  return token.length > 20 && chatId.length > 0
+}
+
+/** Bouton חירום : token + chat_id privé d’urgence */
+export function hasTelegramEmergency(data: AppData): boolean {
+  const token = data.settings.telegramBotToken?.trim() ?? ''
+  const chatId = data.settings.telegramEmergencyChatId?.trim() ?? ''
   return token.length > 20 && chatId.length > 0
 }
 
@@ -867,6 +884,16 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
       typeof rawSettings?.telegramChatId === 'string'
         ? rawSettings.telegramChatId.trim()
         : '',
+    telegramEmergencyChatId:
+      typeof rawSettings?.telegramEmergencyChatId === 'string'
+        ? rawSettings.telegramEmergencyChatId.trim()
+        : '',
+    telegramDailyListEnabled: rawSettings?.telegramDailyListEnabled === true,
+    telegramDailyListTime:
+      typeof rawSettings?.telegramDailyListTime === 'string' &&
+      rawSettings.telegramDailyListTime.trim()
+        ? rawSettings.telegramDailyListTime.trim()
+        : '07:00',
   }
   settings.directorPhone = settings.emergencyPhones[0]?.phone ?? ''
   const workers = (Array.isArray(raw?.workers) ? raw.workers : []).map((w) => ({

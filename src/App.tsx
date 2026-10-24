@@ -69,6 +69,7 @@ import {
   isWorkerPresent,
   normalizeData,
   hasTelegramWatch,
+  hasTelegramEmergency,
   purgeExpiredWorkers,
   shouldNotifyAbsenceWatch,
   visitorAffiliatedName,
@@ -2002,7 +2003,7 @@ export default function App() {
 
   async function sendEmergencyList() {
     if (!data) return
-    if (!hasTelegramWatch(data)) {
+    if (!hasTelegramEmergency(data)) {
       setToast({ message: telegramErrorMessage('telegram_not_configured') })
       return
     }
@@ -2015,7 +2016,11 @@ export default function App() {
     try {
       const present = data.people.filter(isPresent)
       const text = buildEmergencyMessage(data, present)
-      const result = await window.listeApi.sendTelegramText(text)
+      const emergencyChatId = data.settings.telegramEmergencyChatId!.trim()
+      const result = await window.listeApi.sendTelegramText(
+        text,
+        emergencyChatId,
+      )
       if (!result.ok) {
         setToast({ message: telegramErrorMessage(result.error) })
         return
@@ -3098,12 +3103,12 @@ export default function App() {
                 />
               </label>
               <label className="shift-field">
-                <span>Telegram — chat_id</span>
+                <span>Telegram — chat_id קבוצה</span>
                 <input
                   type="text"
                   inputMode="numeric"
                   value={data.settings.telegramChatId ?? ''}
-                  placeholder="8622612663"
+                  placeholder="-5323849196"
                   onChange={(e) =>
                     void persist({
                       ...data,
@@ -3115,7 +3120,101 @@ export default function App() {
                   }
                 />
               </label>
+              <label className="shift-field">
+                <span>Telegram — chat_id חירום</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={data.settings.telegramEmergencyChatId ?? ''}
+                  placeholder="8622612663"
+                  onChange={(e) =>
+                    void persist({
+                      ...data,
+                      settings: {
+                        ...data.settings,
+                        telegramEmergencyChatId: e.target.value.trim(),
+                      },
+                    })
+                  }
+                />
+              </label>
             </div>
+            <h3>שליחת רשימה יומית לקבוצה</h3>
+            <p className="shift-settings-note">
+              כשפעיל — רשימת הנוכחים נשלחת אוטומטית לקבוצת Telegram כל יום בשעה
+              שנבחרה (האפליקציה חייבת להיות פתוחה).
+            </p>
+            <label className="shift-field presence-watch-enable">
+              <span>שליחה יומית</span>
+              <div className="type-toggle presence-watch-toggle" role="group">
+                <button
+                  type="button"
+                  className={`type-toggle-btn ${
+                    data.settings.telegramDailyListEnabled ? '' : 'active'
+                  }`}
+                  onClick={() =>
+                    void persist({
+                      ...data,
+                      settings: {
+                        ...data.settings,
+                        telegramDailyListEnabled: false,
+                      },
+                    })
+                  }
+                >
+                  כבוי
+                </button>
+                <button
+                  type="button"
+                  className={`type-toggle-btn ${
+                    data.settings.telegramDailyListEnabled ? 'active' : ''
+                  }`}
+                  onClick={() =>
+                    void persist({
+                      ...data,
+                      settings: {
+                        ...data.settings,
+                        telegramDailyListEnabled: true,
+                      },
+                    })
+                  }
+                >
+                  פעיל
+                </button>
+              </div>
+            </label>
+            <div className="shift-settings-grid presence-watch-grid">
+              <label className="shift-field">
+                <span>שעת שליחה יומית</span>
+                <input
+                  type="time"
+                  value={data.settings.telegramDailyListTime ?? '07:00'}
+                  onChange={(e) =>
+                    void persist({
+                      ...data,
+                      settings: {
+                        ...data.settings,
+                        telegramDailyListTime: e.target.value || '07:00',
+                      },
+                    })
+                  }
+                />
+              </label>
+            </div>
+            {!data.settings.telegramDailyListEnabled ? (
+              <p className="shift-settings-test-hint">
+                השליחה היומית כבויה.
+              </p>
+            ) : !hasTelegramWatch(data) ? (
+              <p className="shift-settings-test-hint">
+                מלאו Token ו-chat_id קבוצה כדי לאפשר שליחה יומית.
+              </p>
+            ) : (
+              <p className="shift-settings-test-hint">
+                הרשימה תישלח לקבוצה כל יום ב־
+                {data.settings.telegramDailyListTime ?? '07:00'}.
+              </p>
+            )}
             <div className="shift-settings-test-row">
               <button
                 type="button"
@@ -3223,7 +3322,7 @@ export default function App() {
               className="btn btn-emergency"
               disabled={busy}
               onClick={() => void sendEmergencyList()}
-              title="שליחת רשימת נוכחים לקבוצת Telegram"
+              title="שליחת רשימת נוכחים ל־chat_id חירום (שיחה פרטית)"
             >
               <IconAlert />
               <span>חירום</span>
