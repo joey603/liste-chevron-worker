@@ -3299,8 +3299,8 @@ export default function App() {
 
             <h3>התראות כניסה / יציאה</h3>
             <p className="shift-settings-note">
-              בחרו מספר WhatsApp. בלי עובד — כל כניסה ויציאה נשלחת. עם עובד —
-              נשלח רק כל עוד העובד אינו באתר (ואף פעם לא על העובד עצמו).
+              בחרו מספר WhatsApp. כל כניסה ויציאה תישלח, חוץ מהעובד שנבחר
+              ב«עובד למעקב».
             </p>
             <div className="shift-settings-grid presence-watch-grid">
               <label className="shift-field">
@@ -3379,7 +3379,11 @@ export default function App() {
               <p className="shift-settings-test-hint">
                 ללא עובד — כל הכניסות והיציאות יישלחו למספר שנבחר.
               </p>
-            ) : null}
+            ) : (
+              <p className="shift-settings-test-hint">
+                כניסה ויציאה של העובד למעקב לא יישלחו ב־WhatsApp.
+              </p>
+            )}
           </section>
         ) : null}
 
