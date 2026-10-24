@@ -1271,12 +1271,6 @@ function createWindow() {
     },
   })
 
-  win.on('closed', () => {
-    if (process.platform !== 'darwin') {
-      app.quit()
-    }
-  })
-
   if (process.env.VITE_DEV_SERVER_URL) {
     win.loadURL(process.env.VITE_DEV_SERVER_URL)
   } else {
@@ -1720,7 +1714,33 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('update:install', () => {
-    setImmediate(() => autoUpdater.quitAndInstall(false, true))
+    // Fermer toutes les fenêtres + retirer les handlers qui bloquent le quit,
+    // puis install silencieuse avec relance forcée (sinon NSIS peut laisser
+    // l'app cassée si un process enfant verrouille encore des fichiers).
+    setImmediate(() => {
+      try {
+        app.removeAllListeners('window-all-closed')
+      } catch {
+        /* ignore */
+      }
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) {
+          try {
+            win.removeAllListeners('close')
+            win.destroy()
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+      setTimeout(() => {
+        try {
+          autoUpdater.quitAndInstall(true, true)
+        } catch {
+          autoUpdater.quitAndInstall()
+        }
+      }, 250)
+    })
     return true
   })
 
