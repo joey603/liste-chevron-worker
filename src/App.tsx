@@ -71,6 +71,7 @@ import {
   isWorkerPresent,
   normalizeData,
   normalizeWhatsAppPhone,
+  hasTelegramWatch,
   purgeExpiredWorkers,
   shouldNotifyAbsenceWatch,
   visitorAffiliatedName,
@@ -542,6 +543,7 @@ export default function App() {
   const [editingBanned, setEditingBanned] = useState<BannedPerson | null>(null)
   const [toast, setToast] = useState<Toast>(null)
   const [busy, setBusy] = useState(false)
+  const [testingTelegram, setTestingTelegram] = useState(false)
   const [showListPreview, setShowListPreview] = useState(false)
   const [showShareTarget, setShowShareTarget] = useState(false)
   const [sharePhoneDraft, setSharePhoneDraft] = useState('')
@@ -1204,8 +1206,14 @@ export default function App() {
     kind: 'enter' | 'exit',
   ) {
     if (!shouldNotifyAbsenceWatch(snapshot, person)) return
-    const phone = snapshot.settings.absenceWatchPhone?.trim() ?? ''
     const text = buildAbsenceWatchMessage(person, kind)
+    if (hasTelegramWatch(snapshot) && window.listeApi?.sendTelegramText) {
+      void window.listeApi.sendTelegramText(text).catch(() => {
+        /* ignore */
+      })
+      return
+    }
+    const phone = snapshot.settings.absenceWatchPhone?.trim() ?? ''
     if (!window.listeApi?.sendWhatsAppText) return
     void window.listeApi.sendWhatsAppText(phone, text).catch(() => {
       /* ignore */
@@ -3299,8 +3307,9 @@ export default function App() {
 
             <h3>התראות כניסה / יציאה</h3>
             <p className="shift-settings-note">
-              כבוי כברירת מחדל. כשפעיל — כל כניסה ויציאה תישלח ב־WhatsApp,
-              חוץ מהעובד שנבחר ב«עובד למעקב».
+              כבוי כברירת מחדל. כשפעיל — כניסה ויציאה נשלחות ב־Telegram
+              (API רשמית). אם אין Telegram מוגדר, נשלח ב־WhatsApp. העובד
+              למעקב לא מקבל הודעה.
             </p>
             <label className="shift-field presence-watch-enable">
               <span>שליחה אוטומטית</span>
@@ -3343,7 +3352,80 @@ export default function App() {
             </label>
             <div className="shift-settings-grid presence-watch-grid">
               <label className="shift-field">
-                <span>מספר WhatsApp</span>
+                <span>Telegram — Token (BotFather)</span>
+                <input
+                  type="password"
+                  autoComplete="off"
+                  value={data.settings.telegramBotToken ?? ''}
+                  placeholder="123456:ABC…"
+                  onChange={(e) =>
+                    void persist({
+                      ...data,
+                      settings: {
+                        ...data.settings,
+                        telegramBotToken: e.target.value,
+                      },
+                    })
+                  }
+                />
+              </label>
+              <label className="shift-field">
+                <span>Telegram — chat_id</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={data.settings.telegramChatId ?? ''}
+                  placeholder="8622612663"
+                  onChange={(e) =>
+                    void persist({
+                      ...data,
+                      settings: {
+                        ...data.settings,
+                        telegramChatId: e.target.value.trim(),
+                      },
+                    })
+                  }
+                />
+              </label>
+            </div>
+            <div className="shift-settings-test-row">
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ width: 'auto' }}
+                disabled={
+                  testingTelegram ||
+                  !(data.settings.telegramBotToken ?? '').trim() ||
+                  !(data.settings.telegramChatId ?? '').trim()
+                }
+                onClick={() => {
+                  void (async () => {
+                    setTestingTelegram(true)
+                    try {
+                      const result = await window.listeApi?.testTelegram?.()
+                      if (result?.ok) {
+                        setToast({ message: 'הודעת בדיקה נשלחה ב־Telegram' })
+                      } else {
+                        setToast({
+                          message:
+                            result?.error === 'telegram_not_configured'
+                              ? 'חסר Token או chat_id'
+                              : `שגיאת Telegram: ${result?.error ?? 'נכשל'}`,
+                        })
+                      }
+                    } finally {
+                      setTestingTelegram(false)
+                      restoreUiInteractivity()
+                    }
+                  })()
+                }}
+              >
+                {testingTelegram ? 'שולח…' : 'בדיקת Telegram'}
+              </button>
+            </div>
+            <div className="shift-settings-grid presence-watch-grid">
+              <label className="shift-field">
+                <span>מספר WhatsApp (גיבוי)</span>
                 <select
                   value={data.settings.absenceWatchPhone ?? ''}
                   onChange={(e) => {
@@ -3408,23 +3490,28 @@ export default function App() {
             </div>
             {!data.settings.absenceWatchEnabled ? (
               <p className="shift-settings-test-hint">
-                השליחה האוטומטית כבויה — אין הודעת WhatsApp בכניסה או ביציאה.
+                השליחה האוטומטית כבויה — אין הודעה בכניסה או ביציאה.
+              </p>
+            ) : hasTelegramWatch(data) ? (
+              <p className="shift-settings-test-hint">
+                Telegram מוגדר — ההתראות יישלחו לשם (לא דרך WhatsApp).
               </p>
             ) : (data.settings.emergencyPhones ?? []).length === 0 ? (
               <p className="shift-settings-test-hint">
-                אין מספרים — הוסיפו מספר ב«מספרים» למטה.
+                אין Telegram ואין מספרים — הוסיפו Token + chat_id, או מספר
+                WhatsApp למטה.
               </p>
             ) : !(data.settings.absenceWatchPhone ?? '').trim() ? (
               <p className="shift-settings-test-hint">
-                בחרו מספר כדי להפעיל את ההתראות.
+                בחרו מספר WhatsApp לגיבוי, או מלאו Token + chat_id של Telegram.
               </p>
             ) : !(data.settings.absenceWatchWorkerId ?? '').trim() ? (
               <p className="shift-settings-test-hint">
-                ללא עובד — כל הכניסות והיציאות יישלחו למספר שנבחר.
+                ללא עובד — כל הכניסות והיציאות יישלחו.
               </p>
             ) : (
               <p className="shift-settings-test-hint">
-                כניסה ויציאה של העובד למעקב לא יישלחו ב־WhatsApp.
+                כניסה ויציאה של העובד למעקב לא יישלחו.
               </p>
             )}
           </section>

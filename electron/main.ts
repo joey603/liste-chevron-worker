@@ -13,6 +13,7 @@ import {
 import path from 'node:path'
 import fs from 'node:fs'
 import os from 'node:os'
+import https from 'node:https'
 import { execFile } from 'node:child_process'
 import { autoUpdater } from 'electron-updater'
 import nodemailer from 'nodemailer'
@@ -557,6 +558,8 @@ type AppSettings = {
   absenceWatchPhone?: string
   absenceWatchWorkerId?: string
   absenceWatchEnabled?: boolean
+  telegramBotToken?: string
+  telegramChatId?: string
 }
 
 type BannedPerson = {
@@ -836,6 +839,14 @@ function normalize(raw: Partial<AppData>): AppData {
         ? raw.settings.absenceWatchWorkerId.trim()
         : '',
     absenceWatchEnabled: raw.settings?.absenceWatchEnabled === true,
+    telegramBotToken:
+      typeof raw.settings?.telegramBotToken === 'string'
+        ? raw.settings.telegramBotToken.trim()
+        : '',
+    telegramChatId:
+      typeof raw.settings?.telegramChatId === 'string'
+        ? raw.settings.telegramChatId.trim()
+        : '',
   }
 
   return {
@@ -2987,6 +2998,68 @@ function resolveAppIcon(): string | undefined {
   return undefined
 }
 
+function telegramApiPost(
+  token: string,
+  method: string,
+  body: Record<string, string>,
+): Promise<{ ok: boolean; error?: string; result?: unknown }> {
+  const payload = JSON.stringify(body)
+  return new Promise((resolve) => {
+    const req = https.request(
+      {
+        hostname: 'api.telegram.org',
+        path: `/bot${token}/${method}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload),
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = []
+        res.on('data', (c) => chunks.push(c as Buffer))
+        res.on('end', () => {
+          const raw = Buffer.concat(chunks).toString('utf8')
+          try {
+            const parsed = JSON.parse(raw) as {
+              ok?: boolean
+              description?: string
+            }
+            if (parsed.ok) resolve({ ok: true, result: parsed })
+            else
+              resolve({
+                ok: false,
+                error: parsed.description || 'telegram_failed',
+              })
+          } catch {
+            resolve({ ok: false, error: 'telegram_failed' })
+          }
+        })
+      },
+    )
+    req.on('error', () => resolve({ ok: false, error: 'offline' }))
+    req.write(payload)
+    req.end()
+  })
+}
+
+async function sendTelegramText(
+  token: string,
+  chatId: string,
+  text: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const bot = token.trim()
+  const chat = chatId.trim()
+  const message = text.trim()
+  if (!bot || !chat) return { ok: false, error: 'telegram_not_configured' }
+  if (!message) return { ok: false, error: 'failed' }
+  const sent = await telegramApiPost(bot, 'sendMessage', {
+    chat_id: chat,
+    text: message,
+  })
+  return sent.ok ? { ok: true } : { ok: false, error: sent.error || 'failed' }
+}
+
 function createWindow() {
   const icon = resolveAppIcon()
   const win = new BrowserWindow({
@@ -3065,6 +3138,28 @@ app.whenReady().then(() => {
       )
     },
   )
+
+  ipcMain.handle('telegram:sendText', async (_event, text: string) => {
+    const data = readData()
+    return sendTelegramText(
+      data.settings.telegramBotToken ?? '',
+      data.settings.telegramChatId ?? '',
+      String(text || ''),
+    )
+  })
+
+  ipcMain.handle('telegram:test', async () => {
+    const data = readData()
+    const token = data.settings.telegramBotToken ?? ''
+    const chatId = data.settings.telegramChatId ?? ''
+    const sent = await sendTelegramText(
+      token,
+      chatId,
+      'בדיקת Telegram — Chevron',
+    )
+    if (sent.ok) return { ok: true as const, chatId: chatId.trim() }
+    return sent
+  })
 
   ipcMain.handle('clipboard:writeImage', (_event, dataUrl: string) => {
     const image = nativeImage.createFromDataURL(dataUrl)

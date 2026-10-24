@@ -13,6 +13,8 @@ export type AppData = {
     absenceWatchPhone?: string
     absenceWatchWorkerId?: string
     absenceWatchEnabled?: boolean
+    telegramBotToken?: string
+    telegramChatId?: string
     visitorSlots: Record<
       string,
       { access: 'closed' | 'open_temp' | 'open_constant'; openUntil: string | null }
@@ -221,6 +223,15 @@ const api = {
       | 'whatsapp_not_connected'
       | 'failed'
   }> => ipcRenderer.invoke('whatsapp:sendText', phone, text, imageDataUrl),
+  sendTelegramText: (
+    text: string,
+  ): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('telegram:sendText', text),
+  testTelegram: (): Promise<{
+    ok: boolean
+    error?: string
+    chatId?: string
+  }> => ipcRenderer.invoke('telegram:test'),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
   checkForUpdates: (): Promise<{
     status: 'available' | 'up-to-date' | 'error'

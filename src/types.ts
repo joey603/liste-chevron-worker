@@ -104,6 +104,10 @@ export type AppSettings = {
   absenceWatchWorkerId?: string
   /** שליחה אוטומטית של כניסה/יציאה ב־WhatsApp */
   absenceWatchEnabled?: boolean
+  /** Token BotFather (API officielle Telegram) */
+  telegramBotToken?: string
+  /** chat_id Telegram (privé ou groupe) */
+  telegramChatId?: string
 }
 
 export const VISITOR_COUNT = 30
@@ -324,6 +328,10 @@ export type ListeApi = {
     text: string,
     imageDataUrl?: string,
   ) => Promise<boolean | WhatsAppSendResult>
+  sendTelegramText?: (
+    text: string,
+  ) => Promise<{ ok: boolean; error?: string }>
+  testTelegram?: () => Promise<{ ok: boolean; error?: string; chatId?: string }>
   getAppVersion: () => Promise<string>
   checkForUpdates: () => Promise<{
     status: 'available' | 'up-to-date' | 'error'
@@ -543,6 +551,12 @@ export function isWorkerPresent(data: AppData, workerId: string): boolean {
  * - מספר בלבד → שולחים על כולם
  * - מספר + עובד למעקב → שולחים על כולם חוץ מהעובד הזה
  */
+export function hasTelegramWatch(data: AppData): boolean {
+  const token = data.settings.telegramBotToken?.trim() ?? ''
+  const chatId = data.settings.telegramChatId?.trim() ?? ''
+  return token.length > 20 && chatId.length > 0
+}
+
 export function shouldNotifyAbsenceWatch(
   data: AppData,
   person?: PersonEntry,
@@ -550,7 +564,8 @@ export function shouldNotifyAbsenceWatch(
   if (!data.settings.absenceWatchEnabled) return false
   const phone = data.settings.absenceWatchPhone?.trim() ?? ''
   const workerId = data.settings.absenceWatchWorkerId?.trim() ?? ''
-  if (!phone || !normalizeWhatsAppPhone(phone)) return false
+  const hasPhone = Boolean(phone && normalizeWhatsAppPhone(phone))
+  if (!hasTelegramWatch(data) && !hasPhone) return false
   if (workerId && person?.workerId && person.workerId === workerId) return false
   return true
 }
@@ -904,6 +919,14 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
         ? rawSettings.absenceWatchWorkerId.trim()
         : '',
     absenceWatchEnabled: rawSettings?.absenceWatchEnabled === true,
+    telegramBotToken:
+      typeof rawSettings?.telegramBotToken === 'string'
+        ? rawSettings.telegramBotToken.trim()
+        : '',
+    telegramChatId:
+      typeof rawSettings?.telegramChatId === 'string'
+        ? rawSettings.telegramChatId.trim()
+        : '',
   }
   settings.directorPhone = settings.emergencyPhones[0]?.phone ?? ''
   const workers = (Array.isArray(raw?.workers) ? raw.workers : []).map((w) => ({
