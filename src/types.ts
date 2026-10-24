@@ -102,6 +102,8 @@ export type AppSettings = {
   absenceWatchPhone?: string
   /** מזהה העובד למעקב נוכחות */
   absenceWatchWorkerId?: string
+  /** שליחה אוטומטית של כניסה/יציאה ב־WhatsApp */
+  absenceWatchEnabled?: boolean
 }
 
 export const VISITOR_COUNT = 30
@@ -545,6 +547,7 @@ export function shouldNotifyAbsenceWatch(
   data: AppData,
   person?: PersonEntry,
 ): boolean {
+  if (!data.settings.absenceWatchEnabled) return false
   const phone = data.settings.absenceWatchPhone?.trim() ?? ''
   const workerId = data.settings.absenceWatchWorkerId?.trim() ?? ''
   if (!phone || !normalizeWhatsAppPhone(phone)) return false
@@ -900,6 +903,7 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
       typeof rawSettings?.absenceWatchWorkerId === 'string'
         ? rawSettings.absenceWatchWorkerId.trim()
         : '',
+    absenceWatchEnabled: rawSettings?.absenceWatchEnabled === true,
   }
   settings.directorPhone = settings.emergencyPhones[0]?.phone ?? ''
   const workers = (Array.isArray(raw?.workers) ? raw.workers : []).map((w) => ({

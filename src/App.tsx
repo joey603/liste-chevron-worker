@@ -3299,9 +3299,48 @@ export default function App() {
 
             <h3>התראות כניסה / יציאה</h3>
             <p className="shift-settings-note">
-              בחרו מספר WhatsApp. כל כניסה ויציאה תישלח, חוץ מהעובד שנבחר
-              ב«עובד למעקב».
+              כבוי כברירת מחדל. כשפעיל — כל כניסה ויציאה תישלח ב־WhatsApp,
+              חוץ מהעובד שנבחר ב«עובד למעקב».
             </p>
+            <label className="shift-field presence-watch-enable">
+              <span>שליחה אוטומטית</span>
+              <div className="type-toggle presence-watch-toggle" role="group">
+                <button
+                  type="button"
+                  className={`type-toggle-btn ${
+                    data.settings.absenceWatchEnabled ? '' : 'active'
+                  }`}
+                  onClick={() =>
+                    void persist({
+                      ...data,
+                      settings: {
+                        ...data.settings,
+                        absenceWatchEnabled: false,
+                      },
+                    })
+                  }
+                >
+                  כבוי
+                </button>
+                <button
+                  type="button"
+                  className={`type-toggle-btn ${
+                    data.settings.absenceWatchEnabled ? 'active' : ''
+                  }`}
+                  onClick={() =>
+                    void persist({
+                      ...data,
+                      settings: {
+                        ...data.settings,
+                        absenceWatchEnabled: true,
+                      },
+                    })
+                  }
+                >
+                  פעיל
+                </button>
+              </div>
+            </label>
             <div className="shift-settings-grid presence-watch-grid">
               <label className="shift-field">
                 <span>מספר WhatsApp</span>
@@ -3367,7 +3406,11 @@ export default function App() {
                 </select>
               </label>
             </div>
-            {(data.settings.emergencyPhones ?? []).length === 0 ? (
+            {!data.settings.absenceWatchEnabled ? (
+              <p className="shift-settings-test-hint">
+                השליחה האוטומטית כבויה — אין הודעת WhatsApp בכניסה או ביציאה.
+              </p>
+            ) : (data.settings.emergencyPhones ?? []).length === 0 ? (
               <p className="shift-settings-test-hint">
                 אין מספרים — הוסיפו מספר ב«מספרים» למטה.
               </p>

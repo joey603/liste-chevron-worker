@@ -1605,6 +1605,17 @@ button.emergency-status-button:hover {
   align-items: end;
 }
 
+.presence-watch-enable {
+  max-width: 320px;
+  margin-bottom: 8px;
+}
+
+.presence-watch-toggle.type-toggle .type-toggle-btn:last-child.active {
+  background: rgba(22, 163, 74, 0.14);
+  border-color: rgba(22, 163, 74, 0.45);
+  color: #166534;
+}
+
 .presence-watch-grid {
   margin-top: 8px;
   grid-template-columns: 1fr 1fr;

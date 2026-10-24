@@ -556,6 +556,7 @@ type AppSettings = {
   shiftReportSmtpPass?: string
   absenceWatchPhone?: string
   absenceWatchWorkerId?: string
+  absenceWatchEnabled?: boolean
 }
 
 type BannedPerson = {
@@ -834,6 +835,7 @@ function normalize(raw: Partial<AppData>): AppData {
       typeof raw.settings?.absenceWatchWorkerId === 'string'
         ? raw.settings.absenceWatchWorkerId.trim()
         : '',
+    absenceWatchEnabled: raw.settings?.absenceWatchEnabled === true,
   }
 
   return {
