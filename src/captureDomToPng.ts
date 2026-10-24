@@ -2,9 +2,6 @@ import { domToPng } from 'modern-screenshot'
 
 const CAPTURE_TIMEOUT_MS = 12_000
 
-const FIELD_SELECTOR =
-  'input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [contenteditable="true"]'
-
 /** Supprime tout calque de capture orphelin qui pourrait bloquer les clics. */
 export function purgeCaptureHosts(): void {
   document
@@ -39,6 +36,16 @@ function unlockLiveUi(): void {
   if (liveRoot) clearInlinePointerEvents(liveRoot)
 }
 
+function liveUiLooksBlocked(): boolean {
+  return Boolean(
+    document.querySelector('[data-capture-host]') ||
+      document.body?.hasAttribute('inert') ||
+      document.documentElement.hasAttribute('inert') ||
+      document.body.style.pointerEvents === 'none' ||
+      document.documentElement.style.pointerEvents === 'none',
+  )
+}
+
 function purgeUiBlockers(): void {
   purgeCaptureHosts()
 
@@ -55,47 +62,29 @@ function purgeUiBlockers(): void {
  */
 export function restoreUiInteractivity(): void {
   purgeUiBlockers()
-
-  try {
-    window.focus()
-  } catch {
-    /* ignore */
-  }
 }
 
 let watchdogInstalled = false
 
 /**
- * Si un calque orphelin recouvre un champ, le clic n’y arrive pas (le collage
- * clavier continue de marcher). On nettoie au pointerdown et on focus le champ.
+ * Nettoie un calque de capture orphelin sans voler le focus (sinon pas de sélection).
  */
 export function installUiInteractivityWatchdog(): () => void {
   if (watchdogInstalled) return () => {}
   watchdogInstalled = true
 
   const onPointerDown = (event: PointerEvent) => {
-    unlockLiveUi()
-
     const target = event.target
     if (target instanceof HTMLElement) {
       const captureHost = target.closest('[data-capture-host]')
       if (captureHost) {
         captureHost.remove()
-        const field = document
-          .elementsFromPoint(event.clientX, event.clientY)
-          .find(
-            (node): node is HTMLElement =>
-              node instanceof HTMLElement && node.matches(FIELD_SELECTOR),
-          )
-        field?.focus()
         return
       }
-
-      const clickedField = target.closest(FIELD_SELECTOR)
-      if (clickedField instanceof HTMLElement) {
-        if (document.activeElement !== clickedField) clickedField.focus()
-      }
     }
+
+    /* Ne pas appeler focus() ici : ça annule le drag de sélection de texte. */
+    if (liveUiLooksBlocked()) unlockLiveUi()
   }
 
   document.addEventListener('pointerdown', onPointerDown, true)
@@ -139,8 +128,8 @@ export async function captureElementToPng(
     'opacity:1',
     'filter:none',
     'pointer-events:none',
-    'transform:none',
-    'overflow:visible',
+    'transform:translateX(-20000px)',
+    'overflow:hidden',
   ].join(';')
 
   const clone = source.cloneNode(true) as HTMLElement
@@ -156,6 +145,9 @@ export async function captureElementToPng(
   clone.style.boxShadow = 'none'
   clone.style.border = 'none'
   clone.style.transform = 'none'
+  clone.style.contain = 'none'
+  clone.style.left = '0'
+  clone.style.top = '0'
 
   clone.querySelectorAll<HTMLElement>('*').forEach((node) => {
     node.style.animation = 'none'

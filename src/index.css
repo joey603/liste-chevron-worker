@@ -97,12 +97,12 @@ select {
   font: inherit;
 }
 
-/* Filet : un parent pointer-events:none (capture PNG) ne doit pas bloquer la saisie. */
-input:not(:disabled),
-textarea:not(:disabled),
-select:not(:disabled),
+/*
+ * Ne pas forcer user-select/pointer-events sur les <input> natifs :
+ * Chromium ignore alors le drag pour sélectionner le texte.
+ */
 [contenteditable='true'] {
-  pointer-events: auto !important;
+  -webkit-user-select: text;
   user-select: text;
 }
 
@@ -111,6 +111,14 @@ input[type='time'],
 input[type='date'] {
   direction: ltr;
   unicode-bidi: isolate;
+}
+
+/* Clones de capture : jamais dans le hit-test, même si un enfant a pointer-events:auto. */
+[data-capture-host],
+[data-capture-host] *,
+.list-capture-share,
+.list-capture-share * {
+  pointer-events: none !important;
 }
 
 button {
@@ -1084,11 +1092,13 @@ button.emergency-status-button:hover {
 .list-capture-share {
   position: fixed;
   top: 0;
-  left: -12000px;
+  left: 0;
   width: 900px;
-  pointer-events: none;
-  z-index: 0;
-  overflow: visible;
+  transform: translateX(-250vw);
+  pointer-events: none !important;
+  z-index: -1;
+  overflow: hidden;
+  contain: layout style paint;
   background: #ffffff;
 }
 
