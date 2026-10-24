@@ -1277,6 +1277,11 @@ type WaTrackedSocket = { url: string; open: boolean }
 const waSocketsById = new Map<string, WaTrackedSocket>()
 let waSocketEverOpen = false
 let lastWaSocketReloadAt = 0
+/** Dernière trame WS WhatsApp vue (CDP). 0 = jamais. */
+let lastWaSocketFrameAt = 0
+/** Au-delà, un socket encore « open » sans trafic est considéré mort. */
+const WA_SOCKET_STALE_MS = 5_000
+const WA_SOCKET_RELOAD_COOLDOWN_MS = 5_000
 
 function isWhatsAppSocketUrl(url: string): boolean {
   return /whatsapp\.(com|net)/i.test(url)
@@ -1293,6 +1298,18 @@ function liveWhatsAppSocketCount(): number {
 function resetWhatsAppSocketTracking() {
   waSocketsById.clear()
   waSocketEverOpen = false
+  lastWaSocketFrameAt = 0
+}
+
+function markWhatsAppSocketActivity(url: string) {
+  if (!isWhatsAppSocketUrl(url)) return
+  lastWaSocketFrameAt = Date.now()
+  waSocketEverOpen = true
+}
+
+function isWhatsAppSocketStale(): boolean {
+  if (lastWaSocketFrameAt <= 0) return false
+  return Date.now() - lastWaSocketFrameAt > WA_SOCKET_STALE_MS
 }
 
 const WA_WS_HOOK_JS = `(() => {
@@ -1350,6 +1367,7 @@ async function pageHookLiveSocketCount(
 }
 
 async function hasLiveWhatsAppSocket(win: BrowserWindow): Promise<boolean> {
+  if (isWhatsAppSocketStale()) return false
   if (liveWhatsAppSocketCount() > 0) return true
   const hooked = await pageHookLiveSocketCount(win)
   return (hooked ?? 0) > 0
@@ -1379,6 +1397,16 @@ function attachWhatsAppSocketMonitor(win: BrowserWindow) {
       prev.open = true
       waSocketsById.set(id, prev)
       if (isWhatsAppSocketUrl(prev.url)) waSocketEverOpen = true
+    }
+    if (
+      method === 'Network.webSocketFrameReceived' ||
+      method === 'Network.webSocketFrameSent'
+    ) {
+      const prev = waSocketsById.get(id)
+      if (prev) {
+        prev.open = true
+        markWhatsAppSocketActivity(prev.url)
+      }
     }
     if (
       method === 'Network.webSocketClosed' ||
@@ -1423,24 +1451,30 @@ async function reviveWhatsAppIfSocketDead(
   if (win.isDestroyed()) return false
   await injectWhatsAppWebSocketHook(win)
   if (await hasLiveWhatsAppSocket(win)) return true
-  await wait(350)
-  if (await hasLiveWhatsAppSocket(win)) return true
 
-  const state = await inspectWhatsAppWebDom(win)
+  const clearlyDead =
+    waSocketEverOpen &&
+    (liveWhatsAppSocketCount() === 0 || isWhatsAppSocketStale())
+  if (!clearlyDead) {
+    await wait(80)
+    if (await hasLiveWhatsAppSocket(win)) return true
+  }
+
+  const state = await inspectWhatsAppWebDomQuick(win)
   if (state === 'login') return false
   if (!waSocketEverOpen) {
     if (state !== 'connected') return false
     const waitForHs = Date.now()
-    while (Date.now() - waitForHs < 2000) {
+    while (Date.now() - waitForHs < 800) {
       if (await hasLiveWhatsAppSocket(win)) return true
-      await wait(150)
+      await wait(80)
     }
     // DOM connecté, aucun WS vu : ne pas recharger en boucle (CDP/hook raté)
     return true
   }
 
   const now = Date.now()
-  if (now - lastWaSocketReloadAt < 12_000) {
+  if (now - lastWaSocketReloadAt < WA_SOCKET_RELOAD_COOLDOWN_MS) {
     return hasLiveWhatsAppSocket(win)
   }
   lastWaSocketReloadAt = now
@@ -1449,13 +1483,13 @@ async function reviveWhatsAppIfSocketDead(
   await win.loadURL('https://web.whatsapp.com/', {
     userAgent: WHATSAPP_WEB_USER_AGENT,
   })
-  await waitForWebContentsIdle(win, 15000)
+  await waitForWebContentsIdle(win, 12000)
   const started = Date.now()
-  while (Date.now() - started < 10000) {
-    const next = await inspectWhatsAppWebDom(win)
-    if (next === 'login') return false
+  while (Date.now() - started < 6000) {
     if (await hasLiveWhatsAppSocket(win)) return true
-    await wait(200)
+    const next = await inspectWhatsAppWebDomQuick(win)
+    if (next === 'login') return false
+    await wait(80)
   }
   return hasLiveWhatsAppSocket(win)
 }
@@ -1856,12 +1890,11 @@ async function waitForWhatsAppComposeReady(
   )
 }
 
-async function inspectWhatsAppWebDom(
+async function inspectWhatsAppWebDomQuick(
   win: BrowserWindow,
 ): Promise<WhatsAppWebDomState> {
   if (win.isDestroyed()) return 'error'
   try {
-    await waitForWebContentsIdle(win)
     const state = (await win.webContents.executeJavaScript(
       `(() => {
         const qr = document.querySelector(
@@ -1893,6 +1926,14 @@ async function inspectWhatsAppWebDom(
   } catch {
     return 'error'
   }
+}
+
+async function inspectWhatsAppWebDom(
+  win: BrowserWindow,
+): Promise<WhatsAppWebDomState> {
+  if (win.isDestroyed()) return 'error'
+  await waitForWebContentsIdle(win)
+  return inspectWhatsAppWebDomQuick(win)
 }
 
 async function openWhatsAppWebSessionWindow(): Promise<WhatsAppStatus> {
