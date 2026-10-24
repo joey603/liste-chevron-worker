@@ -1254,6 +1254,19 @@ async function sendTelegramPhoto(
   })
 }
 
+function resolveAppIcon(): string | undefined {
+  const candidates = [
+    path.join(__dirname, '../build/icon.ico'),
+    path.join(__dirname, '../build/icon.png'),
+    path.join(process.resourcesPath, 'build/icon.ico'),
+    path.join(process.resourcesPath, 'icon.ico'),
+  ]
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate
+  }
+  return undefined
+}
+
 function createWindow() {
   const icon = resolveAppIcon()
   const win = new BrowserWindow({
@@ -1746,7 +1759,15 @@ app.whenReady().then(() => {
 
   ipcMain.handle('app:getVersion', () => app.getVersion())
 
-  mainWindow = createWindow()
+  try {
+    mainWindow = createWindow()
+  } catch (error) {
+    dialog.showErrorBox(
+      'Liste Chevron',
+      error instanceof Error ? error.stack || error.message : String(error),
+    )
+    throw error
+  }
   setupAutoUpdater(() => mainWindow)
   // Au démarrage : rattraper un envoi manqué si l'heure prévue est déjà passée
   setTimeout(() => {
@@ -1765,4 +1786,15 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
+})
+
+process.on('uncaughtException', (error) => {
+  try {
+    dialog.showErrorBox(
+      'Liste Chevron',
+      error instanceof Error ? error.stack || error.message : String(error),
+    )
+  } catch {
+    /* ignore */
+  }
 })

@@ -76,7 +76,7 @@ jobs:
       - name: Build Windows installer and publish update files
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx vite build && npx electron-builder --win --publish always
+        run: npx tsc --noEmit && npx vite build && npx electron-builder --win --publish always
 
       - name: Upload installer (Actions Artifacts)
         uses: actions/upload-artifact@v4
