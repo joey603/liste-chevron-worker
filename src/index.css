@@ -4222,6 +4222,25 @@ button.camera-xls-tab:hover:not(.is-disabled):not(.is-active) {
   font-size: 0.82rem;
 }
 
+/* Windows : grille 1–30 un peu plus compacte → plus de place pour les noms en dessous */
+html.is-windows .visitors-block > .roster-scroll.sidebar-visitors-scroll {
+  padding: 4px;
+}
+
+html.is-windows .visitors-block .pick-grid.visitors {
+  gap: 3px;
+}
+
+html.is-windows .visitors-block .pick-btn.visitor {
+  min-height: 22px;
+  height: 22px;
+  border-radius: 7px;
+}
+
+html.is-windows .visitors-block .pick-btn.visitor .pick-label {
+  font-size: 0.74rem;
+}
+
 .pick-wrap {
   position: relative;
   width: 100%;
