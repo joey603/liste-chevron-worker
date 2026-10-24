@@ -672,6 +672,7 @@ type AppSettings = {
   telegramEmergencyChatId?: string
   telegramDailyListEnabled?: boolean
   telegramDailyListTime?: string
+  seenExcelNotes?: Record<string, string>
 }
 
 type BannedPerson = {
@@ -971,6 +972,19 @@ function normalize(raw: Partial<AppData>): AppData {
       raw.settings.telegramDailyListTime.trim()
         ? raw.settings.telegramDailyListTime.trim()
         : '07:00',
+    seenExcelNotes: (() => {
+      const rawNotes = raw.settings?.seenExcelNotes
+      if (!rawNotes || typeof rawNotes !== 'object' || Array.isArray(rawNotes)) {
+        return {}
+      }
+      const out: Record<string, string> = {}
+      for (const [key, value] of Object.entries(rawNotes)) {
+        const k = key.trim()
+        if (!k || typeof value !== 'string') continue
+        out[k] = value
+      }
+      return out
+    })(),
   }
 
   return {

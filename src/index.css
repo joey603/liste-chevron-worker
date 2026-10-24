@@ -4262,9 +4262,35 @@ button.camera-xls-tab:hover:not(.is-disabled):not(.is-active) {
   flex-shrink: 0;
 }
 
+.excel-note-badge.is-new {
+  border-color: #7c3aed;
+  box-shadow: 0 1px 6px rgba(124, 58, 237, 0.35);
+}
+
 .excel-note-badge:hover {
   background: #e9d5ff;
   border-color: #9333ea;
+}
+
+.excel-note-new-dot {
+  position: absolute;
+  top: -6px;
+  inset-inline-start: -7px;
+  min-width: 1.55rem;
+  height: 1rem;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #7c3aed;
+  color: #fff;
+  font-size: 0.55rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(91, 33, 182, 0.4);
+  pointer-events: none;
 }
 
 .modal-excel-note {

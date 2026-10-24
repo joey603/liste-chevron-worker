@@ -1478,6 +1478,36 @@ export default function App() {
     return match?.notes?.trim() ?? ''
   }
 
+  function isExcelNoteNew(firstName: string, lastName: string, notes: string): boolean {
+    const trimmed = notes.trim()
+    if (!trimmed) return false
+    const key = authNameKey(firstName, lastName)
+    const seen = data?.settings.seenExcelNotes?.[key]
+    return seen !== trimmed
+  }
+
+  function markExcelNoteSeen(
+    firstName: string,
+    lastName: string,
+    notes: string,
+  ) {
+    if (!data) return
+    const trimmed = notes.trim()
+    if (!trimmed) return
+    const key = authNameKey(firstName, lastName)
+    if (data.settings.seenExcelNotes?.[key] === trimmed) return
+    void persist({
+      ...data,
+      settings: {
+        ...data.settings,
+        seenExcelNotes: {
+          ...(data.settings.seenExcelNotes ?? {}),
+          [key]: trimmed,
+        },
+      },
+    })
+  }
+
   async function withEntryAuthorization(
     firstName: string,
     lastName: string,
@@ -2750,7 +2780,15 @@ export default function App() {
                         {excelNotes ? (
                           <button
                             type="button"
-                            className="excel-note-badge"
+                            className={`excel-note-badge ${
+                              isExcelNoteNew(
+                                worker.firstName,
+                                worker.lastName,
+                                excelNotes,
+                              )
+                                ? 'is-new'
+                                : ''
+                            }`}
                             title="הצג הערה מה־Excel"
                             aria-label={`הערה עבור ${workerDisplayName(worker)}`}
                             onClick={(e) => {
@@ -2760,9 +2798,21 @@ export default function App() {
                                 name: workerDisplayName(worker),
                                 notes: excelNotes,
                               })
+                              markExcelNoteSeen(
+                                worker.firstName,
+                                worker.lastName,
+                                excelNotes,
+                              )
                             }}
                           >
                             💬
+                            {isExcelNoteNew(
+                              worker.firstName,
+                              worker.lastName,
+                              excelNotes,
+                            ) ? (
+                              <span className="excel-note-new-dot">NEW</span>
+                            ) : null}
                           </button>
                         ) : null}
                       </div>

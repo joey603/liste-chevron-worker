@@ -116,6 +116,11 @@ export type AppSettings = {
   telegramDailyListEnabled?: boolean
   /** שעת שליחה יומית לקבוצה (HH:MM) */
   telegramDailyListTime?: string
+  /**
+   * הערות Excel שכבר נצפו: מפתח שם → תוכן ההערה שנצפה.
+   * אם התוכן הנוכחי שונה — מוצג badge NEW על אייקון ההודעה.
+   */
+  seenExcelNotes?: Record<string, string>
   /** @deprecated ancien WhatsApp — conservé pour compat lecture */
   absenceWatchPhone?: string
 }
@@ -801,6 +806,19 @@ export function isVisitorNumberOpen(
   return false
 }
 
+export function normalizeSeenExcelNotes(
+  raw: unknown,
+): Record<string, string> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const k = key.trim()
+    if (!k || typeof value !== 'string') continue
+    out[k] = value
+  }
+  return out
+}
+
 export function normalizeData(raw: Partial<AppData> | null | undefined): AppData {
   const rawSettings = raw?.settings
   const settings: AppSettings = {
@@ -898,6 +916,7 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
       rawSettings.telegramDailyListTime.trim()
         ? rawSettings.telegramDailyListTime.trim()
         : '07:00',
+    seenExcelNotes: normalizeSeenExcelNotes(rawSettings?.seenExcelNotes),
   }
   settings.directorPhone = settings.emergencyPhones[0]?.phone ?? ''
   const workers = (Array.isArray(raw?.workers) ? raw.workers : []).map((w) => ({

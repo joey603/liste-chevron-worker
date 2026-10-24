@@ -18,6 +18,7 @@ export type AppData = {
     telegramEmergencyChatId?: string
     telegramDailyListEnabled?: boolean
     telegramDailyListTime?: string
+    seenExcelNotes?: Record<string, string>
     visitorSlots: Record<
       string,
       { access: 'closed' | 'open_temp' | 'open_constant'; openUntil: string | null }
