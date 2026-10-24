@@ -532,6 +532,10 @@ export default function App() {
   } | null>(null)
   const authorizedExcelMtimeRef = useRef<number | null>(null)
   const [showPresenceSettings, setShowPresenceSettings] = useState(false)
+  const [excelNotePopup, setExcelNotePopup] = useState<{
+    name: string
+    notes: string
+  } | null>(null)
   const [showBannedModal, setShowBannedModal] = useState(false)
   const [newBanned, setNewBanned] = useState(emptyBanned)
   const [editingBanned, setEditingBanned] = useState<BannedPerson | null>(null)
@@ -587,6 +591,11 @@ export default function App() {
   const [sidebarRoster, setSidebarRoster] = useState<'workers' | 'visitors'>(
     'workers',
   )
+  /** Badge « חדשים » masqué après clic sur l’onglet (le violet reste jusqu’à entrée). */
+  const [hideWorkersNewBadge, setHideWorkersNewBadge] = useState(false)
+  const [hideVisitorsNewBadge, setHideVisitorsNewBadge] = useState(false)
+  const prevNewExcelWorkersRef = useRef(0)
+  const prevNewExcelVisitorsRef = useRef(0)
   const [workerSearch, setWorkerSearch] = useState('')
   const [activeWorkerLetter, setActiveWorkerLetter] = useState<string>('א')
   const [activeCardlessLetter, setActiveCardlessLetter] = useState<string>('א')
@@ -848,6 +857,29 @@ export default function App() {
   }
 
   const presentCount = data?.people.filter(isPresent).length ?? 0
+
+  const newExcelWorkersCount = useMemo(
+    () => (data?.workers ?? []).filter((w) => w.newFromExcel).length,
+    [data?.workers],
+  )
+  const newExcelVisitorsCount = useMemo(
+    () => (data?.cardlessPeople ?? []).filter((c) => c.newFromExcel).length,
+    [data?.cardlessPeople],
+  )
+
+  useEffect(() => {
+    if (newExcelWorkersCount > prevNewExcelWorkersRef.current) {
+      setHideWorkersNewBadge(false)
+    }
+    prevNewExcelWorkersRef.current = newExcelWorkersCount
+  }, [newExcelWorkersCount])
+
+  useEffect(() => {
+    if (newExcelVisitorsCount > prevNewExcelVisitorsRef.current) {
+      setHideVisitorsNewBadge(false)
+    }
+    prevNewExcelVisitorsRef.current = newExcelVisitorsCount
+  }, [newExcelVisitorsCount])
 
   const sortedWorkers = useMemo(() => {
     if (!data) return []
@@ -1383,6 +1415,7 @@ export default function App() {
             temporary: false,
             expiresAt: null,
             assignment: 'unique',
+            newFromExcel: true,
           })
           addedVisitors += 1
         }
@@ -1400,6 +1433,7 @@ export default function App() {
             lastName,
             temporary: false,
             expiresAt: null,
+            newFromExcel: true,
           })
           addedWorkers += 1
         }
@@ -1426,6 +1460,22 @@ export default function App() {
         normalizeAuthName(p.firstName) === f &&
         normalizeAuthName(p.lastName) === l,
     )
+  }
+
+  /** הערות מה־Excel (עמודה הערות) עבור עובד לפי שם. */
+  function getAuthorizedExcelNotes(
+    firstName: string,
+    lastName: string,
+  ): string {
+    const f = normalizeAuthName(firstName)
+    const l = normalizeAuthName(lastName)
+    if (!f && !l) return ''
+    const match = (data?.authorizedPeople ?? []).find(
+      (p) =>
+        normalizeAuthName(p.firstName) === f &&
+        normalizeAuthName(p.lastName) === l,
+    )
+    return match?.notes?.trim() ?? ''
   }
 
   async function withEntryAuthorization(
@@ -1462,8 +1512,13 @@ export default function App() {
         enteredAt: new Date().toISOString(),
         exitedAt: null,
       }
+      const nextWorkers = worker.newFromExcel
+        ? data.workers.map((w) =>
+            w.id === worker.id ? { ...w, newFromExcel: false } : w,
+          )
+        : data.workers
       await persist(
-        { ...data, people: [entry, ...data.people] },
+        { ...data, workers: nextWorkers, people: [entry, ...data.people] },
         `${workerDisplayName(worker)} נוסף/ה`,
       )
       notifyAbsenceWatch(data, entry, 'enter')
@@ -1675,8 +1730,17 @@ export default function App() {
         enteredAt: new Date().toISOString(),
         exitedAt: null,
       }
+      const nextCardless = person.newFromExcel
+        ? data.cardlessPeople.map((c) =>
+            c.id === person.id ? { ...c, newFromExcel: false } : c,
+          )
+        : data.cardlessPeople
       await persist(
-        { ...data, people: [entry, ...data.people] },
+        {
+          ...data,
+          cardlessPeople: nextCardless,
+          people: [entry, ...data.people],
+        },
         `ויזיטור ${visitorNumber} · ${display} נוסף`,
       )
       notifyAbsenceWatch(data, entry, 'enter')
@@ -2540,9 +2604,15 @@ export default function App() {
               clearManageMode()
               clearCardlessSelection()
               setSidebarRoster('workers')
+              setHideWorkersNewBadge(true)
             }}
           >
             עובדים
+            {newExcelWorkersCount > 0 && !hideWorkersNewBadge ? (
+              <span className="sidebar-roster-new-count" aria-label={`${newExcelWorkersCount} חדשים`}>
+                {newExcelWorkersCount > 99 ? '99+' : newExcelWorkersCount}
+              </span>
+            ) : null}
           </button>
           <button
             type="button"
@@ -2555,9 +2625,15 @@ export default function App() {
               clearManageMode()
               clearCardlessSelection()
               setSidebarRoster('visitors')
+              setHideVisitorsNewBadge(true)
             }}
           >
             ויזיטורים
+            {newExcelVisitorsCount > 0 && !hideVisitorsNewBadge ? (
+              <span className="sidebar-roster-new-count" aria-label={`${newExcelVisitorsCount} חדשים`}>
+                {newExcelVisitorsCount > 99 ? '99+' : newExcelVisitorsCount}
+              </span>
+            ) : null}
           </button>
         </div>
 
@@ -2626,15 +2702,19 @@ export default function App() {
                       worker.firstName,
                       worker.lastName,
                     )
+                    const excelNotes = getAuthorizedExcelNotes(
+                      worker.firstName,
+                      worker.lastName,
+                    )
                     return (
                       <div
                         key={worker.id}
-                        className={`pick-wrap ${present && !managing ? 'is-present' : ''}`}
+                        className={`pick-wrap ${present && !managing ? 'is-present' : ''} ${excelNotes ? 'has-excel-note' : ''}`}
                         data-alpha-letter={letter}
                       >
                         <button
                           type="button"
-                          className={`pick-btn worker ${present && !managing ? 'present' : ''} ${worker.temporary ? 'temporary' : ''} ${manageMode === 'edit' ? 'mode-edit' : ''} ${manageMode === 'delete' ? 'mode-delete' : ''}`}
+                          className={`pick-btn worker ${present && !managing ? 'present' : ''} ${worker.temporary ? 'temporary' : ''} ${worker.newFromExcel && !present ? 'is-new-excel' : ''} ${manageMode === 'edit' ? 'mode-edit' : ''} ${manageMode === 'delete' ? 'mode-delete' : ''}`}
                           onClick={() => void onWorkerCardClick(worker)}
                           disabled={!managing && present}
                           title={
@@ -2644,7 +2724,9 @@ export default function App() {
                                 ? 'מחיקת עובד'
                                 : present
                                   ? 'כבר באתר'
-                                  : 'הוסף לרשימה'
+                                  : worker.newFromExcel
+                                    ? 'חדש מ־Excel · הוסף לרשימה'
+                                    : 'הוסף לרשימה'
                           }
                         >
                           <span className="pick-label">{workerDisplayName(worker)}</span>
@@ -2658,11 +2740,31 @@ export default function App() {
                                 ? 'מחיקה'
                                 : present
                                   ? 'באתר'
-                                  : worker.temporary
-                                    ? 'זמני · עד חצות'
-                                    : 'לחצו'}
+                                  : worker.newFromExcel
+                                    ? 'חדש מ־Excel'
+                                    : worker.temporary
+                                      ? 'זמני · עד חצות'
+                                      : 'לחצו'}
                           </span>
                         </button>
+                        {excelNotes ? (
+                          <button
+                            type="button"
+                            className="excel-note-badge"
+                            title="הצג הערה מה־Excel"
+                            aria-label={`הערה עבור ${workerDisplayName(worker)}`}
+                            onClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              setExcelNotePopup({
+                                name: workerDisplayName(worker),
+                                notes: excelNotes,
+                              })
+                            }}
+                          >
+                            💬
+                          </button>
+                        ) : null}
                       </div>
                     )
                   })}
@@ -2850,7 +2952,7 @@ export default function App() {
                             type="button"
                             className={`pick-btn worker ${present && !managing ? 'present' : ''} ${
                               person.temporary ? 'temporary' : ''
-                            } ${manageMode === 'edit' ? 'mode-edit' : ''} ${
+                            } ${person.newFromExcel && !present ? 'is-new-excel' : ''} ${manageMode === 'edit' ? 'mode-edit' : ''} ${
                               manageMode === 'delete' ? 'mode-delete' : ''
                             } ${isSelected ? 'is-selected' : ''}`}
                             onClick={() => void onCardlessNameClick(person)}
@@ -2864,7 +2966,9 @@ export default function App() {
                                     ? 'כבר באתר'
                                     : isSelected
                                       ? 'בטל בחירה'
-                                      : 'בחרו שם ואז ויזיטור מהרשת'
+                                      : person.newFromExcel
+                                        ? 'חדש מ־Excel · בחרו שם ואז ויזיטור'
+                                        : 'בחרו שם ואז ויזיטור מהרשת'
                             }
                           >
                             <span className="pick-label">
@@ -2889,9 +2993,11 @@ export default function App() {
                                     ? 'באתר'
                                     : isSelected
                                       ? 'נבחר'
-                                      : person.temporary
-                                        ? 'זמני · עד חצות'
-                                        : 'לחצו'}
+                                      : person.newFromExcel
+                                        ? 'חדש מ־Excel'
+                                        : person.temporary
+                                          ? 'זמני · עד חצות'
+                                          : 'לחצו'}
                             </span>
                           </button>
                         </div>
@@ -4117,6 +4223,33 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {excelNotePopup && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setExcelNotePopup(null)}
+        >
+          <div
+            className="modal modal-excel-note"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="הערה מה־Excel"
+          >
+            <h3>הערה · {excelNotePopup.name}</h3>
+            <p className="excel-note-body">{excelNotePopup.notes}</p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => setExcelNotePopup(null)}
+              >
+                סגירה
+              </button>
+            </div>
           </div>
         </div>
       )}

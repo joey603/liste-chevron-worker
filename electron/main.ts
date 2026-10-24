@@ -607,6 +607,7 @@ type Worker = {
   lastName: string
   temporary: boolean
   expiresAt: string | null
+  newFromExcel?: boolean
 }
 
 type CardlessPerson = {
@@ -616,6 +617,7 @@ type CardlessPerson = {
   temporary: boolean
   expiresAt: string | null
   assignment: 'unique' | 'multiple'
+  newFromExcel?: boolean
 }
 
 type PersonEntry = {
@@ -842,6 +844,7 @@ function normalize(raw: Partial<AppData>): AppData {
       lastName: w.lastName,
       temporary: Boolean(w.temporary),
       expiresAt: w.expiresAt ?? null,
+      newFromExcel: w.newFromExcel === true,
     }))
     .filter((w) => {
       if (!w.temporary || !w.expiresAt) return true
@@ -861,6 +864,7 @@ function normalize(raw: Partial<AppData>): AppData {
         c.assignment === 'unique' || c.assignment === 'multiple'
           ? c.assignment
           : ('multiple' as const),
+      newFromExcel: c.newFromExcel === true,
     }))
     .filter((c) => {
       if (!c.temporary || !c.expiresAt) return true

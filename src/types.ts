@@ -19,6 +19,8 @@ export type Worker = {
   temporary: boolean
   /** תאריך/שעת תפוגה (חצות של אותו יום) */
   expiresAt: string | null
+  /** נוסף מ־Excel — סגול עד כניסה לאתר */
+  newFromExcel?: boolean
 }
 
 /** ייחודי = נחסם ברשימה בזמן שהוא באתר · מרובה = ניתן לשייך לכמה ויזיטורים */
@@ -33,6 +35,8 @@ export type CardlessPerson = {
   temporary: boolean
   expiresAt: string | null
   assignment: CardlessAssignment
+  /** נוסף מ־Excel — סגול עד כניסה לאתר */
+  newFromExcel?: boolean
 }
 
 export type PersonEntry = {
@@ -902,6 +906,7 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
     lastName: w.lastName,
     temporary: Boolean(w.temporary),
     expiresAt: w.expiresAt ?? null,
+    newFromExcel: w.newFromExcel === true,
   }))
   const cardlessPeople = (
     Array.isArray(raw?.cardlessPeople) ? raw.cardlessPeople : []
@@ -915,6 +920,7 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
       c.assignment === 'unique' || c.assignment === 'multiple'
         ? c.assignment
         : ('multiple' as const),
+    newFromExcel: c.newFromExcel === true,
   }))
   const people = Array.isArray(raw?.people)
     ? raw.people

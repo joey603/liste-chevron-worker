@@ -394,6 +394,7 @@ button.app-version {
 }
 
 .sidebar-roster-badge {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -411,6 +412,26 @@ button.app-version {
     color 0.18s ease,
     border-color 0.18s ease,
     box-shadow 0.18s ease;
+}
+
+.sidebar-roster-new-count {
+  position: absolute;
+  top: -7px;
+  inset-inline-end: -6px;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  padding: 0 5px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #7c3aed;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 1px 4px rgba(91, 33, 182, 0.35);
+  pointer-events: none;
 }
 
 .sidebar-roster-badge:hover {
@@ -4206,6 +4227,63 @@ button.camera-xls-tab:hover:not(.is-disabled):not(.is-active) {
   width: 100%;
 }
 
+/* Zone commentaire séparée : ne déclenche pas l’ajout à la liste */
+.pick-wrap.has-excel-note {
+  display: flex;
+  align-items: stretch;
+  gap: 5px;
+}
+
+.pick-wrap.has-excel-note .pick-btn.worker {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+}
+
+.excel-note-badge {
+  position: relative;
+  flex: 0 0 2.55rem;
+  align-self: stretch;
+  width: 2.55rem;
+  min-height: 48px;
+  height: auto;
+  padding: 0;
+  border: 1px solid rgba(124, 58, 237, 0.35);
+  border-radius: 10px;
+  background: #f3e8ff;
+  color: #6d28d9;
+  font-size: 1.15rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(91, 33, 182, 0.18);
+  flex-shrink: 0;
+}
+
+.excel-note-badge:hover {
+  background: #e9d5ff;
+  border-color: #9333ea;
+}
+
+.modal-excel-note {
+  max-width: 420px;
+}
+
+.excel-note-body {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(124, 58, 237, 0.08);
+  border: 1px solid rgba(124, 58, 237, 0.18);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+
 .pick-wrap:hover .pick-remove {
   opacity: 1;
 }
@@ -4255,6 +4333,27 @@ button.camera-xls-tab:hover:not(.is-disabled):not(.is-active) {
 .pick-btn.worker {
   min-height: 48px;
   align-content: center;
+}
+
+.pick-btn.worker.is-new-excel {
+  background: #f3e8ff;
+  border-color: #a855f7;
+  box-shadow: 0 1px 4px rgba(124, 58, 237, 0.18);
+}
+
+.pick-btn.worker.is-new-excel:hover:not(:disabled) {
+  background: #e9d5ff;
+  border-color: #9333ea;
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.22);
+}
+
+.pick-btn.worker.is-new-excel .pick-hint {
+  color: #6d28d9;
+}
+
+.pick-btn.worker.is-new-excel.is-selected {
+  background: #ddd6fe;
+  border-color: #7c3aed;
 }
 
 .pick-btn:hover:not(:disabled) {

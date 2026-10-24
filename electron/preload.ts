@@ -29,6 +29,7 @@ export type AppData = {
     lastName: string
     temporary: boolean
     expiresAt: string | null
+    newFromExcel?: boolean
   }>
   cardlessPeople: Array<{
     id: string
@@ -37,6 +38,7 @@ export type AppData = {
     temporary: boolean
     expiresAt: string | null
     assignment: 'unique' | 'multiple'
+    newFromExcel?: boolean
   }>
   people: Array<{
     id: string
