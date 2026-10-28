@@ -3117,7 +3117,9 @@ export default function App() {
         </svg>
       </button>
 
-      <main className="main-panel">
+      <main
+        className={`main-panel${showPresenceSettings ? ' is-presence-settings' : ''}`}
+      >
         <header className="main-header">
           <div className="brand">
             <h1>באתר עכשיו</h1>

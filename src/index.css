@@ -1608,7 +1608,16 @@ button.emergency-status-button:hover {
 
 .presence-settings-card {
   margin: 0 0 10px;
-  flex-shrink: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.main-panel.is-presence-settings .list-capture {
+  flex: 0 1 22%;
+  min-height: 72px;
 }
 
 .presence-settings-card .authorized-excel-bar {
