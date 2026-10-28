@@ -3495,6 +3495,7 @@ export default function App() {
             <h3>Cloudflare (גרסת דפדפן)</h3>
             <p className="shift-settings-note">
               לשימוש בלי התקנה: הדביקו את כתובת ה-Worker ואת מפתח ACCESS_KEY.
+              הם נשמרים ב־liste-data.json וב־shift-report-local.json.
             </p>
             <div className="shift-settings-grid presence-watch-grid">
               <label className="shift-field">

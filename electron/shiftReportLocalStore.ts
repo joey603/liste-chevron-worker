@@ -15,6 +15,8 @@ export type ShiftReportLocalSettings = {
   shiftReportSmtpPort?: number
   shiftReportSmtpUser?: string
   shiftReportSmtpPass?: string
+  cloudflareRelayUrl?: string
+  cloudflareRelayKey?: string
 }
 
 export type ShiftReportLocalPayload = {
@@ -49,6 +51,8 @@ const SETTINGS_KEYS = [
   'shiftReportSmtpPort',
   'shiftReportSmtpUser',
   'shiftReportSmtpPass',
+  'cloudflareRelayUrl',
+  'cloudflareRelayKey',
 ] as const satisfies ReadonlyArray<keyof ShiftReportLocalSettings>
 
 export function shiftReportLocalPath(): string {
@@ -97,6 +101,8 @@ function extractSettings(
     shiftReportSmtpPort: settings.shiftReportSmtpPort,
     shiftReportSmtpUser: settings.shiftReportSmtpUser,
     shiftReportSmtpPass: settings.shiftReportSmtpPass,
+    cloudflareRelayUrl: settings.cloudflareRelayUrl,
+    cloudflareRelayKey: settings.cloudflareRelayKey,
   }
 }
 
@@ -135,7 +141,8 @@ function hasShiftContent(payload: ShiftReportLocalPayload): boolean {
       s.directorEmail?.trim() ||
       s.shiftReportSmtpHost?.trim() ||
       s.shiftReportSmtpUser?.trim() ||
-      s.shiftReportSmtpPass,
+      s.shiftReportSmtpPass ||
+      s.cloudflareRelayKey?.trim(),
   )
 }
 
