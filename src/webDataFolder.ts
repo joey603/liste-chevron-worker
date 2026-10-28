@@ -152,6 +152,49 @@ export async function clearStoredDataFolder(): Promise<void> {
   await idbClear()
 }
 
+/** Import manuel de liste-data.json (quand AppData est bloqué par le navigateur). */
+export async function pickListeDataJsonFile(): Promise<
+  | { ok: true; mainRaw: unknown; localRaw: unknown | null }
+  | { ok: false; canceled?: boolean; error?: string }
+> {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = '.json,application/json'
+  input.style.display = 'none'
+  document.body.appendChild(input)
+  try {
+    const file = await new Promise<File | null>((resolve) => {
+      input.onchange = () => resolve(input.files?.[0] ?? null)
+      input.oncancel = () => resolve(null)
+      input.click()
+    })
+    if (!file) return { ok: false, canceled: true }
+    const text = await file.text()
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      return { ok: false, error: 'invalid_json' }
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { ok: false, error: 'invalid_json' }
+    }
+    const obj = parsed as Record<string, unknown>
+    // Fichier complet app OU payload shift-local seul
+    if ('settings' in obj || 'workers' in obj || 'people' in obj) {
+      return { ok: true, mainRaw: obj, localRaw: null }
+    }
+    if ('shiftReport' in obj || 'cameraReport' in obj) {
+      return { ok: true, mainRaw: {}, localRaw: obj }
+    }
+    return { ok: true, mainRaw: obj, localRaw: null }
+  } catch {
+    return { ok: false, error: 'pick_failed' }
+  } finally {
+    input.remove()
+  }
+}
+
 export async function ensureAppSubfolders(root: DirHandle): Promise<void> {
   await root.getDirectoryHandle(WEB_SHIFTS_SUBDIR, { create: true })
   await root.getDirectoryHandle(WEB_CAMERAS_SUBDIR, { create: true })

@@ -87,6 +87,7 @@ import {
   isElectronApp,
   isWebFolderSupported,
   pickDataFolder,
+  pickListeDataJsonFile,
   readAppFilesFromFolder,
   withWebSaveFolders,
   writeAppFilesToFolder,
@@ -2622,8 +2623,8 @@ export default function App() {
       {isWebFolderSupported() && !dataFolderName ? (
         <div className="web-data-folder-banner" role="status">
           <span>
-            לשמירה קבועה אחרי כיבוי המחשב — בחרו תיקיית נתונים (למשל Liste
-            Chevron ב־AppData).
+            לשמירה קבועה: צרו תיקייה בשולחן העבודה (לא AppData), העתיקו לשם
+            את liste-data.json, ואז בחרו את התיקייה.
           </span>
           <button
             type="button"
@@ -3322,9 +3323,9 @@ export default function App() {
               <>
                 <h3>תיקיית נתונים קבועה</h3>
                 <p className="shift-settings-note">
-                  כל האפליקציה נשמרת בתיקייה זו: רשימה, הגדרות, דוחות משמרת
-                  ומצלמות. בחרו את %AppData%\Liste Chevron או תיקייה קבועה אחרת.
-                  אחרי הפעלה מחדש הדפדפן זוכר את התיקייה.
+                  הדפדפן חוסם לרוב את AppData. צרו תיקייה רגילה למשל על שולחן
+                  העבודה: Documents\Liste Chevron או Desktop\Liste Chevron —
+                  העתיקו לשם את liste-data.json, ואז בחרו את התיקייה כאן.
                 </p>
                 <div className="shift-settings-test-row">
                   <button
@@ -3398,9 +3399,51 @@ export default function App() {
                     </span>
                   ) : (
                     <span className="shift-settings-test-hint">
-                      חובה לבחור תיקייה לשמירה קבועה (אחרת רק בדפדפן).
+                      אל תבחרו AppData — רק תיקייה רגילה (Desktop / Documents).
                     </span>
                   )}
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ width: 'auto' }}
+                    disabled={pickingDataFolder}
+                    onClick={() => {
+                      void (async () => {
+                        setPickingDataFolder(true)
+                        try {
+                          const imported = await pickListeDataJsonFile()
+                          if (!imported.ok) {
+                            if (!imported.canceled) {
+                              setToast({
+                                message:
+                                  imported.error === 'invalid_json'
+                                    ? 'קובץ JSON לא תקין'
+                                    : 'טעינת הקובץ נכשלה',
+                              })
+                            }
+                            return
+                          }
+                          const merged = mergeShiftIntoMain(
+                            (imported.mainRaw as object) ?? {},
+                            (imported.localRaw as object) ?? {},
+                          )
+                          const next = withWebSaveFolders(normalizeData(merged))
+                          setData(next)
+                          await saveData(next)
+                          setToast({
+                            message: dataFolderName
+                              ? 'liste-data.json נטען ונשמר בתיקייה שנבחרה'
+                              : 'liste-data.json נטען — עכשיו בחרו תיקייה רגילה לשמירה קבועה',
+                          })
+                        } finally {
+                          setPickingDataFolder(false)
+                          restoreUiInteractivity()
+                        }
+                      })()
+                    }}
+                  >
+                    ייבוא liste-data.json
+                  </button>
                   {dataFolderName ? (
                     <button
                       type="button"
