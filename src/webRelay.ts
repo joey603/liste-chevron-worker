@@ -69,7 +69,11 @@ async function relayPost(
       }
     }
     return { ok: true, messageId: data.messageId }
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : ''
+    if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+      return { ok: false, error: 'relay_blocked' }
+    }
     return { ok: false, error: 'offline' }
   }
 }
@@ -77,11 +81,12 @@ async function relayPost(
 export async function sendTelegramText(
   text: string,
   chatId?: string,
+  settingsOverride?: AppSettings,
 ): Promise<TelegramSendResult> {
   if (isElectronApp() && window.listeApi?.sendTelegramText) {
     return window.listeApi.sendTelegramText(text, chatId)
   }
-  const settings = readSettings()
+  const settings = settingsOverride ?? readSettings()
   const { token, chatId: groupId } = relayConfig(settings)
   const target = (chatId ?? groupId).trim()
   return relayPost(
@@ -95,11 +100,12 @@ export async function sendTelegramPhoto(
   imageDataUrl: string,
   caption?: string,
   chatId?: string,
+  settingsOverride?: AppSettings,
 ): Promise<TelegramSendResult> {
   if (isElectronApp() && window.listeApi?.sendTelegramPhoto) {
     return window.listeApi.sendTelegramPhoto(imageDataUrl, caption, chatId)
   }
-  const settings = readSettings()
+  const settings = settingsOverride ?? readSettings()
   const { token, chatId: groupId } = relayConfig(settings)
   const target = (chatId ?? groupId).trim()
   return relayPost(

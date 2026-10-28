@@ -272,6 +272,8 @@ function telegramErrorMessage(error?: string): string {
       return 'הגדירו Token ו-chat_id של Telegram בהגדרות'
     case 'offline':
       return 'אין אינטרנט — לא ניתן לשלוח כרגע'
+    case 'relay_blocked':
+      return 'הדפדפן חסם את שרת Cloudflare — רעננו את הדף (Ctrl+F5)'
     case 'failed':
       return 'שליחת Telegram נכשלה'
     case 'relay_not_configured':
@@ -1247,7 +1249,7 @@ export default function App() {
     if (!shouldNotifyAbsenceWatch(snapshot, person)) return
     if (!hasTelegramWatch(snapshot)) return
     const text = buildAbsenceWatchMessage(person, kind)
-    void sendTelegramTextNow(text).catch(() => {
+    void sendTelegramTextNow(text, undefined, snapshot.settings).catch(() => {
       /* ignore */
     })
   }
@@ -2197,7 +2199,11 @@ export default function App() {
       const present = data.people.filter(isPresent)
       const text = buildEmergencyMessage(data, present)
       const emergencyChatId = data.settings.telegramEmergencyChatId!.trim()
-      const result = await sendTelegramTextNow(text, emergencyChatId)
+      const result = await sendTelegramTextNow(
+        text,
+        emergencyChatId,
+        data.settings,
+      )
       if (!result.ok) {
         setToast({ message: telegramErrorMessage(result.error) })
         return
@@ -2252,7 +2258,7 @@ export default function App() {
     setBusy(true)
     try {
       const text = buildPresenceListMessage(data, filteredPresentPeople)
-      const result = await sendTelegramTextNow(text)
+      const result = await sendTelegramTextNow(text, undefined, data.settings)
       if (!result.ok) {
         setToast({ message: telegramErrorMessage(result.error) })
         return
