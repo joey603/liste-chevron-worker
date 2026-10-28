@@ -3,17 +3,23 @@ import {
   isElectronApp,
   isWebFolderSupported,
   pickExportFolder,
+  readBytesFile,
   resolveWebDir,
   WEB_FOLDER_CAMERAS,
   WEB_FOLDER_ROOT,
   WEB_FOLDER_SHIFTS,
   writeBytesFile,
 } from './webDataFolder'
+import { shiftReportDocxPathsForDay } from './shiftReportPaths'
+import {
+  mergeShiftIntoMain,
+  SHIFT_REPORT_LOCAL_STORAGE_KEY,
+} from './shiftReportLocalStore'
 import {
   buildCameraMonthlyJsonBytes,
   cameraMonthlyJsonFileName,
 } from './cameraReportWorkbookBrowser'
-import type { ListeApi } from './types'
+import { normalizeData, type ListeApi } from './types'
 import {
   sendShiftReportTestEmail,
   sendShiftReportsEmail,
@@ -149,10 +155,46 @@ export function installWebListeApi(): void {
     sendShiftReportsEmail,
     getShiftReportEmailStatus: async () => ({ sent: false }),
     getShiftReportEmailSentLog: async () => [],
-    sendShiftReportEmail: async () => ({
-      ok: false,
-      error: 'use_manual_attachments',
-    }),
+    sendShiftReportEmail: async (payload) => {
+      let settings
+      try {
+        const main = JSON.parse(
+          localStorage.getItem('liste-chevron-data') ?? 'null',
+        )
+        const local = JSON.parse(
+          localStorage.getItem(SHIFT_REPORT_LOCAL_STORAGE_KEY) ?? 'null',
+        )
+        settings = normalizeData(
+          mergeShiftIntoMain((main as object) ?? {}, (local as object) ?? {}),
+        ).settings
+      } catch {
+        return { ok: false, error: 'missing_config' }
+      }
+      const to = settings.directorEmail?.trim() ?? ''
+      if (!to) return { ok: false, error: 'missing_config' }
+      const folder = settings.shiftReportSaveFolder?.trim() || WEB_FOLDER_SHIFTS
+      const attachments: Array<{ name: string; bytes: number[] }> = []
+      for (const item of shiftReportDocxPathsForDay(payload.date)) {
+        const dir = await resolveWebDir(folder, item.relativeDir, false, 'shift')
+        if (!dir) continue
+        const bytes = await readBytesFile(dir, item.fileName)
+        if (!bytes?.length) continue
+        attachments.push({ name: item.fileName, bytes: Array.from(bytes) })
+      }
+      if (attachments.length === 0) {
+        return { ok: false, error: 'no_attachments' }
+      }
+      const result = await sendShiftReportsEmail({
+        date: payload.date,
+        directorEmail: to,
+        smtpHost: settings.shiftReportSmtpHost ?? '',
+        smtpPort: settings.shiftReportSmtpPort ?? 587,
+        smtpUser: settings.shiftReportSmtpUser ?? '',
+        smtpPass: settings.shiftReportSmtpPass ?? '',
+        attachments,
+      })
+      return result
+    },
     getCameraMonthlyEmailStatus: async () => ({ sent: false }),
     sendCameraMonthlyEmail: async () => ({
       ok: false,

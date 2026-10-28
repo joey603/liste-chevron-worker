@@ -346,6 +346,19 @@ async function writeTextFile(
   await writable.close()
 }
 
+export async function readBytesFile(
+  dir: DirHandle,
+  name: string,
+): Promise<Uint8Array | null> {
+  try {
+    const fileHandle = await dir.getFileHandle(name)
+    const file = await fileHandle.getFile()
+    return new Uint8Array(await file.arrayBuffer())
+  } catch {
+    return null
+  }
+}
+
 export async function writeBytesFile(
   dir: DirHandle,
   name: string,

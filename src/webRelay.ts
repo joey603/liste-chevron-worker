@@ -95,11 +95,14 @@ async function relayPost(
   path: string,
   body: Record<string, unknown>,
   settings?: AppSettings,
+  timeoutMs = 15000,
 ): Promise<{ ok: boolean; error?: string; messageId?: string }> {
   const { url, key } = relayConfig(settings)
   if (!url || !key.trim()) {
     return { ok: false, error: 'relay_not_configured' }
   }
+  const ctrl = new AbortController()
+  const timer = window.setTimeout(() => ctrl.abort(), timeoutMs)
   try {
     const res = await fetch(`${url}${path}`, {
       method: 'POST',
@@ -108,6 +111,7 @@ async function relayPost(
         'X-Relay-Key': key,
       },
       body: JSON.stringify(body),
+      signal: ctrl.signal,
     })
     const data = (await res.json().catch(() => null)) as {
       ok?: boolean
@@ -125,11 +129,122 @@ async function relayPost(
     return { ok: true, messageId: data.messageId }
   } catch (err) {
     const msg = err instanceof Error ? err.message : ''
-    if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+    if (
+      (err instanceof DOMException && err.name === 'AbortError') ||
+      /failed to fetch|networkerror|load failed|abort/i.test(msg)
+    ) {
       return { ok: false, error: 'relay_blocked' }
     }
     return { ok: false, error: 'offline' }
+  } finally {
+    window.clearTimeout(timer)
   }
+}
+
+function encodeMimeHeader(value: string): string {
+  if (/^[\x20-\x7E]*$/.test(value)) return value
+  const utf8 = encodeURIComponent(value).replace(/%([0-9A-F]{2})/g, (_, hex) =>
+    String.fromCharCode(Number.parseInt(hex, 16)),
+  )
+  return `=?UTF-8?B?${btoa(utf8)}?=`
+}
+
+function bytesToBase64(bytes: number[]): string {
+  const chunk = 0x8000
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.slice(i, i + chunk))
+  }
+  return btoa(binary)
+}
+
+function buildEml(payload: {
+  to: string
+  subject: string
+  text: string
+  attachments: Array<{ name: string; bytes: number[] }>
+}): string {
+  const boundary = `chevron${Date.now().toString(16)}`
+  const lines = [
+    'X-Unsent: 1',
+    `To: ${payload.to}`,
+    `Subject: ${encodeMimeHeader(payload.subject)}`,
+    'MIME-Version: 1.0',
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/plain; charset=UTF-8',
+    'Content-Transfer-Encoding: 8bit',
+    '',
+    payload.text,
+  ]
+  for (const att of payload.attachments) {
+    const name = String(att.name || 'file.bin').replace(/[\r\n"]/g, '')
+    const wrapped = bytesToBase64(att.bytes).replace(/(.{76})/g, '$1\r\n')
+    lines.push(
+      `--${boundary}`,
+      `Content-Type: application/octet-stream; name="${name}"`,
+      'Content-Transfer-Encoding: base64',
+      `Content-Disposition: attachment; filename="${name}"`,
+      '',
+      wrapped,
+    )
+  }
+  lines.push(`--${boundary}--`, '')
+  return lines.join('\r\n')
+}
+
+function openOutlookDraft(payload: {
+  to: string
+  subject: string
+  text: string
+  attachments?: Array<{ name: string; bytes: number[] }>
+}): void {
+  const attachments = payload.attachments ?? []
+  if (attachments.length === 0) {
+    const url = `mailto:${encodeURIComponent(payload.to)}?subject=${encodeURIComponent(payload.subject)}&body=${encodeURIComponent(payload.text)}`
+    window.location.href = url
+    return
+  }
+  const eml = buildEml({ ...payload, attachments })
+  const blob = new Blob([eml], { type: 'message/rfc822' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = `${payload.subject.replace(/[\\/:*?"<>|]+/g, ' ').slice(0, 80) || 'liste-chevron'}.eml`
+  a.click()
+  window.setTimeout(() => URL.revokeObjectURL(a.href), 4000)
+}
+
+async function sendEmailBrowser(payload: {
+  to: string
+  subject: string
+  text: string
+  attachments?: Array<{ name: string; bytes: number[] }>
+  smtpHost?: string
+  smtpPort?: number
+  smtpUser?: string
+  smtpPass?: string
+  directorEmail?: string
+}): Promise<{ ok: boolean; error?: string; messageId?: string; via?: 'worker' | 'outlook' }> {
+  const viaRelay = await relayPost(
+    '/email',
+    {
+      ...payload,
+      directorEmail: payload.directorEmail ?? payload.to,
+      attachments: payload.attachments ?? [],
+    },
+    undefined,
+    2500,
+  )
+  if (viaRelay.ok) return { ...viaRelay, via: 'worker' }
+  if (!payload.to.trim()) return { ok: false, error: 'missing_config' }
+  openOutlookDraft({
+    to: payload.to,
+    subject: payload.subject,
+    text: payload.text,
+    attachments: payload.attachments,
+  })
+  return { ok: true, via: 'outlook' }
 }
 
 export async function sendTelegramText(
@@ -188,17 +303,17 @@ export async function sendShiftReportTestEmail(payload: {
   smtpPort: number
   smtpUser: string
   smtpPass: string
-}): Promise<{ ok: boolean; error?: string }> {
+}): Promise<{ ok: boolean; error?: string; via?: 'worker' | 'outlook' }> {
   if (isElectronApp() && window.listeApi?.sendShiftReportTestEmail) {
     return window.listeApi.sendShiftReportTestEmail(payload)
   }
-  return relayPost('/email', {
+  return sendEmailBrowser({
     ...payload,
     to: payload.directorEmail,
     subject: 'בדיקת דוא״ל — דוח משמרת',
     text:
       'זוהי הודעת בדיקה מ־Liste Chevron.\n' +
-      'אם קיבלתם אותה, הגדרות ה-SMTP תקינות.',
+      'אם קיבלתם אותה, הגדרות הדוא״ל תקינות.',
     attachments: [],
   })
 }
@@ -211,11 +326,16 @@ export async function sendShiftReportsEmail(payload: {
   smtpUser: string
   smtpPass: string
   attachments: Array<{ name: string; bytes: number[] }>
-}): Promise<{ ok: boolean; messageId?: string; error?: string }> {
+}): Promise<{
+  ok: boolean
+  messageId?: string
+  error?: string
+  via?: 'worker' | 'outlook'
+}> {
   if (isElectronApp() && window.listeApi?.sendShiftReportsEmail) {
     return window.listeApi.sendShiftReportsEmail(payload)
   }
-  return relayPost('/email', {
+  return sendEmailBrowser({
     ...payload,
     to: payload.directorEmail,
     subject: `דוחות משמרת ${payload.date}`,

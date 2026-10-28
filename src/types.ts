@@ -140,6 +140,7 @@ export type EmailSendResult = {
   messageId?: string
   to?: string
   error?: string
+  via?: 'worker' | 'outlook'
 }
 
 export type EmailSentStatus = {

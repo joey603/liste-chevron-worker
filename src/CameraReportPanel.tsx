@@ -34,6 +34,7 @@ import EmailAlreadySentModal from './EmailAlreadySentModal'
 import { SHIFT_LABELS, normalizeShiftReportTexts, type ShiftKind, type ShiftReportTexts } from './shiftReport'
 import { parseShiftReportDate, getNextDayReportContext, shiftDateToDate } from './shiftReportPaths'
 import { sendShiftReportTestEmail } from './webRelay'
+import { isElectronApp } from './webDataFolder'
 import { createId } from './types'
 import type { AppSettings } from './types'
 
@@ -374,21 +375,29 @@ export default function CameraReportPanel({
     const smtpUser = settings?.shiftReportSmtpUser?.trim()
     const smtpPass = settings?.shiftReportSmtpPass ?? ''
     const smtpPort = settings?.shiftReportSmtpPort ?? 587
-    if (!directorEmail || !smtpHost || !smtpUser || !smtpPass) {
-      onToast?.('יש למלא אימייל מנהל, שרת SMTP, משתמש וסיסמה')
+    if (!directorEmail || (isElectronApp() && (!smtpHost || !smtpUser || !smtpPass))) {
+      onToast?.(
+        isElectronApp()
+          ? 'יש למלא אימייל מנהל, שרת SMTP, משתמש וסיסמה'
+          : 'יש למלא אימייל מנהל',
+      )
       return
     }
     setTestingEmail(true)
     try {
       const result = await sendShiftReportTestEmail({
         directorEmail,
-        smtpHost,
+        smtpHost: smtpHost || '',
         smtpPort,
-        smtpUser,
+        smtpUser: smtpUser || '',
         smtpPass,
       })
       if (result.ok) {
-        onToast?.('הודעת בדיקה נשלחה בהצלחה')
+        onToast?.(
+          result.via === 'outlook'
+            ? 'נפתח דוא״ל ב-Outlook — לחצו שלח'
+            : 'הודעת בדיקה נשלחה בהצלחה',
+        )
         return
       }
       onToast?.(`שליחת בדיקה נכשלה: ${result.error ?? 'שגיאה'}`)

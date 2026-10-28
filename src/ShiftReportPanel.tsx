@@ -34,6 +34,7 @@ import {
 } from './shiftReportAutoSave'
 import { restoreUiInteractivity } from './captureDomToPng'
 import { sendShiftReportTestEmail } from './webRelay'
+import { isElectronApp } from './webDataFolder'
 import type { AppSettings, ShiftEmailSentLogItem } from './types'
 import { buildShiftReportDocumentModel } from './shiftReportDocument'
 import type { ShiftReportsArchive } from './shiftReportArchive'
@@ -474,21 +475,29 @@ export default function ShiftReportPanel({
     const smtpUser = settings?.shiftReportSmtpUser?.trim()
     const smtpPass = settings?.shiftReportSmtpPass ?? ''
     const smtpPort = settings?.shiftReportSmtpPort ?? 587
-    if (!directorEmail || !smtpHost || !smtpUser || !smtpPass) {
-      onToast?.('יש למלא אימייל מנהל, שרת SMTP, משתמש וסיסמה')
+    if (!directorEmail || (isElectronApp() && (!smtpHost || !smtpUser || !smtpPass))) {
+      onToast?.(
+        isElectronApp()
+          ? 'יש למלא אימייל מנהל, שרת SMTP, משתמש וסיסמה'
+          : 'יש למלא אימייל מנהל',
+      )
       return
     }
     setTestingEmail(true)
     try {
       const result = await sendShiftReportTestEmail({
         directorEmail,
-        smtpHost,
+        smtpHost: smtpHost || '',
         smtpPort,
-        smtpUser,
+        smtpUser: smtpUser || '',
         smtpPass,
       })
       if (result.ok) {
-        onToast?.('הודעת בדיקה נשלחה בהצלחה')
+        onToast?.(
+          result.via === 'outlook'
+            ? 'נפתח דוא״ל ב-Outlook — לחצו שלח'
+            : 'הודעת בדיקה נשלחה בהצלחה',
+        )
         return
       }
       onToast?.(`שליחת בדיקה נכשלה: ${result.error ?? 'שגיאה'}`)
@@ -518,8 +527,12 @@ export default function ShiftReportPanel({
     const smtpHost = settings?.shiftReportSmtpHost?.trim()
     const smtpUser = settings?.shiftReportSmtpUser?.trim()
     const smtpPass = settings?.shiftReportSmtpPass ?? ''
-    if (!directorEmail || !smtpHost || !smtpUser || !smtpPass) {
-      onToast?.('יש למלא אימייל מנהל, שרת SMTP, משתמש וסיסמה')
+    if (!directorEmail || (isElectronApp() && (!smtpHost || !smtpUser || !smtpPass))) {
+      onToast?.(
+        isElectronApp()
+          ? 'יש למלא אימייל מנהל, שרת SMTP, משתמש וסיסמה'
+          : 'יש למלא אימייל מנהל',
+      )
       return
     }
     if (!settings?.shiftReportSaveFolder?.trim()) {
@@ -546,7 +559,11 @@ export default function ShiftReportPanel({
       }
       if (result.ok) {
         setAlreadySentInfo(null)
-        onToast?.('דוא״ל נשלח בהצלחה')
+        onToast?.(
+          result.via === 'outlook'
+            ? 'קובץ הדוא״ל ירד — פתחו אותו ב-Outlook ולחצו שלח'
+            : 'דוא״ל נשלח בהצלחה',
+        )
         return
       }
       onToast?.(`שליחה נכשלה: ${emailSendErrorMessage(result.error)}`)
@@ -1033,7 +1050,7 @@ export default function ShiftReportPanel({
               יומן שליחות
             </button>
             <span className="shift-settings-test-hint">
-              שולח הודעת בדיקה לכתובת המנהל (Gmail: smtp.gmail.com, פורט 587)
+              בדפדפן: מספיק אימייל מנהל — Outlook נפתח (Cloudflare חסום במשרד). SMTP רק אם Cloudflare זמין.
             </span>
           </div>
         </section>
