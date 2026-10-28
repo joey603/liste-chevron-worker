@@ -202,8 +202,8 @@ function openOutlookDraft(payload: {
 }): void {
   const attachments = payload.attachments ?? []
   if (attachments.length === 0) {
-    const url = `mailto:${encodeURIComponent(payload.to)}?subject=${encodeURIComponent(payload.subject)}&body=${encodeURIComponent(payload.text)}`
-    window.location.href = url
+    const url = `mailto:${payload.to}?subject=${encodeURIComponent(payload.subject)}&body=${encodeURIComponent(payload.text)}`
+    window.open(url, '_self')
     return
   }
   const eml = buildEml({ ...payload, attachments })
@@ -226,17 +226,6 @@ async function sendEmailBrowser(payload: {
   smtpPass?: string
   directorEmail?: string
 }): Promise<{ ok: boolean; error?: string; messageId?: string; via?: 'worker' | 'outlook' }> {
-  const viaRelay = await relayPost(
-    '/email',
-    {
-      ...payload,
-      directorEmail: payload.directorEmail ?? payload.to,
-      attachments: payload.attachments ?? [],
-    },
-    undefined,
-    2500,
-  )
-  if (viaRelay.ok) return { ...viaRelay, via: 'worker' }
   if (!payload.to.trim()) return { ok: false, error: 'missing_config' }
   openOutlookDraft({
     to: payload.to,
