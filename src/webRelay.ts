@@ -72,21 +72,9 @@ async function sendTelegramDirect(
       text: chunk,
     }).toString()}`
     try {
-      const res = await fetch(url, { method: 'GET' })
-      const data = (await res.json().catch(() => null)) as {
-        ok?: boolean
-        description?: string
-      } | null
-      if (data?.ok) continue
-      if (data && data.ok === false) {
-        return { ok: false, error: data.description || 'failed' }
-      }
+      await fetch(url, { method: 'GET', mode: 'no-cors', cache: 'no-store' })
     } catch {
-      try {
-        await fetch(url, { method: 'GET', mode: 'no-cors' })
-      } catch {
-        return { ok: false, error: 'offline' }
-      }
+      return { ok: false, error: 'offline' }
     }
   }
   return { ok: true }
@@ -156,12 +144,6 @@ export async function sendTelegramText(
   const { token, chatId: groupId } = relayConfig(settings)
   const target = (chatId ?? groupId).trim()
   if (!token || !target) return { ok: false, error: 'telegram_not_configured' }
-  const viaRelay = await relayPost(
-    '/telegram/text',
-    { token, chatId: target, text },
-    settings,
-  )
-  if (viaRelay.ok) return viaRelay
   return sendTelegramDirect(token, target, text)
 }
 
