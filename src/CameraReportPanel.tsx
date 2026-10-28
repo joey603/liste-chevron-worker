@@ -811,16 +811,16 @@ export default function CameraReportPanel({
             <label className="shift-field camera-shift-hours-field">
               <span>שעות משמרת</span>
               <div className="camera-shift-hours-edit">
-                <input
-                  type="time"
+                <CameraTime24Input
+                  ariaLabel="תחילת משמרת"
                   value={report.shiftStart}
-                  onChange={(e) => patch({ shiftStart: e.target.value })}
+                  onChange={(shiftStart) => patch({ shiftStart })}
                 />
                 <span className="camera-shift-hours-sep">–</span>
-                <input
-                  type="time"
+                <CameraTime24Input
+                  ariaLabel="סיום משמרת"
                   value={report.shiftEnd}
-                  onChange={(e) => patch({ shiftEnd: e.target.value })}
+                  onChange={(shiftEnd) => patch({ shiftEnd })}
                 />
                 <button
                   type="button"
@@ -953,6 +953,71 @@ export default function CameraReportPanel({
   )
 }
 
+const HOURS_24 = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
+const MINUTES_60 = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'))
+
+function splitScanTime(value: string): { hour: string; minute: string } {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim())
+  if (!match) return { hour: '', minute: '' }
+  const hour = String(Math.min(23, Number(match[1]))).padStart(2, '0')
+  return { hour, minute: match[2] }
+}
+
+function CameraTime24Input({
+  value,
+  onChange,
+  ariaLabel,
+}: {
+  value: string
+  onChange: (next: string) => void
+  ariaLabel: string
+}) {
+  const { hour, minute } = splitScanTime(value)
+  return (
+    <div className="camera-time-24" dir="ltr" aria-label={ariaLabel}>
+      <select
+        aria-label={`${ariaLabel} שעה`}
+        value={hour}
+        onChange={(e) => {
+          const nextHour = e.target.value
+          if (!nextHour) {
+            onChange('')
+            return
+          }
+          onChange(`${nextHour}:${minute || '00'}`)
+        }}
+      >
+        <option value="">--</option>
+        {HOURS_24.map((h) => (
+          <option key={h} value={h}>
+            {h}
+          </option>
+        ))}
+      </select>
+      <span>:</span>
+      <select
+        aria-label={`${ariaLabel} דקות`}
+        value={minute}
+        onChange={(e) => {
+          const nextMinute = e.target.value
+          if (!hour && !nextMinute) {
+            onChange('')
+            return
+          }
+          onChange(`${hour || '00'}:${nextMinute || '00'}`)
+        }}
+      >
+        <option value="">--</option>
+        {MINUTES_60.map((m) => (
+          <option key={m} value={m}>
+            {m}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
 function ScanRow({
   index,
   row,
@@ -968,17 +1033,17 @@ function ScanRow({
     <tr>
       <td className="col-num">{index + 1}</td>
       <td className="col-time">
-        <input
-          type="time"
+        <CameraTime24Input
+          ariaLabel="התחלה"
           value={row.start}
-          onChange={(e) => onChange('start', e.target.value)}
+          onChange={(next) => onChange('start', next)}
         />
       </td>
       <td className="col-time">
-        <input
-          type="time"
+        <CameraTime24Input
+          ariaLabel="סיום"
           value={row.end}
-          onChange={(e) => onChange('end', e.target.value)}
+          onChange={(next) => onChange('end', next)}
         />
       </td>
       <td className="col-actions">
