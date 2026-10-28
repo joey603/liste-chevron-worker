@@ -923,8 +923,8 @@ export default function ShiftReportPanel({
         <section className="shift-section shift-settings-card">
           <h3>שמירה אוטומטית ודוא״ל יומי</h3>
           <p className="shift-settings-note">
-            בגרסת הדפדפן לחצו «בחר…» ובחרו את אותה תיקייה כמו קודם (למשל שולחן
-            העבודה\דוח משמרת). אין צורך להקליד את הנתיב.
+            בגרסת הדפדפן: אם תיקיית «דוח משמרת» נמצאת ליד ה-JSON, היא
+            מתמלאת לבד והשמירה נכתבת לשם.
           </p>
           <GuardNamesManager
             names={texts.guardNames}

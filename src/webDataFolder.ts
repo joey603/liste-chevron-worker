@@ -12,10 +12,21 @@ export const EMAIL_SENT_LOG_FILE_NAME = 'email-sent-log.json'
 
 /** Jetons internes : pointent vers le dossier choisi / ses sous-dossiers. */
 export const WEB_FOLDER_ROOT = '__web_data__'
-export const WEB_FOLDER_SHIFTS = '__web_data__/דוחות משמרת'
-export const WEB_FOLDER_CAMERAS = '__web_data__/דוחות מצלמות'
-export const WEB_SHIFTS_SUBDIR = 'דוחות משמרת'
-export const WEB_CAMERAS_SUBDIR = 'דוחות מצלמות'
+export const WEB_FOLDER_SHIFTS = '__web_data__/דוח משמרת'
+export const WEB_FOLDER_CAMERAS = '__web_data__/דוח מצלמות'
+/** Noms réels à côté des JSON (singulier d’abord, comme sur le bureau). */
+export const SHIFT_FOLDER_CANDIDATES = ['דוח משמרת', 'דוחות משמרת'] as const
+export const CAMERA_FOLDER_CANDIDATES = [
+  'דוח מצלמות',
+  'דוחות מצלמות',
+  'יומן מבצעים',
+  'יומן מצלמות',
+] as const
+export const WEB_SHIFTS_SUBDIR = SHIFT_FOLDER_CANDIDATES[0]
+export const WEB_CAMERAS_SUBDIR = CAMERA_FOLDER_CANDIDATES[0]
+
+let boundShiftFolderName = WEB_SHIFTS_SUBDIR
+let boundCameraFolderName = WEB_CAMERAS_SUBDIR
 
 type DirHandle = FileSystemDirectoryHandle
 
@@ -53,14 +64,20 @@ async function idbSet(key: string, handle: DirHandle): Promise<void> {
   })
 }
 
-async function idbClear(): Promise<void> {
+async function idbDelete(key: string): Promise<void> {
   const db = await openDb()
   return new Promise((resolve, reject) => {
     const tx = db.transaction(IDB_STORE, 'readwrite')
-    tx.objectStore(IDB_STORE).delete(IDB_KEY)
+    tx.objectStore(IDB_STORE).delete(key)
     tx.oncomplete = () => resolve()
-    tx.onerror = () => reject(tx.error ?? new Error('idb_clear_failed'))
+    tx.onerror = () => reject(tx.error ?? new Error('idb_delete_failed'))
   })
+}
+
+async function idbClear(): Promise<void> {
+  await idbDelete(IDB_KEY)
+  await idbDelete(IDB_SHIFT_KEY)
+  await idbDelete(IDB_CAMERA_KEY)
 }
 
 /** True uniquement dans l’app installée (preload Electron). */
@@ -81,7 +98,13 @@ export function isWebFolderSupported(): boolean {
 }
 
 export function isWebFolderToken(path: string | null | undefined): boolean {
-  return Boolean(path?.trim().startsWith(WEB_FOLDER_ROOT))
+  const p = path?.trim() ?? ''
+  if (!p) return false
+  if (p.startsWith(WEB_FOLDER_ROOT)) return true
+  return (
+    (SHIFT_FOLDER_CANDIDATES as readonly string[]).includes(p) ||
+    (CAMERA_FOLDER_CANDIDATES as readonly string[]).includes(p)
+  )
 }
 
 export function looksLikeOsPath(path: string | null | undefined): boolean {
@@ -251,9 +274,57 @@ export async function pickListeDataJsonFile(): Promise<
   }
 }
 
+async function findChildDir(
+  parent: DirHandle,
+  names: readonly string[],
+): Promise<{ handle: DirHandle; name: string } | null> {
+  const wanted = new Set(names)
+  try {
+    for await (const entry of parent.values()) {
+      if (entry.kind === 'directory' && wanted.has(entry.name)) {
+        return { handle: entry as DirHandle, name: entry.name }
+      }
+    }
+  } catch {
+    /* values() indisponible */
+  }
+  for (const name of names) {
+    try {
+      const handle = await parent.getDirectoryHandle(name, { create: false })
+      return { handle, name }
+    } catch {
+      /* absent */
+    }
+  }
+  return null
+}
+
+async function findOrCreateChildDir(
+  parent: DirHandle,
+  names: readonly string[],
+): Promise<{ handle: DirHandle; name: string }> {
+  const found = await findChildDir(parent, names)
+  if (found) return found
+  const name = names[0]
+  const handle = await parent.getDirectoryHandle(name, { create: true })
+  return { handle, name }
+}
+
+/** Relie דוח משמרת / דוח מצלמות (à côté des JSON) et les mémorise. */
+export async function bindReportFoldersFromDataDir(
+  root: DirHandle,
+): Promise<{ shiftName: string; cameraName: string }> {
+  const shift = await findOrCreateChildDir(root, SHIFT_FOLDER_CANDIDATES)
+  const camera = await findOrCreateChildDir(root, CAMERA_FOLDER_CANDIDATES)
+  await idbSet(IDB_SHIFT_KEY, shift.handle)
+  await idbSet(IDB_CAMERA_KEY, camera.handle)
+  boundShiftFolderName = shift.name
+  boundCameraFolderName = camera.name
+  return { shiftName: shift.name, cameraName: camera.name }
+}
+
 export async function ensureAppSubfolders(root: DirHandle): Promise<void> {
-  await root.getDirectoryHandle(WEB_SHIFTS_SUBDIR, { create: true })
-  await root.getDirectoryHandle(WEB_CAMERAS_SUBDIR, { create: true })
+  await bindReportFoldersFromDataDir(root)
 }
 
 async function getChildDir(
@@ -303,13 +374,17 @@ export async function resolveWebDir(
   if (!dir) {
     const root = await getStoredDataFolder()
     if (!root) return null
-    if (inferred === 'shift' || token === WEB_FOLDER_SHIFTS) {
-      dir = await getChildDir(root, WEB_SHIFTS_SUBDIR, create)
-    } else if (inferred === 'camera' || token === WEB_FOLDER_CAMERAS) {
-      dir = await getChildDir(root, WEB_CAMERAS_SUBDIR, create)
-    } else {
-      dir = root
+    const bound = await bindReportFoldersFromDataDir(root)
+    try {
+      if (inferred === 'shift') {
+        dir = await root.getDirectoryHandle(bound.shiftName, { create: false })
+      } else if (inferred === 'camera') {
+        dir = await root.getDirectoryHandle(bound.cameraName, { create: false })
+      }
+    } catch {
+      dir = null
     }
+    if (!dir) dir = root
   }
 
   const parts = relativeDir
@@ -427,15 +502,12 @@ export function withWebSaveFolders<T extends {
 }>(data: T): T {
   const settings = data.settings
   if (!settings) return data
-  const shift = settings.shiftReportSaveFolder?.trim() ?? ''
-  const camera = settings.cameraReportSaveFolder?.trim() ?? ''
   return {
     ...data,
     settings: {
       ...settings,
-      // Garder les anciens chemins Windows (affichage) ; l’écriture passe par בחר…
-      shiftReportSaveFolder: shift || WEB_FOLDER_SHIFTS,
-      cameraReportSaveFolder: camera || WEB_FOLDER_CAMERAS,
+      shiftReportSaveFolder: boundShiftFolderName,
+      cameraReportSaveFolder: boundCameraFolderName,
     },
   }
 }

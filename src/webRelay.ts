@@ -261,3 +261,28 @@ export async function sendShiftReportsEmail(payload: {
     text: `מצורפים דוחות המשמרת ליום ${payload.date} (בוקר, צוהריים, לילה).`,
   })
 }
+
+export async function sendCameraMonthlyReportEmail(payload: {
+  hebrewMonth: string
+  year: number
+  directorEmail: string
+  attachmentName: string
+  attachmentBytes: number[]
+}): Promise<{
+  ok: boolean
+  messageId?: string
+  error?: string
+  via?: 'worker' | 'outlook' | 'gmail'
+}> {
+  if (isElectronApp() && window.listeApi?.sendCameraMonthlyEmail) {
+    return { ok: false, error: 'use_electron_send' }
+  }
+  return sendEmailBrowser({
+    to: payload.directorEmail,
+    subject: `יומן מצלמות ${payload.hebrewMonth} ${payload.year}`,
+    text: `מצורף יומן המצלמות לחודש ${payload.hebrewMonth} ${payload.year}.`,
+    attachments: [
+      { name: payload.attachmentName, bytes: payload.attachmentBytes },
+    ],
+  })
+}

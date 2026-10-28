@@ -35,6 +35,7 @@ import { SHIFT_LABELS, normalizeShiftReportTexts, type ShiftKind, type ShiftRepo
 import { parseShiftReportDate, getNextDayReportContext, shiftDateToDate } from './shiftReportPaths'
 import { sendShiftReportTestEmail } from './webRelay'
 import { isElectronApp } from './webDataFolder'
+import { connectGmail, hasGmailToken } from './gmailSend'
 import { createId } from './types'
 import type { AppSettings } from './types'
 
@@ -127,6 +128,7 @@ export default function CameraReportPanel({
   const [showSettings, setShowSettings] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [testingEmail, setTestingEmail] = useState(false)
+  const [connectingGmail, setConnectingGmail] = useState(false)
   const [sendingEmail, setSendingEmail] = useState(false)
   const [alreadySentInfo, setAlreadySentInfo] = useState<{
     sentAt?: string
@@ -400,7 +402,7 @@ export default function CameraReportPanel({
         )
         return
       }
-      onToast?.(`שליחת בדיקה נכשלה: ${result.error ?? 'שגיאה'}`)
+      onToast?.(`שליחת בדיקה נכשלה: ${emailSendErrorMessage(result.error)}`)
     } catch {
       onToast?.('שליחת בדיקה נכשלה')
     } finally {
@@ -411,7 +413,17 @@ export default function CameraReportPanel({
   function emailSendErrorMessage(error?: string): string {
     switch (error) {
       case 'missing_config':
-        return 'יש למלא אימייל מנהל, SMTP, סיסמה ותיקיית שמירה'
+        return isElectronApp()
+          ? 'יש למלא אימייל מנהל, SMTP, סיסמה ותיקיית שמירה'
+          : 'יש למלא אימייל מנהל ו־Gmail Client ID'
+      case 'gmail_client_missing':
+        return 'מלאו את Google Client ID בהגדרות והתחברו ל־Gmail'
+      case 'gmail_denied':
+        return 'התחברות Gmail בוטלה — נסו שוב'
+      case 'gmail_script':
+        return 'טעינת Google נכשלה — בדקו את החיבור'
+      case 'gmail_send_failed':
+        return 'שליחת Gmail נכשלה'
       case 'no_workbook':
         return 'לא נמצא קובץ Excel לחודש זה'
       case 'workbook_build_failed':
@@ -432,8 +444,12 @@ export default function CameraReportPanel({
     const smtpHost = settings?.shiftReportSmtpHost?.trim()
     const smtpUser = settings?.shiftReportSmtpUser?.trim()
     const smtpPass = settings?.shiftReportSmtpPass ?? ''
-    if (!directorEmail || !smtpHost || !smtpUser || !smtpPass) {
-      onToast?.('יש למלא אימייל מנהל, שרת SMTP, משתמש וסיסמה')
+    if (!directorEmail || (isElectronApp() && (!smtpHost || !smtpUser || !smtpPass))) {
+      onToast?.(
+        isElectronApp()
+          ? 'יש למלא אימייל מנהל, שרת SMTP, משתמש וסיסמה'
+          : 'יש למלא אימייל מנהל',
+      )
       return
     }
     if (!getCameraReportSaveFolder(settings)) {
@@ -461,7 +477,11 @@ export default function CameraReportPanel({
       }
       if (result.ok) {
         setAlreadySentInfo(null)
-        onToast?.('דוא״ל נשלח בהצלחה')
+        onToast?.(
+          result.via === 'gmail'
+            ? 'יומן המצלמות נשלח מ־Gmail שלכם'
+            : 'דוא״ל נשלח בהצלחה',
+        )
         return
       }
       onToast?.(`שליחה נכשלה: ${emailSendErrorMessage(result.error)}`)
@@ -549,8 +569,8 @@ export default function CameraReportPanel({
         <section className="shift-section shift-settings-card">
           <h3>שמירה אוטומטית — דוח מצלמות</h3>
           <p className="shift-settings-note">
-            בגרסת הדפדפן לחצו «בחר…» ובחרו את אותה תיקייה כמו קודם (למשל שולחן
-            העבודה\יומן מבצעים). אין צורך להקליד את הנתיב.
+            בגרסת הדפדפן: אם תיקיית «דוח מצלמות» (או יומן מבצעים) נמצאת ליד
+            ה-JSON, היא מתמלאת לבד והשמירה נכתבת לשם.
           </p>
           <GuardNamesManager
             names={guardNames}
@@ -595,6 +615,22 @@ export default function CameraReportPanel({
                 }
               />
             </label>
+            {!isElectronApp() ? (
+              <label className="shift-field">
+                <span>Gmail — Client ID</span>
+                <input
+                  type="text"
+                  dir="ltr"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={settings?.googleClientId ?? ''}
+                  placeholder="….apps.googleusercontent.com"
+                  onChange={(e) =>
+                    onSettingsChange?.({ googleClientId: e.target.value.trim() })
+                  }
+                />
+              </label>
+            ) : null}
             <label className="shift-field">
               <span>שעת שליחה חודשית (1 בחודש)</span>
               <input
@@ -685,7 +721,46 @@ export default function CameraReportPanel({
             >
               {testingEmail ? 'שולח בדיקה…' : 'בדיקת דוא״ל'}
             </button>
+            {!isElectronApp() ? (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ width: 'auto' }}
+                disabled={
+                  connectingGmail || !(settings?.googleClientId ?? '').trim()
+                }
+                onClick={() => {
+                  void (async () => {
+                    setConnectingGmail(true)
+                    try {
+                      const result = await connectGmail(
+                        settings?.googleClientId ?? '',
+                      )
+                      onToast?.(
+                        result.ok
+                          ? 'Gmail מחובר — השליחה תצא מהחשבון שלכם'
+                          : `Gmail: ${emailSendErrorMessage(result.error)}`,
+                      )
+                    } finally {
+                      setConnectingGmail(false)
+                    }
+                  })()
+                }}
+              >
+                {connectingGmail
+                  ? 'מתחבר…'
+                  : hasGmailToken()
+                    ? 'Gmail מחובר'
+                    : 'התחבר ל־Gmail'}
+              </button>
+            ) : null}
           </div>
+          {!isElectronApp() ? (
+            <p className="shift-settings-test-hint">
+              אותו Gmail כמו בדוח משמרת. שלח יומן שולח את קובץ ה-Excel מהחשבון
+              שלכם אל המנהל.
+            </p>
+          ) : null}
         </section>
       ) : null}
 

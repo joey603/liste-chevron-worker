@@ -21,12 +21,20 @@ import {
 } from './cameraReportWorkbookBrowser'
 import { normalizeData, type ListeApi } from './types'
 import {
+  sendCameraMonthlyReportEmail,
   sendShiftReportTestEmail,
   sendShiftReportsEmail,
   sendTelegramPhoto,
   sendTelegramText,
   testTelegram,
 } from './webRelay'
+import {
+  buildMonthlyCameraReport,
+  cameraReportMonthlyRelativeDir,
+  cameraReportMonthlyWorkbookFileName,
+  monthlyCameraReportHasContent,
+} from './cameraReportMonthly'
+import { hebrewMonthName } from './shiftReportPaths'
 
 function noopUnsub() {
   return () => {}
@@ -196,10 +204,70 @@ export function installWebListeApi(): void {
       return result
     },
     getCameraMonthlyEmailStatus: async () => ({ sent: false }),
-    sendCameraMonthlyEmail: async () => ({
-      ok: false,
-      error: 'use_manual_attachments',
-    }),
+    sendCameraMonthlyEmail: async (payload) => {
+      let data
+      try {
+        const main = JSON.parse(
+          localStorage.getItem('liste-chevron-data') ?? 'null',
+        )
+        const local = JSON.parse(
+          localStorage.getItem(SHIFT_REPORT_LOCAL_STORAGE_KEY) ?? 'null',
+        )
+        data = normalizeData(
+          mergeShiftIntoMain((main as object) ?? {}, (local as object) ?? {}),
+        )
+      } catch {
+        return { ok: false, error: 'missing_config' }
+      }
+      const to = data.settings.directorEmail?.trim() ?? ''
+      if (!to) return { ok: false, error: 'missing_config' }
+      const monthly = buildMonthlyCameraReport(
+        data.cameraReportsArchive,
+        payload.year,
+        payload.month,
+      )
+      if (!monthlyCameraReportHasContent(monthly)) {
+        return { ok: false, error: 'no_workbook' }
+      }
+      const folder =
+        data.settings.cameraReportSaveFolder?.trim() ||
+        data.settings.shiftReportSaveFolder?.trim() ||
+        WEB_FOLDER_CAMERAS
+      const fileName = cameraReportMonthlyWorkbookFileName(
+        payload.year,
+        payload.month,
+      )
+      const relativeDir = cameraReportMonthlyRelativeDir(
+        payload.year,
+        payload.month,
+      )
+      let bytes: Uint8Array | null = null
+      const dir = await resolveWebDir(folder, relativeDir, false, 'camera')
+      if (dir) bytes = await readBytesFile(dir, fileName)
+      if (!bytes?.length) {
+        try {
+          const { buildCameraMonthlyWorkbookBuffer } = await import(
+            '../electron/cameraReportWorkbook'
+          )
+          const buf = await buildCameraMonthlyWorkbookBuffer({
+            year: payload.year,
+            month: payload.month,
+            archive: data.cameraReportsArchive,
+            currentReport: data.cameraReport,
+          })
+          bytes = new Uint8Array(buf)
+        } catch {
+          return { ok: false, error: 'workbook_build_failed' }
+        }
+      }
+      return sendCameraMonthlyReportEmail({
+        hebrewMonth: hebrewMonthName(payload.month),
+        year: payload.year,
+        directorEmail: to,
+        attachmentName: fileName,
+        attachmentBytes: Array.from(bytes),
+      })
+    },
     onUpdateAvailable: () => noopUnsub(),
     onUpdateProgress: () => noopUnsub(),
     onUpdateDownloaded: () => noopUnsub(),

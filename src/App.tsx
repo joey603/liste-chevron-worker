@@ -90,6 +90,7 @@ import {
   pickDataFolder,
   pickListeDataJsonFile,
   readAppFilesFromFolder,
+  ensureAppSubfolders,
   withWebSaveFolders,
   writeAppFilesToFolder,
 } from './webDataFolder'
@@ -529,6 +530,7 @@ async function loadData(): Promise<AppData> {
   webDataDir = await getStoredDataFolder()
   if (webDataDir) {
     try {
+      await ensureAppSubfolders(webDataDir)
       const fromFolder = await readAppFilesFromFolder(webDataDir)
       if (fromFolder.mainRaw != null || fromFolder.localRaw != null) {
         const merged = mergeShiftIntoMain(
