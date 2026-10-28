@@ -36,14 +36,60 @@ function readSettings(): AppSettings {
 function relayConfig(settings?: AppSettings) {
   const s = settings ?? readSettings()
   return {
-    url:
-      sanitizeRelayText(s.cloudflareRelayUrl ?? '').replace(/\/+$/, '') ||
-      DEFAULT_CLOUDFLARE_RELAY_URL,
+    url: DEFAULT_CLOUDFLARE_RELAY_URL,
     key: sanitizeRelayText(s.cloudflareRelayKey ?? ''),
     token: sanitizeRelayText(s.telegramBotToken ?? ''),
     chatId: sanitizeRelayText(s.telegramChatId ?? ''),
     emergencyChatId: sanitizeRelayText(s.telegramEmergencyChatId ?? ''),
   }
+}
+
+function splitTelegram(message: string): string[] {
+  const chunks: string[] = []
+  let rest = message
+  while (rest.length > 4000) {
+    let cut = rest.lastIndexOf('\n', 4000)
+    if (cut < 1000) cut = 4000
+    chunks.push(rest.slice(0, cut))
+    rest = rest.slice(cut).replace(/^\n+/, '')
+  }
+  if (rest) chunks.push(rest)
+  return chunks
+}
+
+/** Comme Electron : GET direct vers Telegram, sans Worker (réseau bureau). */
+async function sendTelegramDirect(
+  token: string,
+  chatId: string,
+  text: string,
+): Promise<TelegramSendResult> {
+  if (!token.trim() || !chatId.trim() || !text.trim()) {
+    return { ok: false, error: 'telegram_not_configured' }
+  }
+  for (const chunk of splitTelegram(text)) {
+    const url = `https://api.telegram.org/bot${token}/sendMessage?${new URLSearchParams({
+      chat_id: chatId,
+      text: chunk,
+    }).toString()}`
+    try {
+      const res = await fetch(url, { method: 'GET' })
+      const data = (await res.json().catch(() => null)) as {
+        ok?: boolean
+        description?: string
+      } | null
+      if (data?.ok) continue
+      if (data && data.ok === false) {
+        return { ok: false, error: data.description || 'failed' }
+      }
+    } catch {
+      try {
+        await fetch(url, { method: 'GET', mode: 'no-cors' })
+      } catch {
+        return { ok: false, error: 'offline' }
+      }
+    }
+  }
+  return { ok: true }
 }
 
 export function describeRelaySettings(settings?: AppSettings): string {
@@ -109,11 +155,14 @@ export async function sendTelegramText(
   const settings = settingsOverride ?? readSettings()
   const { token, chatId: groupId } = relayConfig(settings)
   const target = (chatId ?? groupId).trim()
-  return relayPost(
+  if (!token || !target) return { ok: false, error: 'telegram_not_configured' }
+  const viaRelay = await relayPost(
     '/telegram/text',
     { token, chatId: target, text },
     settings,
   )
+  if (viaRelay.ok) return viaRelay
+  return sendTelegramDirect(token, target, text)
 }
 
 export async function sendTelegramPhoto(
@@ -142,14 +191,10 @@ export async function testTelegram(
     return window.listeApi.testTelegram()
   }
   const settings = settingsOverride ?? readSettings()
-  const { token, chatId } = relayConfig(settings)
-  const sent = await relayPost(
-    '/telegram/text',
-    {
-      token,
-      chatId,
-      text: 'בדיקת Telegram — Liste Chevron',
-    },
+  const { chatId } = relayConfig(settings)
+  const sent = await sendTelegramText(
+    'בדיקת Telegram — Liste Chevron',
+    chatId,
     settings,
   )
   return { ...sent, chatId }

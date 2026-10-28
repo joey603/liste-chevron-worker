@@ -274,7 +274,7 @@ function telegramErrorMessage(error?: string): string {
     case 'offline':
       return 'אין אינטרנט — לא ניתן לשלוח כרגע'
     case 'relay_blocked':
-      return 'רעננו את דף הרשימה עם Ctrl+F5 ואז נסו שוב (אין צורך ב־Cloudflare)'
+      return 'הרשת חוסמת את Cloudflare. חירום אמור לעבור ישירות ל־Telegram — נסו שוב, או נקודת גישה בטלפון.'
     case 'failed':
       return 'שליחת Telegram נכשלה'
     case 'relay_not_configured':
