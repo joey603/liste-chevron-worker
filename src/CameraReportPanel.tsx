@@ -394,8 +394,8 @@ export default function CameraReportPanel({
       })
       if (result.ok) {
         onToast?.(
-          result.via === 'outlook'
-            ? 'נפתח דוא״ל ב-Outlook — לחצו שלח'
+          result.via === 'gmail'
+            ? 'הודעת הבדיקה נשלחה מ־Gmail שלכם'
             : 'הודעת בדיקה נשלחה בהצלחה',
         )
         return

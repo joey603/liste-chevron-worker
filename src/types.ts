@@ -120,6 +120,8 @@ export type AppSettings = {
   cloudflareRelayUrl?: string
   /** Clé ACCESS_KEY du Worker */
   cloudflareRelayKey?: string
+  /** OAuth Client ID Google (Gmail send, version navigateur) */
+  googleClientId?: string
   /**
    * הערות Excel שכבר נצפו: מפתח שם → תוכן ההערה שנצפה.
    * אם התוכן הנוכחי שונה — מוצג badge NEW על אייקון ההודעה.
@@ -140,7 +142,7 @@ export type EmailSendResult = {
   messageId?: string
   to?: string
   error?: string
-  via?: 'worker' | 'outlook'
+  via?: 'worker' | 'outlook' | 'gmail'
 }
 
 export type EmailSentStatus = {
@@ -931,6 +933,10 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
     cloudflareRelayKey:
       typeof rawSettings?.cloudflareRelayKey === 'string'
         ? rawSettings.cloudflareRelayKey.replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').trim()
+        : '',
+    googleClientId:
+      typeof rawSettings?.googleClientId === 'string'
+        ? rawSettings.googleClientId.replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').trim()
         : '',
     seenExcelNotes: normalizeSeenExcelNotes(rawSettings?.seenExcelNotes),
   }

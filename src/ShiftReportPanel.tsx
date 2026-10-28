@@ -35,6 +35,7 @@ import {
 import { restoreUiInteractivity } from './captureDomToPng'
 import { sendShiftReportTestEmail } from './webRelay'
 import { isElectronApp } from './webDataFolder'
+import { connectGmail, hasGmailToken } from './gmailSend'
 import type { AppSettings, ShiftEmailSentLogItem } from './types'
 import { buildShiftReportDocumentModel } from './shiftReportDocument'
 import type { ShiftReportsArchive } from './shiftReportArchive'
@@ -188,6 +189,7 @@ export default function ShiftReportPanel({
   const [texts, setTexts] = useState(() => normalizeShiftReportTexts(textsProp))
   const [exporting, setExporting] = useState(false)
   const [testingEmail, setTestingEmail] = useState(false)
+  const [connectingGmail, setConnectingGmail] = useState(false)
   const [sendingEmail, setSendingEmail] = useState(false)
   const [alreadySentInfo, setAlreadySentInfo] = useState<{
     sentAt?: string
@@ -494,13 +496,13 @@ export default function ShiftReportPanel({
       })
       if (result.ok) {
         onToast?.(
-          result.via === 'outlook'
-            ? 'נפתח דוא״ל ב-Outlook — לחצו שלח'
+          result.via === 'gmail'
+            ? 'הודעת הבדיקה נשלחה מ־Gmail שלכם'
             : 'הודעת בדיקה נשלחה בהצלחה',
         )
         return
       }
-      onToast?.(`שליחת בדיקה נכשלה: ${result.error ?? 'שגיאה'}`)
+      onToast?.(`שליחת בדיקה נכשלה: ${emailSendErrorMessage(result.error)}`)
     } catch {
       onToast?.('שליחת בדיקה נכשלה')
     } finally {
@@ -511,7 +513,17 @@ export default function ShiftReportPanel({
   function emailSendErrorMessage(error?: string): string {
     switch (error) {
       case 'missing_config':
-        return 'יש למלא אימייל מנהל, SMTP, סיסמה ותיקיית שמירה'
+        return isElectronApp()
+          ? 'יש למלא אימייל מנהל, SMTP, סיסמה ותיקיית שמירה'
+          : 'יש למלא אימייל מנהל ו־Gmail Client ID'
+      case 'gmail_client_missing':
+        return 'מלאו את Google Client ID בהגדרות והתחברו ל־Gmail'
+      case 'gmail_denied':
+        return 'התחברות Gmail בוטלה — נסו שוב'
+      case 'gmail_script':
+        return 'טעינת Google נכשלה — בדקו את החיבור'
+      case 'gmail_send_failed':
+        return 'שליחת Gmail נכשלה'
       case 'no_report_data':
         return 'אין נתוני דוח ליום זה'
       case 'no_attachments':
@@ -560,8 +572,8 @@ export default function ShiftReportPanel({
       if (result.ok) {
         setAlreadySentInfo(null)
         onToast?.(
-          result.via === 'outlook'
-            ? 'קובץ הדוא״ל ירד — פתחו אותו ב-Outlook ולחצו שלח'
+          result.via === 'gmail'
+            ? 'הדוחות נשלחו מ־Gmail שלכם'
             : 'דוא״ל נשלח בהצלחה',
         )
         return
@@ -953,6 +965,22 @@ export default function ShiftReportPanel({
                 }
               />
             </label>
+            {!isElectronApp() ? (
+              <label className="shift-field">
+                <span>Gmail — Client ID</span>
+                <input
+                  type="text"
+                  dir="ltr"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={settings?.googleClientId ?? ''}
+                  placeholder="….apps.googleusercontent.com"
+                  onChange={(e) =>
+                    onSettingsChange?.({ googleClientId: e.target.value.trim() })
+                  }
+                />
+              </label>
+            ) : null}
             <label className="shift-field">
               <span>שעת שליחה יומית</span>
               <input
@@ -1041,6 +1069,37 @@ export default function ShiftReportPanel({
             >
               {testingEmail ? 'שולח בדיקה…' : 'בדיקת דוא״ל'}
             </button>
+            {!isElectronApp() ? (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ width: 'auto' }}
+                disabled={connectingGmail || !(settings?.googleClientId ?? '').trim()}
+                onClick={() => {
+                  void (async () => {
+                    setConnectingGmail(true)
+                    try {
+                      const result = await connectGmail(
+                        settings?.googleClientId ?? '',
+                      )
+                      onToast?.(
+                        result.ok
+                          ? 'Gmail מחובר — השליחה תצא מהחשבון שלכם'
+                          : `Gmail: ${emailSendErrorMessage(result.error)}`,
+                      )
+                    } finally {
+                      setConnectingGmail(false)
+                    }
+                  })()
+                }}
+              >
+                {connectingGmail
+                  ? 'מתחבר…'
+                  : hasGmailToken()
+                    ? 'Gmail מחובר'
+                    : 'התחבר ל־Gmail'}
+              </button>
+            ) : null}
             <button
               type="button"
               className="btn btn-ghost"
@@ -1050,7 +1109,7 @@ export default function ShiftReportPanel({
               יומן שליחות
             </button>
             <span className="shift-settings-test-hint">
-              בדפדפן: מספיק אימייל מנהל — Outlook נפתח (Cloudflare חסום במשרד). SMTP רק אם Cloudflare זמין.
+              בדפדפן: מלאו Client ID, התחברו ל־Gmail, ואז שלחו. המייל יוצא מהחשבון שלכם אל המנהל, עם קבצי הדוח.
             </span>
           </div>
         </section>
