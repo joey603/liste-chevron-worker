@@ -133,6 +133,26 @@ button {
   overflow: hidden;
 }
 
+.web-data-folder-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  padding: 10px 16px;
+  background: rgba(0, 87, 168, 0.1);
+  border-bottom: 1px solid rgba(0, 87, 168, 0.22);
+  color: var(--chevron-blue-dark);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.web-data-folder-banner .btn {
+  width: auto;
+  flex-shrink: 0;
+}
+
 .top-brand {
   display: flex;
   align-items: center;

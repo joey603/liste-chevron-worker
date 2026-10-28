@@ -1,10 +1,19 @@
-/** Stockage navigateur : dossier choisi + liste-data.json (comme l’ancienne app). */
+/** Stockage navigateur : un dossier choisi pour toute l’app (JSON + exports). */
 
 const IDB_NAME = 'liste-chevron-fs'
 const IDB_STORE = 'handles'
 const IDB_KEY = 'dataFolder'
+
 export const DATA_FILE_NAME = 'liste-data.json'
 export const SHIFT_LOCAL_FILE_NAME = 'shift-report-local.json'
+export const EMAIL_SENT_LOG_FILE_NAME = 'email-sent-log.json'
+
+/** Jetons internes : pointent vers le dossier choisi / ses sous-dossiers. */
+export const WEB_FOLDER_ROOT = '__web_data__'
+export const WEB_FOLDER_SHIFTS = '__web_data__/דוחות משמרת'
+export const WEB_FOLDER_CAMERAS = '__web_data__/דוחות מצלמות'
+export const WEB_SHIFTS_SUBDIR = 'דוחות משמרת'
+export const WEB_CAMERAS_SUBDIR = 'דוחות מצלמות'
 
 type DirHandle = FileSystemDirectoryHandle
 
@@ -52,12 +61,30 @@ async function idbClear(): Promise<void> {
   })
 }
 
+/** True uniquement dans l’app installée (preload Electron). */
+export function isElectronApp(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    Boolean(window.listeApi) &&
+    (window as Window & { __listeWebBridge?: boolean }).__listeWebBridge !== true
+  )
+}
+
 export function isWebFolderSupported(): boolean {
   return (
     typeof window !== 'undefined' &&
     typeof window.showDirectoryPicker === 'function' &&
-    !window.listeApi
+    !isElectronApp()
   )
+}
+
+export function isWebFolderToken(path: string | null | undefined): boolean {
+  return Boolean(path?.trim().startsWith(WEB_FOLDER_ROOT))
+}
+
+export function looksLikeOsPath(path: string | null | undefined): boolean {
+  const p = path?.trim() ?? ''
+  return /^[A-Za-z]:[\\/]/.test(p) || p.startsWith('\\\\') || p.startsWith('/')
 }
 
 async function ensurePermission(
@@ -111,6 +138,7 @@ export async function pickDataFolder(): Promise<
       return { ok: false, error: 'permission_denied' }
     }
     await idbSet(handle)
+    await ensureAppSubfolders(handle)
     return { ok: true, name: handle.name, handle }
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
@@ -122,6 +150,51 @@ export async function pickDataFolder(): Promise<
 
 export async function clearStoredDataFolder(): Promise<void> {
   await idbClear()
+}
+
+export async function ensureAppSubfolders(root: DirHandle): Promise<void> {
+  await root.getDirectoryHandle(WEB_SHIFTS_SUBDIR, { create: true })
+  await root.getDirectoryHandle(WEB_CAMERAS_SUBDIR, { create: true })
+}
+
+async function getChildDir(
+  parent: DirHandle,
+  name: string,
+  create: boolean,
+): Promise<DirHandle> {
+  return parent.getDirectoryHandle(name, { create })
+}
+
+/** Résout un jeton __web_data__/… (+ sous-chemin relatif) vers un handle. */
+export async function resolveWebDir(
+  folderToken: string,
+  relativeDir = '',
+  create = true,
+): Promise<DirHandle | null> {
+  const root = await getStoredDataFolder()
+  if (!root) return null
+  let dir = root
+  const token = folderToken.trim()
+  if (token === WEB_FOLDER_SHIFTS || token.startsWith(`${WEB_FOLDER_SHIFTS}/`)) {
+    dir = await getChildDir(root, WEB_SHIFTS_SUBDIR, create)
+  } else if (
+    token === WEB_FOLDER_CAMERAS ||
+    token.startsWith(`${WEB_FOLDER_CAMERAS}/`)
+  ) {
+    dir = await getChildDir(root, WEB_CAMERAS_SUBDIR, create)
+  } else if (token !== WEB_FOLDER_ROOT && !isWebFolderToken(token)) {
+    // Ancien chemin Windows : tout écrire à la racine du dossier choisi
+    dir = root
+  }
+
+  const parts = relativeDir
+    .split(/[/\\]+/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+  for (const part of parts) {
+    dir = await getChildDir(dir, part, create)
+  }
+  return dir
 }
 
 async function readTextFile(
@@ -146,6 +219,31 @@ async function writeTextFile(
   const writable = await fileHandle.createWritable()
   await writable.write(contents)
   await writable.close()
+}
+
+export async function writeBytesFile(
+  dir: DirHandle,
+  name: string,
+  bytes: Uint8Array | ArrayBuffer,
+): Promise<void> {
+  const fileHandle = await dir.getFileHandle(name, { create: true })
+  const writable = await fileHandle.createWritable()
+  const src = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
+  const ab = new ArrayBuffer(src.byteLength)
+  new Uint8Array(ab).set(src)
+  await writable.write(ab)
+  await writable.close()
+}
+
+export async function deleteFileIfExists(
+  dir: DirHandle,
+  name: string,
+): Promise<void> {
+  try {
+    await dir.removeEntry(name)
+  } catch {
+    /* absent */
+  }
 }
 
 export async function readAppFilesFromFolder(dir: DirHandle): Promise<{
@@ -178,6 +276,29 @@ export async function writeAppFilesToFolder(
   mainJson: string,
   localJson: string,
 ): Promise<void> {
+  await ensureAppSubfolders(dir)
   await writeTextFile(dir, DATA_FILE_NAME, mainJson)
   await writeTextFile(dir, SHIFT_LOCAL_FILE_NAME, localJson)
+}
+
+export function withWebSaveFolders<T extends {
+  settings?: {
+    shiftReportSaveFolder?: string
+    cameraReportSaveFolder?: string
+  }
+}>(data: T): T {
+  const settings = data.settings
+  if (!settings) return data
+  const shift = settings.shiftReportSaveFolder?.trim() ?? ''
+  const camera = settings.cameraReportSaveFolder?.trim() ?? ''
+  return {
+    ...data,
+    settings: {
+      ...settings,
+      shiftReportSaveFolder:
+        !shift || looksLikeOsPath(shift) ? WEB_FOLDER_SHIFTS : shift,
+      cameraReportSaveFolder:
+        !camera || looksLikeOsPath(camera) ? WEB_FOLDER_CAMERAS : camera,
+    },
+  }
 }

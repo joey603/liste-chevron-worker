@@ -7,6 +7,7 @@ import {
   type AppSettings,
   type TelegramSendResult,
 } from './types'
+import { isElectronApp } from './webDataFolder'
 
 const DATA_KEY = 'liste-chevron-data'
 
@@ -77,7 +78,7 @@ export async function sendTelegramText(
   text: string,
   chatId?: string,
 ): Promise<TelegramSendResult> {
-  if (window.listeApi?.sendTelegramText) {
+  if (isElectronApp() && window.listeApi?.sendTelegramText) {
     return window.listeApi.sendTelegramText(text, chatId)
   }
   const settings = readSettings()
@@ -95,7 +96,7 @@ export async function sendTelegramPhoto(
   caption?: string,
   chatId?: string,
 ): Promise<TelegramSendResult> {
-  if (window.listeApi?.sendTelegramPhoto) {
+  if (isElectronApp() && window.listeApi?.sendTelegramPhoto) {
     return window.listeApi.sendTelegramPhoto(imageDataUrl, caption, chatId)
   }
   const settings = readSettings()
@@ -111,7 +112,7 @@ export async function sendTelegramPhoto(
 export async function testTelegram(): Promise<
   TelegramSendResult & { chatId?: string }
 > {
-  if (window.listeApi?.testTelegram) {
+  if (isElectronApp() && window.listeApi?.testTelegram) {
     return window.listeApi.testTelegram()
   }
   const settings = readSettings()
@@ -135,7 +136,7 @@ export async function sendShiftReportTestEmail(payload: {
   smtpUser: string
   smtpPass: string
 }): Promise<{ ok: boolean; error?: string }> {
-  if (window.listeApi?.sendShiftReportTestEmail) {
+  if (isElectronApp() && window.listeApi?.sendShiftReportTestEmail) {
     return window.listeApi.sendShiftReportTestEmail(payload)
   }
   return relayPost('/email', {
@@ -158,7 +159,7 @@ export async function sendShiftReportsEmail(payload: {
   smtpPass: string
   attachments: Array<{ name: string; bytes: number[] }>
 }): Promise<{ ok: boolean; messageId?: string; error?: string }> {
-  if (window.listeApi?.sendShiftReportsEmail) {
+  if (isElectronApp() && window.listeApi?.sendShiftReportsEmail) {
     return window.listeApi.sendShiftReportsEmail(payload)
   }
   return relayPost('/email', {

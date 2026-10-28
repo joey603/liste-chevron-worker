@@ -84,12 +84,17 @@ import {
   clearStoredDataFolder,
   getStoredDataFolder,
   getStoredDataFolderName,
+  isElectronApp,
   isWebFolderSupported,
   pickDataFolder,
   readAppFilesFromFolder,
+  withWebSaveFolders,
   writeAppFilesToFolder,
 } from './webDataFolder'
+import { installWebListeApi } from './webListeApi'
 import chevronLogo from './assets/chevron-logo.png'
+
+installWebListeApi()
 
 let webDataDir: FileSystemDirectoryHandle | null = null
 
@@ -515,7 +520,7 @@ function readLocalStorageParts(): {
 }
 
 async function loadData(): Promise<AppData> {
-  if (window.listeApi) return normalizeData(await window.listeApi.getData())
+  if (isElectronApp()) return normalizeData(await window.listeApi.getData())
 
   webDataDir = await getStoredDataFolder()
   if (webDataDir) {
@@ -526,7 +531,7 @@ async function loadData(): Promise<AppData> {
           (fromFolder.mainRaw as object) ?? {},
           (fromFolder.localRaw as object) ?? {},
         )
-        return normalizeData(merged)
+        return normalizeData(withWebSaveFolders(merged))
       }
       // Dossier choisi mais encore vide → reprendre localStorage si présent
       const fromLs = readLocalStorageParts()
@@ -535,10 +540,11 @@ async function loadData(): Promise<AppData> {
           (fromLs.mainRaw as object) ?? {},
           fromLs.localRaw,
         )
-        const normalized = normalizeData(merged)
+        const normalized = normalizeData(withWebSaveFolders(merged))
         await saveData(normalized)
         return normalized
       }
+      return withWebSaveFolders(normalizeData(null))
     } catch {
       /* fallback below */
     }
@@ -557,11 +563,13 @@ async function loadData(): Promise<AppData> {
 }
 
 async function saveData(data: AppData): Promise<void> {
-  if (window.listeApi) {
+  if (isElectronApp()) {
     await window.listeApi.saveData(data)
     return
   }
-  const normalized = normalizeData(data)
+  const normalized = webDataDir
+    ? withWebSaveFolders(normalizeData(data))
+    : normalizeData(data)
   const { localRaw: existingLocal } = readLocalStorageParts()
   const localPayload = buildLocalPayload(normalized, existingLocal)
   const mainJson = JSON.stringify(stripShiftFromMain(normalized))
@@ -2611,6 +2619,55 @@ export default function App() {
         </nav>
       </header>
 
+      {isWebFolderSupported() && !dataFolderName ? (
+        <div className="web-data-folder-banner" role="status">
+          <span>
+            לשמירה קבועה אחרי כיבוי המחשב — בחרו תיקיית נתונים (למשל Liste
+            Chevron ב־AppData).
+          </span>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={pickingDataFolder}
+            onClick={() => {
+              setShowPresenceSettings(true)
+              setActiveTab('presence')
+              void (async () => {
+                setPickingDataFolder(true)
+                try {
+                  const picked = await pickDataFolder()
+                  if (!picked.ok) return
+                  webDataDir = picked.handle
+                  setDataFolderName(picked.name)
+                  const fromFolder = await readAppFilesFromFolder(picked.handle)
+                  if (fromFolder.mainRaw != null || fromFolder.localRaw != null) {
+                    const merged = mergeShiftIntoMain(
+                      (fromFolder.mainRaw as object) ?? {},
+                      (fromFolder.localRaw as object) ?? {},
+                    )
+                    const next = withWebSaveFolders(normalizeData(merged))
+                    setData(next)
+                    await saveData(next)
+                  } else if (data) {
+                    const next = withWebSaveFolders(data)
+                    setData(next)
+                    await saveData(next)
+                  }
+                  setToast({
+                    message: `שמירה קבועה בתיקייה: ${picked.name}`,
+                  })
+                } finally {
+                  setPickingDataFolder(false)
+                  restoreUiInteractivity()
+                }
+              })()
+            }}
+          >
+            {pickingDataFolder ? 'פותח…' : 'בחר תיקייה עכשיו'}
+          </button>
+        </div>
+      ) : null}
+
       <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       {activeTab === 'presence' && (
         <>
@@ -3261,18 +3318,13 @@ export default function App() {
               </div>
             </div>
 
-            <h3>התראות כניסה / יציאה</h3>
-            <p className="shift-settings-note">
-              כבוי כברירת מחדל. כשפעיל — כניסה ויציאה נשלחות לקבוצת Telegram
-              שהוגדרה (API רשמית). העובד למעקב לא מקבל הודעה.
-            </p>
             {isWebFolderSupported() ? (
               <>
-                <h3>תיקיית נתונים (קובץ)</h3>
+                <h3>תיקיית נתונים קבועה</h3>
                 <p className="shift-settings-note">
-                  בחרו את התיקייה של האפליקציה הישנה (%AppData%\Liste Chevron)
-                  כדי לקרוא ולשמור את liste-data.json. אחרי הפעלה מחדש של המחשב
-                  הדפדפן יזכור את התיקייה.
+                  כל האפליקציה נשמרת בתיקייה זו: רשימה, הגדרות, דוחות משמרת
+                  ומצלמות. בחרו את %AppData%\Liste Chevron או תיקייה קבועה אחרת.
+                  אחרי הפעלה מחדש הדפדפן זוכר את התיקייה.
                 </p>
                 <div className="shift-settings-test-row">
                   <button
@@ -3309,16 +3361,20 @@ export default function App() {
                               (fromFolder.mainRaw as object) ?? {},
                               (fromFolder.localRaw as object) ?? {},
                             )
-                            const next = normalizeData(merged)
+                            const next = withWebSaveFolders(
+                              normalizeData(merged),
+                            )
                             setData(next)
                             await saveData(next)
                             setToast({
-                              message: `נטען מ־${picked.name}\\liste-data.json`,
+                              message: `הכל נטען מ־${picked.name} (קבוע בדיסק)`,
                             })
                           } else if (data) {
-                            await saveData(data)
+                            const next = withWebSaveFolders(data)
+                            setData(next)
+                            await saveData(next)
                             setToast({
-                              message: `התיקייה נבחרה — הנתונים נשמרו ל־liste-data.json`,
+                              message: `התיקייה נבחרה — כל הנתונים נשמרים עכשיו בדיסק`,
                             })
                           } else {
                             setToast({ message: `התיקייה נבחרה: ${picked.name}` })
@@ -3338,11 +3394,11 @@ export default function App() {
                   </button>
                   {dataFolderName ? (
                     <span className="shift-settings-test-hint">
-                      תיקייה פעילה: {dataFolderName}
+                      תיקייה פעילה: {dataFolderName} · שמירה קבועה בדיסק
                     </span>
                   ) : (
                     <span className="shift-settings-test-hint">
-                      עדיין לא נבחרה תיקייה — הנתונים נשמרים זמנית בדפדפן.
+                      חובה לבחור תיקייה לשמירה קבועה (אחרת רק בדפדפן).
                     </span>
                   )}
                   {dataFolderName ? (
@@ -3368,6 +3424,11 @@ export default function App() {
                 </div>
               </>
             ) : null}
+            <h3>התראות כניסה / יציאה</h3>
+            <p className="shift-settings-note">
+              כבוי כברירת מחדל. כשפעיל — כניסה ויציאה נשלחות לקבוצת Telegram
+              שהוגדרה (API רשמית). העובד למעקב לא מקבל הודעה.
+            </p>
             <h3>Cloudflare (גרסת דפדפן)</h3>
             <p className="shift-settings-note">
               לשימוש בלי התקנה: הדביקו את כתובת ה-Worker ואת מפתח ACCESS_KEY.
