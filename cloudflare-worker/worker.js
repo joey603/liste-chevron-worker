@@ -5,7 +5,7 @@
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, X-Relay-Key',
 }
 
@@ -13,6 +13,13 @@ export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: CORS })
+    }
+    if (request.method === 'GET') {
+      return json({
+        ok: true,
+        service: 'liste-chevron-relay',
+        message: 'Le relais fonctionne. Telegram et e-mail passent par POST.',
+      })
     }
     if (request.method !== 'POST') {
       return json({ ok: false, error: 'method_not_allowed' }, 405)
