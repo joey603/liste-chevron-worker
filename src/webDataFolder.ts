@@ -180,11 +180,27 @@ export async function pickListeDataJsonFile(): Promise<
       return { ok: false, error: 'invalid_json' }
     }
     const obj = parsed as Record<string, unknown>
-    // Fichier complet app OU payload shift-local seul
-    if ('settings' in obj || 'workers' in obj || 'people' in obj) {
+    const looksLikeShiftLocal =
+      'shiftReport' in obj ||
+      'shiftReportTexts' in obj ||
+      'shiftReportsArchive' in obj ||
+      'cameraReport' in obj ||
+      'cameraReportsArchive' in obj
+    const looksLikeMainList =
+      'workers' in obj ||
+      'people' in obj ||
+      'cardlessPeople' in obj ||
+      'banned' in obj ||
+      'authorizedPeople' in obj ||
+      'guards' in obj
+    // shift-report-local.json (même s’il a un bloc settings)
+    if (looksLikeShiftLocal && !looksLikeMainList) {
+      return { ok: true, mainRaw: {}, localRaw: obj }
+    }
+    if (looksLikeMainList) {
       return { ok: true, mainRaw: obj, localRaw: null }
     }
-    if ('shiftReport' in obj || 'cameraReport' in obj) {
+    if (looksLikeShiftLocal) {
       return { ok: true, mainRaw: {}, localRaw: obj }
     }
     return { ok: true, mainRaw: obj, localRaw: null }

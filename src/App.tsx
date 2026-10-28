@@ -3423,17 +3423,37 @@ export default function App() {
                             }
                             return
                           }
+                          const base = data ?? normalizeData(null)
                           const merged = mergeShiftIntoMain(
-                            (imported.mainRaw as object) ?? {},
-                            (imported.localRaw as object) ?? {},
+                            imported.localRaw
+                              ? stripShiftFromMain(base)
+                              : ((imported.mainRaw as object) ??
+                                  stripShiftFromMain(base)),
+                            imported.localRaw
+                              ? (imported.localRaw as object)
+                              : extractShiftLocalPayload(base),
                           )
-                          const next = withWebSaveFolders(normalizeData(merged))
+                          // Si on importe la liste principale, garder les rapports déjà chargés
+                          const mergedKeepReports =
+                            imported.mainRaw && !imported.localRaw
+                              ? mergeShiftIntoMain(
+                                  imported.mainRaw as object,
+                                  extractShiftLocalPayload(base),
+                                )
+                              : merged
+                          const next = withWebSaveFolders(
+                            normalizeData(mergedKeepReports),
+                          )
                           setData(next)
                           await saveData(next)
                           setToast({
-                            message: dataFolderName
-                              ? 'liste-data.json נטען ונשמר בתיקייה שנבחרה'
-                              : 'liste-data.json נטען — עכשיו בחרו תיקייה רגילה לשמירה קבועה',
+                            message: imported.localRaw
+                              ? dataFolderName
+                                ? 'דוח משמרת / מצלמות נטען ונשמר בתיקייה'
+                                : 'דוח משמרת נטען — בחרו גם תיקייה לשמירה קבועה'
+                              : dataFolderName
+                                ? 'liste-data.json נטען ונשמר בתיקייה שנבחרה'
+                                : 'liste-data.json נטען — עכשיו בחרו תיקייה רגילה לשמירה קבועה',
                           })
                         } finally {
                           setPickingDataFolder(false)
@@ -3442,7 +3462,7 @@ export default function App() {
                       })()
                     }}
                   >
-                    ייבוא liste-data.json
+                    ייבוא JSON (liste / דוח)
                   </button>
                   {dataFolderName ? (
                     <button
