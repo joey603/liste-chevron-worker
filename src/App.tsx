@@ -80,7 +80,18 @@ import {
   sendTelegramText as sendTelegramTextNow,
   testTelegram as testTelegramNow,
 } from './webRelay'
+import {
+  clearStoredDataFolder,
+  getStoredDataFolder,
+  getStoredDataFolderName,
+  isWebFolderSupported,
+  pickDataFolder,
+  readAppFilesFromFolder,
+  writeAppFilesToFolder,
+} from './webDataFolder'
 import chevronLogo from './assets/chevron-logo.png'
+
+let webDataDir: FileSystemDirectoryHandle | null = null
 
 const HEBREW_ALPHABET = [
   'א',
@@ -468,16 +479,77 @@ function browserFallback(): AppData {
   return normalizeData(null)
 }
 
-async function loadData(): Promise<AppData> {
-  if (window.listeApi) return normalizeData(await window.listeApi.getData())
+function buildLocalPayload(
+  normalized: AppData,
+  existingLocal: ShiftReportLocalPayload,
+): ShiftReportLocalPayload {
+  const incoming = extractShiftLocalPayload(normalized)
+  return {
+    ...incoming,
+    settings: coalesceShiftSettings(existingLocal.settings, incoming.settings),
+  }
+}
+
+function readLocalStorageParts(): {
+  mainRaw: unknown | null
+  localRaw: ShiftReportLocalPayload
+} {
+  let mainRaw: unknown | null = null
+  let localRaw: ShiftReportLocalPayload = {}
   try {
-    const mainRaw = JSON.parse(
-      localStorage.getItem('liste-chevron-data') ?? 'null',
-    )
-    const localRaw = JSON.parse(
+    mainRaw = JSON.parse(localStorage.getItem('liste-chevron-data') ?? 'null')
+  } catch {
+    mainRaw = null
+  }
+  try {
+    const raw = JSON.parse(
       localStorage.getItem(SHIFT_REPORT_LOCAL_STORAGE_KEY) ?? 'null',
     )
-    const merged = mergeShiftIntoMain(mainRaw ?? {}, localRaw ?? {})
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      localRaw = raw as ShiftReportLocalPayload
+    }
+  } catch {
+    /* ignore */
+  }
+  return { mainRaw, localRaw }
+}
+
+async function loadData(): Promise<AppData> {
+  if (window.listeApi) return normalizeData(await window.listeApi.getData())
+
+  webDataDir = await getStoredDataFolder()
+  if (webDataDir) {
+    try {
+      const fromFolder = await readAppFilesFromFolder(webDataDir)
+      if (fromFolder.mainRaw != null || fromFolder.localRaw != null) {
+        const merged = mergeShiftIntoMain(
+          (fromFolder.mainRaw as object) ?? {},
+          (fromFolder.localRaw as object) ?? {},
+        )
+        return normalizeData(merged)
+      }
+      // Dossier choisi mais encore vide → reprendre localStorage si présent
+      const fromLs = readLocalStorageParts()
+      if (fromLs.mainRaw != null) {
+        const merged = mergeShiftIntoMain(
+          (fromLs.mainRaw as object) ?? {},
+          fromLs.localRaw,
+        )
+        const normalized = normalizeData(merged)
+        await saveData(normalized)
+        return normalized
+      }
+    } catch {
+      /* fallback below */
+    }
+  }
+
+  try {
+    const { mainRaw, localRaw } = readLocalStorageParts()
+    const merged = mergeShiftIntoMain(
+      (mainRaw as object) ?? {},
+      localRaw,
+    )
     return normalizeData(merged)
   } catch {
     return browserFallback()
@@ -490,29 +562,25 @@ async function saveData(data: AppData): Promise<void> {
     return
   }
   const normalized = normalizeData(data)
-  let existingLocal: ShiftReportLocalPayload = {}
-  try {
-    const raw = JSON.parse(
-      localStorage.getItem(SHIFT_REPORT_LOCAL_STORAGE_KEY) ?? 'null',
-    )
-    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-      existingLocal = raw as ShiftReportLocalPayload
-    }
-  } catch {
-    /* ignore */
+  const { localRaw: existingLocal } = readLocalStorageParts()
+  const localPayload = buildLocalPayload(normalized, existingLocal)
+  const mainJson = JSON.stringify(stripShiftFromMain(normalized))
+  const localJson = JSON.stringify(localPayload)
+
+  // Toujours garder une copie navigateur en secours
+  localStorage.setItem(SHIFT_REPORT_LOCAL_STORAGE_KEY, localJson)
+  localStorage.setItem('liste-chevron-data', mainJson)
+
+  if (!webDataDir) {
+    webDataDir = await getStoredDataFolder()
   }
-  const incoming = extractShiftLocalPayload(normalized)
-  localStorage.setItem(
-    SHIFT_REPORT_LOCAL_STORAGE_KEY,
-    JSON.stringify({
-      ...incoming,
-      settings: coalesceShiftSettings(existingLocal.settings, incoming.settings),
-    }),
-  )
-  localStorage.setItem(
-    'liste-chevron-data',
-    JSON.stringify(stripShiftFromMain(normalized)),
-  )
+  if (webDataDir) {
+    try {
+      await writeAppFilesToFolder(webDataDir, mainJson, localJson)
+    } catch {
+      /* localStorage déjà à jour */
+    }
+  }
 }
 
 export default function App() {
@@ -541,6 +609,8 @@ export default function App() {
   } | null>(null)
   const authorizedExcelMtimeRef = useRef<number | null>(null)
   const [showPresenceSettings, setShowPresenceSettings] = useState(false)
+  const [dataFolderName, setDataFolderName] = useState<string | null>(null)
+  const [pickingDataFolder, setPickingDataFolder] = useState(false)
   const [excelNotePopup, setExcelNotePopup] = useState<{
     name: string
     notes: string
@@ -620,6 +690,9 @@ export default function App() {
 
   useEffect(() => {
     loadData().then((loaded) => setData(normalizeData(loaded)))
+    if (isWebFolderSupported()) {
+      void getStoredDataFolderName().then((name) => setDataFolderName(name))
+    }
   }, [])
 
   // Filet de sécurité : calques de capture orphelins / focus après dialogues
@@ -3193,6 +3266,108 @@ export default function App() {
               כבוי כברירת מחדל. כשפעיל — כניסה ויציאה נשלחות לקבוצת Telegram
               שהוגדרה (API רשמית). העובד למעקב לא מקבל הודעה.
             </p>
+            {isWebFolderSupported() ? (
+              <>
+                <h3>תיקיית נתונים (קובץ)</h3>
+                <p className="shift-settings-note">
+                  בחרו את התיקייה של האפליקציה הישנה (%AppData%\Liste Chevron)
+                  כדי לקרוא ולשמור את liste-data.json. אחרי הפעלה מחדש של המחשב
+                  הדפדפן יזכור את התיקייה.
+                </p>
+                <div className="shift-settings-test-row">
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ width: 'auto' }}
+                    disabled={pickingDataFolder}
+                    onClick={() => {
+                      void (async () => {
+                        setPickingDataFolder(true)
+                        try {
+                          const picked = await pickDataFolder()
+                          if (!picked.ok) {
+                            if (!picked.canceled) {
+                              setToast({
+                                message:
+                                  picked.error === 'unsupported'
+                                    ? 'בחירת תיקייה לא נתמכת בדפדפן זה — השתמשו ב־Edge או Chrome'
+                                    : 'בחירת התיקייה נכשלה',
+                              })
+                            }
+                            return
+                          }
+                          webDataDir = picked.handle
+                          setDataFolderName(picked.name)
+                          const fromFolder = await readAppFilesFromFolder(
+                            picked.handle,
+                          )
+                          if (
+                            fromFolder.mainRaw != null ||
+                            fromFolder.localRaw != null
+                          ) {
+                            const merged = mergeShiftIntoMain(
+                              (fromFolder.mainRaw as object) ?? {},
+                              (fromFolder.localRaw as object) ?? {},
+                            )
+                            const next = normalizeData(merged)
+                            setData(next)
+                            await saveData(next)
+                            setToast({
+                              message: `נטען מ־${picked.name}\\liste-data.json`,
+                            })
+                          } else if (data) {
+                            await saveData(data)
+                            setToast({
+                              message: `התיקייה נבחרה — הנתונים נשמרו ל־liste-data.json`,
+                            })
+                          } else {
+                            setToast({ message: `התיקייה נבחרה: ${picked.name}` })
+                          }
+                        } finally {
+                          setPickingDataFolder(false)
+                          restoreUiInteractivity()
+                        }
+                      })()
+                    }}
+                  >
+                    {pickingDataFolder
+                      ? 'פותח…'
+                      : dataFolderName
+                        ? 'החלף תיקייה'
+                        : 'בחר תיקיית נתונים'}
+                  </button>
+                  {dataFolderName ? (
+                    <span className="shift-settings-test-hint">
+                      תיקייה פעילה: {dataFolderName}
+                    </span>
+                  ) : (
+                    <span className="shift-settings-test-hint">
+                      עדיין לא נבחרה תיקייה — הנתונים נשמרים זמנית בדפדפן.
+                    </span>
+                  )}
+                  {dataFolderName ? (
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{ width: 'auto' }}
+                      onClick={() => {
+                        void (async () => {
+                          await clearStoredDataFolder()
+                          webDataDir = null
+                          setDataFolderName(null)
+                          setToast({
+                            message:
+                              'הקישור לתיקייה בוטל — השמירה ממשיכה בדפדפן בלבד',
+                          })
+                        })()
+                      }}
+                    >
+                      בטל תיקייה
+                    </button>
+                  ) : null}
+                </div>
+              </>
+            ) : null}
             <h3>Cloudflare (גרסת דפדפן)</h3>
             <p className="shift-settings-note">
               לשימוש בלי התקנה: הדביקו את כתובת ה-Worker ואת מפתח ACCESS_KEY.
