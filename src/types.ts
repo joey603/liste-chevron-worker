@@ -924,12 +924,12 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
         : '07:00',
     cloudflareRelayUrl:
       typeof rawSettings?.cloudflareRelayUrl === 'string' &&
-      rawSettings.cloudflareRelayUrl.trim()
-        ? rawSettings.cloudflareRelayUrl.trim()
+      rawSettings.cloudflareRelayUrl.replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').trim()
+        ? rawSettings.cloudflareRelayUrl.replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').trim()
         : 'https://weathered-cell-7a63.yoelibarthel603.workers.dev',
     cloudflareRelayKey:
       typeof rawSettings?.cloudflareRelayKey === 'string'
-        ? rawSettings.cloudflareRelayKey
+        ? rawSettings.cloudflareRelayKey.replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').trim()
         : '',
     seenExcelNotes: normalizeSeenExcelNotes(rawSettings?.seenExcelNotes),
   }

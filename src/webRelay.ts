@@ -14,6 +14,12 @@ const DATA_KEY = 'liste-chevron-data'
 export const DEFAULT_CLOUDFLARE_RELAY_URL =
   'https://weathered-cell-7a63.yoelibarthel603.workers.dev'
 
+const BIDI_MARKS = /[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g
+
+function sanitizeRelayText(value: string): string {
+  return value.replace(BIDI_MARKS, '').trim()
+}
+
 function readSettings(): AppSettings {
   try {
     const mainRaw = JSON.parse(localStorage.getItem(DATA_KEY) ?? 'null')
@@ -30,12 +36,25 @@ function readSettings(): AppSettings {
 function relayConfig(settings?: AppSettings) {
   const s = settings ?? readSettings()
   return {
-    url: (s.cloudflareRelayUrl ?? '').trim().replace(/\/+$/, '') ||
+    url:
+      sanitizeRelayText(s.cloudflareRelayUrl ?? '').replace(/\/+$/, '') ||
       DEFAULT_CLOUDFLARE_RELAY_URL,
-    key: s.cloudflareRelayKey ?? '',
-    token: (s.telegramBotToken ?? '').trim(),
-    chatId: (s.telegramChatId ?? '').trim(),
+    key: sanitizeRelayText(s.cloudflareRelayKey ?? ''),
+    token: sanitizeRelayText(s.telegramBotToken ?? ''),
+    chatId: sanitizeRelayText(s.telegramChatId ?? ''),
+    emergencyChatId: sanitizeRelayText(s.telegramEmergencyChatId ?? ''),
   }
+}
+
+export function describeRelaySettings(settings?: AppSettings): string {
+  const { url, key, token, chatId, emergencyChatId } = relayConfig(settings)
+  return [
+    `Worker: ${url}`,
+    `מפתח: ${key ? `${key.length} תווים` : 'חסר'}`,
+    `Token: ${token ? 'כן' : 'חסר'}`,
+    `chat חירום: ${emergencyChatId || 'חסר'}`,
+    `chat קבוצה: ${chatId || 'חסר'}`,
+  ].join(' · ')
 }
 
 async function relayPost(
@@ -63,9 +82,10 @@ async function relayPost(
     } | null
     if (!data) return { ok: false, error: 'relay_failed' }
     if (!data.ok) {
+      const err = data.error || (res.status === 401 ? 'unauthorized' : 'relay_failed')
       return {
         ok: false,
-        error: data.error || (res.status === 401 ? 'unauthorized' : 'relay_failed'),
+        error: res.status === 401 ? 'unauthorized' : err,
       }
     }
     return { ok: true, messageId: data.messageId }
@@ -115,13 +135,13 @@ export async function sendTelegramPhoto(
   )
 }
 
-export async function testTelegram(): Promise<
-  TelegramSendResult & { chatId?: string }
-> {
+export async function testTelegram(
+  settingsOverride?: AppSettings,
+): Promise<TelegramSendResult & { chatId?: string }> {
   if (isElectronApp() && window.listeApi?.testTelegram) {
     return window.listeApi.testTelegram()
   }
-  const settings = readSettings()
+  const settings = settingsOverride ?? readSettings()
   const { token, chatId } = relayConfig(settings)
   const sent = await relayPost(
     '/telegram/text',

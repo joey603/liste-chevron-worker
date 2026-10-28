@@ -79,6 +79,7 @@ import {
   sendTelegramPhoto as sendTelegramPhotoNow,
   sendTelegramText as sendTelegramTextNow,
   testTelegram as testTelegramNow,
+  describeRelaySettings,
 } from './webRelay'
 import {
   clearStoredDataFolder,
@@ -3500,15 +3501,18 @@ export default function App() {
             </p>
             <h3>Cloudflare (גרסת דפדפן)</h3>
             <p className="shift-settings-note">
-              לשימוש בלי התקנה: הדביקו את כתובת ה-Worker ואת מפתח ACCESS_KEY.
-              הם נשמרים ב־liste-data.json וב־shift-report-local.json.
+              לשימוש בלי התקנה: כתובת ה-Worker כבר ממולאת. הדביקו רק את מפתח
+              ACCESS_KEY, וגם את Token + chat_id חירום של Telegram (או ייבוא
+              liste-data.json). חירום לא עובד עם המפתח לבד.
             </p>
             <div className="shift-settings-grid presence-watch-grid">
               <label className="shift-field">
                 <span>כתובת Worker</span>
                 <input
-                  type="url"
+                  type="text"
+                  dir="ltr"
                   autoComplete="off"
+                  spellCheck={false}
                   value={data.settings.cloudflareRelayUrl ?? ''}
                   placeholder="https://weathered-cell-7a63.yoelibarthel603.workers.dev"
                   onChange={(e) =>
@@ -3525,8 +3529,10 @@ export default function App() {
               <label className="shift-field">
                 <span>מפתח גישה</span>
                 <input
-                  type="password"
+                  type="text"
+                  dir="ltr"
                   autoComplete="off"
+                  spellCheck={false}
                   value={data.settings.cloudflareRelayKey ?? ''}
                   placeholder="ACCESS_KEY"
                   onChange={(e) =>
@@ -3534,12 +3540,66 @@ export default function App() {
                       ...data,
                       settings: {
                         ...data.settings,
-                        cloudflareRelayKey: e.target.value,
+                        cloudflareRelayKey: e.target.value.trim(),
                       },
                     })
                   }
                 />
               </label>
+            </div>
+            {!hasTelegramEmergency(data) ? (
+              <p className="shift-settings-test-hint">
+                חסר Token או chat_id חירום — ייבאו liste-data.json או מלאו אותם
+                למטה. בלי זה חירום לא ישלח.
+              </p>
+            ) : !(data.settings.cloudflareRelayKey ?? '').trim() ? (
+              <p className="shift-settings-test-hint">
+                מלאו את מפתח הגישה ואז לחצו חירום.
+              </p>
+            ) : (
+              <p className="shift-settings-test-hint">
+                Cloudflare + Telegram מוכנים לשליחת חירום.
+              </p>
+            )}
+            <p className="shift-settings-test-hint" dir="ltr">
+              {describeRelaySettings(data.settings)}
+            </p>
+            <div className="shift-settings-test-row">
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ width: 'auto' }}
+                disabled={testingTelegram}
+                onClick={() => {
+                  void (async () => {
+                    setTestingTelegram(true)
+                    try {
+                      const target =
+                        data.settings.telegramEmergencyChatId?.trim() ||
+                        data.settings.telegramChatId?.trim()
+                      const result = await sendTelegramTextNow(
+                        'בדיקת Cloudflare — Liste Chevron',
+                        target,
+                        data.settings,
+                      )
+                      if (result?.ok) {
+                        setToast({
+                          message: 'בדיקה נשלחה ב־Telegram — חירום אמור לעבוד',
+                        })
+                      } else {
+                        setToast({
+                          message: `${telegramErrorMessage(result?.error)} (${describeRelaySettings(data.settings)})`,
+                        })
+                      }
+                    } finally {
+                      setTestingTelegram(false)
+                      restoreUiInteractivity()
+                    }
+                  })()
+                }}
+              >
+                {testingTelegram ? 'שולח…' : 'בדיקת חירום / Cloudflare'}
+              </button>
             </div>
             <label className="shift-field presence-watch-enable">
               <span>שליחה אוטומטית</span>
@@ -3584,8 +3644,10 @@ export default function App() {
               <label className="shift-field">
                 <span>Telegram — Token (BotFather)</span>
                 <input
-                  type="password"
+                  type="text"
+                  dir="ltr"
                   autoComplete="off"
+                  spellCheck={false}
                   value={data.settings.telegramBotToken ?? ''}
                   placeholder="123456:ABC…"
                   onChange={(e) =>
@@ -3603,6 +3665,7 @@ export default function App() {
                 <span>Telegram — chat_id קבוצה</span>
                 <input
                   type="text"
+                  dir="ltr"
                   inputMode="numeric"
                   value={data.settings.telegramChatId ?? ''}
                   placeholder="-5323849196"
@@ -3621,6 +3684,7 @@ export default function App() {
                 <span>Telegram — chat_id חירום</span>
                 <input
                   type="text"
+                  dir="ltr"
                   inputMode="numeric"
                   value={data.settings.telegramEmergencyChatId ?? ''}
                   placeholder="8622612663"
@@ -3726,7 +3790,7 @@ export default function App() {
                   void (async () => {
                     setTestingTelegram(true)
                     try {
-                      const result = await testTelegramNow()
+                      const result = await testTelegramNow(data.settings)
                       if (result?.ok) {
                         setToast({ message: 'הודעת בדיקה נשלחה ב־Telegram' })
                       } else {
