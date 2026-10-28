@@ -578,7 +578,7 @@ export default function ShiftReportPanel({
   async function pickSaveFolder() {
     if (!window.listeApi?.pickFolder) return
     try {
-      const result = await window.listeApi.pickFolder()
+      const result = await window.listeApi.pickFolder('shift')
       if (!result.ok || result.canceled || !result.path) return
       onSettingsChange?.({ shiftReportSaveFolder: result.path })
       onToast?.('תיקיית שמירה עודכנה')
@@ -893,6 +893,10 @@ export default function ShiftReportPanel({
       {showSettings ? (
         <section className="shift-section shift-settings-card">
           <h3>שמירה אוטומטית ודוא״ל יומי</h3>
+          <p className="shift-settings-note">
+            בגרסת הדפדפן לחצו «בחר…» ובחרו את אותה תיקייה כמו קודם (למשל שולחן
+            העבודה\דוח משמרת). אין צורך להקליד את הנתיב.
+          </p>
           <GuardNamesManager
             names={texts.guardNames}
             onChange={updateGuardNames}

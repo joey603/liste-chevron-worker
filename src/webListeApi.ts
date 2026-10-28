@@ -1,9 +1,8 @@
 import {
   deleteFileIfExists,
-  getStoredDataFolder,
   isElectronApp,
   isWebFolderSupported,
-  isWebFolderToken,
+  pickExportFolder,
   resolveWebDir,
   WEB_FOLDER_CAMERAS,
   WEB_FOLDER_ROOT,
@@ -68,10 +67,12 @@ export function installWebListeApi(): void {
     getPendingUpdate: async () => null,
     downloadUpdate: async () => false,
     installUpdate: async () => false,
-    pickFolder: async () => {
-      const root = await getStoredDataFolder()
-      if (!root) return { ok: false, canceled: true }
-      return { ok: true, path: WEB_FOLDER_SHIFTS }
+    pickFolder: async (kind) => {
+      const picked = await pickExportFolder(kind === 'camera' ? 'camera' : 'shift')
+      if (!picked.ok) {
+        return { ok: false, canceled: picked.canceled }
+      }
+      return { ok: true, path: picked.path }
     },
     saveBytes: async (payload) => {
       const dir = await resolveWebDir(WEB_FOLDER_ROOT, '', true)
@@ -88,10 +89,8 @@ export function installWebListeApi(): void {
       }
     },
     saveShiftReportFiles: async (payload) => {
-      const folder = isWebFolderToken(payload.folder)
-        ? payload.folder
-        : WEB_FOLDER_SHIFTS
-      const dir = await resolveWebDir(folder, payload.relativeDir, true)
+      const folder = payload.folder?.trim() || WEB_FOLDER_SHIFTS
+      const dir = await resolveWebDir(folder, payload.relativeDir, true, 'shift')
       if (!dir) return { ok: false, error: 'no_data_folder' }
       try {
         await writeBytesFile(
@@ -113,20 +112,21 @@ export function installWebListeApi(): void {
       }
     },
     deleteShiftReportFiles: async (payload) => {
-      const folder = isWebFolderToken(payload.folder)
-        ? payload.folder
-        : WEB_FOLDER_SHIFTS
-      const dir = await resolveWebDir(folder, payload.relativeDir, false)
+      const folder = payload.folder?.trim() || WEB_FOLDER_SHIFTS
+      const dir = await resolveWebDir(folder, payload.relativeDir, false, 'shift')
       if (!dir) return { ok: true }
       await deleteFileIfExists(dir, payload.docxFileName)
       await deleteFileIfExists(dir, payload.jsonFileName)
       return { ok: true }
     },
     saveCameraReportWorkbook: async (payload) => {
-      const folder = isWebFolderToken(payload.folder)
-        ? payload.folder
-        : WEB_FOLDER_CAMERAS
-      const dir = await resolveWebDir(folder, payload.relativeDir, true)
+      const folder = payload.folder?.trim() || WEB_FOLDER_CAMERAS
+      const dir = await resolveWebDir(
+        folder,
+        payload.relativeDir,
+        true,
+        'camera',
+      )
       if (!dir) return { ok: false, error: 'no_data_folder' }
       try {
         const jsonName = cameraMonthlyJsonFileName(payload.fileName)

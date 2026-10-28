@@ -306,7 +306,9 @@ export type ListeApi = {
   } | null>
   downloadUpdate: () => Promise<boolean>
   installUpdate: () => Promise<boolean>
-  pickFolder?: () => Promise<{ ok: boolean; canceled?: boolean; path?: string }>
+  pickFolder?: (
+    kind?: 'shift' | 'camera',
+  ) => Promise<{ ok: boolean; canceled?: boolean; path?: string }>
   pickGuardRosterExcel?: () => Promise<{
     ok: boolean
     canceled?: boolean

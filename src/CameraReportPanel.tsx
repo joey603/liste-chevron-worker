@@ -349,7 +349,7 @@ export default function CameraReportPanel({
   async function pickSaveFolder() {
     if (!window.listeApi?.pickFolder) return
     try {
-      const result = await window.listeApi.pickFolder()
+      const result = await window.listeApi.pickFolder('camera')
       if (!result.ok || result.canceled || !result.path) return
       onSettingsChange?.({ cameraReportSaveFolder: result.path })
       const nextSettings = { ...settings!, cameraReportSaveFolder: result.path }
@@ -539,6 +539,10 @@ export default function CameraReportPanel({
       {showSettings ? (
         <section className="shift-section shift-settings-card">
           <h3>שמירה אוטומטית — דוח מצלמות</h3>
+          <p className="shift-settings-note">
+            בגרסת הדפדפן לחצו «בחר…» ובחרו את אותה תיקייה כמו קודם (למשל שולחן
+            העבודה\יומן מבצעים). אין צורך להקליד את הנתיב.
+          </p>
           <GuardNamesManager
             names={guardNames}
             onChange={updateGuardNames}

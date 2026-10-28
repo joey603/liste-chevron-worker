@@ -3,6 +3,8 @@
 const IDB_NAME = 'liste-chevron-fs'
 const IDB_STORE = 'handles'
 const IDB_KEY = 'dataFolder'
+const IDB_SHIFT_KEY = 'shiftFolder'
+const IDB_CAMERA_KEY = 'cameraFolder'
 
 export const DATA_FILE_NAME = 'liste-data.json'
 export const SHIFT_LOCAL_FILE_NAME = 'shift-report-local.json'
@@ -31,21 +33,21 @@ function openDb(): Promise<IDBDatabase> {
   })
 }
 
-async function idbGet(): Promise<DirHandle | null> {
+async function idbGet(key: string): Promise<DirHandle | null> {
   const db = await openDb()
   return new Promise((resolve, reject) => {
     const tx = db.transaction(IDB_STORE, 'readonly')
-    const req = tx.objectStore(IDB_STORE).get(IDB_KEY)
+    const req = tx.objectStore(IDB_STORE).get(key)
     req.onsuccess = () => resolve((req.result as DirHandle | undefined) ?? null)
     req.onerror = () => reject(req.error ?? new Error('idb_get_failed'))
   })
 }
 
-async function idbSet(handle: DirHandle): Promise<void> {
+async function idbSet(key: string, handle: DirHandle): Promise<void> {
   const db = await openDb()
   return new Promise((resolve, reject) => {
     const tx = db.transaction(IDB_STORE, 'readwrite')
-    tx.objectStore(IDB_STORE).put(handle, IDB_KEY)
+    tx.objectStore(IDB_STORE).put(handle, key)
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error ?? new Error('idb_set_failed'))
   })
@@ -98,10 +100,10 @@ async function ensurePermission(
   return next === 'granted'
 }
 
-export async function getStoredDataFolder(): Promise<DirHandle | null> {
+async function getStoredHandle(key: string): Promise<DirHandle | null> {
   if (!isWebFolderSupported()) return null
   try {
-    const handle = await idbGet()
+    const handle = await idbGet(key)
     if (!handle) return null
     if (!(await ensurePermission(handle, 'readwrite'))) return null
     return handle
@@ -110,9 +112,13 @@ export async function getStoredDataFolder(): Promise<DirHandle | null> {
   }
 }
 
+export async function getStoredDataFolder(): Promise<DirHandle | null> {
+  return getStoredHandle(IDB_KEY)
+}
+
 export async function getStoredDataFolderName(): Promise<string | null> {
   try {
-    const handle = await idbGet()
+    const handle = await idbGet(IDB_KEY)
     return handle?.name ?? null
   } catch {
     return null
@@ -137,7 +143,7 @@ export async function pickDataFolder(): Promise<
     if (!(await ensurePermission(handle, 'readwrite'))) {
       return { ok: false, error: 'permission_denied' }
     }
-    await idbSet(handle)
+    await idbSet(IDB_KEY, handle)
     await ensureAppSubfolders(handle)
     return { ok: true, name: handle.name, handle }
   } catch (err) {
@@ -150,6 +156,40 @@ export async function pickDataFolder(): Promise<
 
 export async function clearStoredDataFolder(): Promise<void> {
   await idbClear()
+}
+
+export type ExportFolderKind = 'shift' | 'camera'
+
+function exportFolderIdbKey(kind: ExportFolderKind): string {
+  return kind === 'camera' ? IDB_CAMERA_KEY : IDB_SHIFT_KEY
+}
+
+export async function pickExportFolder(
+  kind: ExportFolderKind,
+): Promise<
+  | { ok: true; name: string; path: string }
+  | { ok: false; canceled?: boolean; error?: string }
+> {
+  if (!isWebFolderSupported()) return { ok: false, error: 'unsupported' }
+  const pick = window.showDirectoryPicker
+  if (!pick) return { ok: false, error: 'unsupported' }
+  try {
+    const handle = await pick({
+      id: kind === 'camera' ? 'liste-chevron-cameras' : 'liste-chevron-shifts',
+      mode: 'readwrite',
+      startIn: 'desktop',
+    })
+    if (!(await ensurePermission(handle, 'readwrite'))) {
+      return { ok: false, error: 'permission_denied' }
+    }
+    await idbSet(exportFolderIdbKey(kind), handle)
+    return { ok: true, name: handle.name, path: handle.name }
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      return { ok: false, canceled: true }
+    }
+    return { ok: false, error: 'pick_failed' }
+  }
 }
 
 /** Import manuel de liste-data.json (quand AppData est bloqué par le navigateur). */
@@ -224,26 +264,52 @@ async function getChildDir(
   return parent.getDirectoryHandle(name, { create })
 }
 
-/** Résout un jeton __web_data__/… (+ sous-chemin relatif) vers un handle. */
+function inferExportKind(folderToken: string): ExportFolderKind | null {
+  const token = folderToken.trim()
+  if (
+    token === WEB_FOLDER_CAMERAS ||
+    token.startsWith(`${WEB_FOLDER_CAMERAS}/`) ||
+    /יומן|מצלמות|camera/i.test(token)
+  ) {
+    return 'camera'
+  }
+  if (
+    token === WEB_FOLDER_SHIFTS ||
+    token.startsWith(`${WEB_FOLDER_SHIFTS}/`) ||
+    /משמרת|shift/i.test(token)
+  ) {
+    return 'shift'
+  }
+  if (looksLikeOsPath(token)) return 'shift'
+  return null
+}
+
 export async function resolveWebDir(
   folderToken: string,
   relativeDir = '',
   create = true,
+  kind?: ExportFolderKind,
 ): Promise<DirHandle | null> {
-  const root = await getStoredDataFolder()
-  if (!root) return null
-  let dir = root
   const token = folderToken.trim()
-  if (token === WEB_FOLDER_SHIFTS || token.startsWith(`${WEB_FOLDER_SHIFTS}/`)) {
-    dir = await getChildDir(root, WEB_SHIFTS_SUBDIR, create)
-  } else if (
-    token === WEB_FOLDER_CAMERAS ||
-    token.startsWith(`${WEB_FOLDER_CAMERAS}/`)
-  ) {
-    dir = await getChildDir(root, WEB_CAMERAS_SUBDIR, create)
-  } else if (token !== WEB_FOLDER_ROOT && !isWebFolderToken(token)) {
-    // Ancien chemin Windows : tout écrire à la racine du dossier choisi
-    dir = root
+  const inferred = kind ?? inferExportKind(token)
+
+  let dir: DirHandle | null = null
+  if (inferred === 'shift') {
+    dir = await getStoredHandle(IDB_SHIFT_KEY)
+  } else if (inferred === 'camera') {
+    dir = await getStoredHandle(IDB_CAMERA_KEY)
+  }
+
+  if (!dir) {
+    const root = await getStoredDataFolder()
+    if (!root) return null
+    if (inferred === 'shift' || token === WEB_FOLDER_SHIFTS) {
+      dir = await getChildDir(root, WEB_SHIFTS_SUBDIR, create)
+    } else if (inferred === 'camera' || token === WEB_FOLDER_CAMERAS) {
+      dir = await getChildDir(root, WEB_CAMERAS_SUBDIR, create)
+    } else {
+      dir = root
+    }
   }
 
   const parts = relativeDir
@@ -354,10 +420,9 @@ export function withWebSaveFolders<T extends {
     ...data,
     settings: {
       ...settings,
-      shiftReportSaveFolder:
-        !shift || looksLikeOsPath(shift) ? WEB_FOLDER_SHIFTS : shift,
-      cameraReportSaveFolder:
-        !camera || looksLikeOsPath(camera) ? WEB_FOLDER_CAMERAS : camera,
+      // Garder les anciens chemins Windows (affichage) ; l’écriture passe par בחר…
+      shiftReportSaveFolder: shift || WEB_FOLDER_SHIFTS,
+      cameraReportSaveFolder: camera || WEB_FOLDER_CAMERAS,
     },
   }
 }
