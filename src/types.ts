@@ -116,6 +116,10 @@ export type AppSettings = {
   telegramDailyListEnabled?: boolean
   /** שעת שליחה יומית לקבוצה (HH:MM) */
   telegramDailyListTime?: string
+  /** URL du Worker Cloudflare (version navigateur) */
+  cloudflareRelayUrl?: string
+  /** Clé ACCESS_KEY du Worker */
+  cloudflareRelayKey?: string
   /**
    * הערות Excel שכבר נצפו: מפתח שם → תוכן ההערה שנצפה.
    * אם התוכן הנוכחי שונה — מוצג badge NEW על אייקון ההודעה.
@@ -916,6 +920,15 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
       rawSettings.telegramDailyListTime.trim()
         ? rawSettings.telegramDailyListTime.trim()
         : '07:00',
+    cloudflareRelayUrl:
+      typeof rawSettings?.cloudflareRelayUrl === 'string' &&
+      rawSettings.cloudflareRelayUrl.trim()
+        ? rawSettings.cloudflareRelayUrl.trim()
+        : 'https://weathered-cell-7a63.yoelibarthel603.workers.dev',
+    cloudflareRelayKey:
+      typeof rawSettings?.cloudflareRelayKey === 'string'
+        ? rawSettings.cloudflareRelayKey
+        : '',
     seenExcelNotes: normalizeSeenExcelNotes(rawSettings?.seenExcelNotes),
   }
   settings.directorPhone = settings.emergencyPhones[0]?.phone ?? ''

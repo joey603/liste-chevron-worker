@@ -672,6 +672,8 @@ type AppSettings = {
   telegramEmergencyChatId?: string
   telegramDailyListEnabled?: boolean
   telegramDailyListTime?: string
+  cloudflareRelayUrl?: string
+  cloudflareRelayKey?: string
   seenExcelNotes?: Record<string, string>
 }
 
@@ -972,6 +974,15 @@ function normalize(raw: Partial<AppData>): AppData {
       raw.settings.telegramDailyListTime.trim()
         ? raw.settings.telegramDailyListTime.trim()
         : '07:00',
+    cloudflareRelayUrl:
+      typeof raw.settings?.cloudflareRelayUrl === 'string' &&
+      raw.settings.cloudflareRelayUrl.trim()
+        ? raw.settings.cloudflareRelayUrl.trim()
+        : 'https://weathered-cell-7a63.yoelibarthel603.workers.dev',
+    cloudflareRelayKey:
+      typeof raw.settings?.cloudflareRelayKey === 'string'
+        ? raw.settings.cloudflareRelayKey
+        : '',
     seenExcelNotes: (() => {
       const rawNotes = raw.settings?.seenExcelNotes
       if (!rawNotes || typeof rawNotes !== 'object' || Array.isArray(rawNotes)) {

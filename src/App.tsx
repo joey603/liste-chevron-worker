@@ -75,6 +75,11 @@ import {
   visitorAffiliatedName,
   workerDisplayName,
 } from './types'
+import {
+  sendTelegramPhoto as sendTelegramPhotoNow,
+  sendTelegramText as sendTelegramTextNow,
+  testTelegram as testTelegramNow,
+} from './webRelay'
 import chevronLogo from './assets/chevron-logo.png'
 
 const HEBREW_ALPHABET = [
@@ -252,6 +257,10 @@ function telegramErrorMessage(error?: string): string {
       return 'אין אינטרנט — לא ניתן לשלוח כרגע'
     case 'failed':
       return 'שליחת Telegram נכשלה'
+    case 'relay_not_configured':
+      return 'מלאו את כתובת Cloudflare ואת מפתח הגישה בהגדרות'
+    case 'unauthorized':
+      return 'מפתח Cloudflare שגוי'
     default:
       return error ? `שגיאת Telegram: ${error}` : 'שליחת Telegram נכשלה'
   }
@@ -1154,9 +1163,9 @@ export default function App() {
     kind: 'enter' | 'exit',
   ) {
     if (!shouldNotifyAbsenceWatch(snapshot, person)) return
-    if (!hasTelegramWatch(snapshot) || !window.listeApi?.sendTelegramText) return
+    if (!hasTelegramWatch(snapshot)) return
     const text = buildAbsenceWatchMessage(person, kind)
-    void window.listeApi.sendTelegramText(text).catch(() => {
+    void sendTelegramTextNow(text).catch(() => {
       /* ignore */
     })
   }
@@ -2101,20 +2110,12 @@ export default function App() {
       setToast({ message: telegramErrorMessage('telegram_not_configured') })
       return
     }
-    if (!window.listeApi?.sendTelegramText) {
-      setToast({ message: 'שליחת Telegram אינה זמינה' })
-      return
-    }
-
     setBusy(true)
     try {
       const present = data.people.filter(isPresent)
       const text = buildEmergencyMessage(data, present)
       const emergencyChatId = data.settings.telegramEmergencyChatId!.trim()
-      const result = await window.listeApi.sendTelegramText(
-        text,
-        emergencyChatId,
-      )
+      const result = await sendTelegramTextNow(text, emergencyChatId)
       if (!result.ok) {
         setToast({ message: telegramErrorMessage(result.error) })
         return
@@ -2134,11 +2135,6 @@ export default function App() {
       setToast({ message: telegramErrorMessage('telegram_not_configured') })
       return
     }
-    if (!window.listeApi?.sendTelegramPhoto) {
-      setToast({ message: 'שליחת Telegram אינה זמינה' })
-      return
-    }
-
     setBusy(true)
     try {
       const dataUrl = await captureListImageDataUrl()
@@ -2148,11 +2144,11 @@ export default function App() {
       }
       setToast({ message: 'שולח תמונה ל־Telegram…' })
       const caption = `${data.settings.siteName} — רשימת נוכחים`
-      const result = await window.listeApi.sendTelegramPhoto(dataUrl, caption)
+      const result = await sendTelegramPhotoNow(dataUrl, caption)
       if (!result.ok) {
         setToast({ message: telegramErrorMessage(result.error) })
         if (result.error !== 'offline') {
-          void window.listeApi.copyImage?.(dataUrl)
+          void window.listeApi?.copyImage?.(dataUrl)
         }
         return
       }
@@ -2171,15 +2167,10 @@ export default function App() {
       setToast({ message: telegramErrorMessage('telegram_not_configured') })
       return
     }
-    if (!window.listeApi?.sendTelegramText) {
-      setToast({ message: 'שליחת Telegram אינה זמינה' })
-      return
-    }
-
     setBusy(true)
     try {
       const text = buildPresenceListMessage(data, filteredPresentPeople)
-      const result = await window.listeApi.sendTelegramText(text)
+      const result = await sendTelegramTextNow(text)
       if (!result.ok) {
         setToast({ message: telegramErrorMessage(result.error) })
         return
@@ -3200,6 +3191,48 @@ export default function App() {
               כבוי כברירת מחדל. כשפעיל — כניסה ויציאה נשלחות לקבוצת Telegram
               שהוגדרה (API רשמית). העובד למעקב לא מקבל הודעה.
             </p>
+            <h3>Cloudflare (גרסת דפדפן)</h3>
+            <p className="shift-settings-note">
+              לשימוש בלי התקנה: הדביקו את כתובת ה-Worker ואת מפתח ACCESS_KEY.
+            </p>
+            <div className="shift-settings-grid presence-watch-grid">
+              <label className="shift-field">
+                <span>כתובת Worker</span>
+                <input
+                  type="url"
+                  autoComplete="off"
+                  value={data.settings.cloudflareRelayUrl ?? ''}
+                  placeholder="https://weathered-cell-7a63.yoelibarthel603.workers.dev"
+                  onChange={(e) =>
+                    void persist({
+                      ...data,
+                      settings: {
+                        ...data.settings,
+                        cloudflareRelayUrl: e.target.value.trim(),
+                      },
+                    })
+                  }
+                />
+              </label>
+              <label className="shift-field">
+                <span>מפתח גישה</span>
+                <input
+                  type="password"
+                  autoComplete="off"
+                  value={data.settings.cloudflareRelayKey ?? ''}
+                  placeholder="ACCESS_KEY"
+                  onChange={(e) =>
+                    void persist({
+                      ...data,
+                      settings: {
+                        ...data.settings,
+                        cloudflareRelayKey: e.target.value,
+                      },
+                    })
+                  }
+                />
+              </label>
+            </div>
             <label className="shift-field presence-watch-enable">
               <span>שליחה אוטומטית</span>
               <div className="type-toggle presence-watch-toggle" role="group">
@@ -3385,7 +3418,7 @@ export default function App() {
                   void (async () => {
                     setTestingTelegram(true)
                     try {
-                      const result = await window.listeApi?.testTelegram?.()
+                      const result = await testTelegramNow()
                       if (result?.ok) {
                         setToast({ message: 'הודעת בדיקה נשלחה ב־Telegram' })
                       } else {

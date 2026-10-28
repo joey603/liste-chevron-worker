@@ -9,6 +9,7 @@ import {
   guardDisplayName,
   type GuardRosterEntry,
 } from './types'
+import { sendTelegramPhoto } from './webRelay'
 
 const emptyGuard = {
   firstName: '',
@@ -222,11 +223,6 @@ export default function GuardRosterPanel({
       notify('אין שומרים ברוסטר לשליחה')
       return
     }
-    if (!window.listeApi?.sendTelegramPhoto) {
-      notify('שליחת Telegram זמינה רק באפליקציה המותקנת')
-      return
-    }
-
     setSending(true)
     try {
       const dataUrl = await captureRosterImageDataUrl()
@@ -235,7 +231,7 @@ export default function GuardRosterPanel({
         return
       }
       notify('שולח את התמונה ב־Telegram…')
-      const result = await window.listeApi.sendTelegramPhoto(
+      const result = await sendTelegramPhoto(
         dataUrl,
         `רוסטר שומרים — ${siteName}`,
       )

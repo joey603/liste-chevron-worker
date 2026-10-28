@@ -33,6 +33,7 @@ import ShiftReportDateField from './ShiftReportDateField'
 import EmailAlreadySentModal from './EmailAlreadySentModal'
 import { SHIFT_LABELS, normalizeShiftReportTexts, type ShiftKind, type ShiftReportTexts } from './shiftReport'
 import { parseShiftReportDate, getNextDayReportContext, shiftDateToDate } from './shiftReportPaths'
+import { sendShiftReportTestEmail } from './webRelay'
 import { createId } from './types'
 import type { AppSettings } from './types'
 
@@ -377,13 +378,9 @@ export default function CameraReportPanel({
       onToast?.('יש למלא אימייל מנהל, שרת SMTP, משתמש וסיסמה')
       return
     }
-    if (!window.listeApi?.sendShiftReportTestEmail) {
-      onToast?.('בדיקת דוא״ל אינה זמינה')
-      return
-    }
     setTestingEmail(true)
     try {
-      const result = await window.listeApi.sendShiftReportTestEmail({
+      const result = await sendShiftReportTestEmail({
         directorEmail,
         smtpHost,
         smtpPort,

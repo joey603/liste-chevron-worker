@@ -33,6 +33,7 @@ import {
   scheduleShiftReportAutoSave,
 } from './shiftReportAutoSave'
 import { restoreUiInteractivity } from './captureDomToPng'
+import { sendShiftReportTestEmail } from './webRelay'
 import type { AppSettings, ShiftEmailSentLogItem } from './types'
 import { buildShiftReportDocumentModel } from './shiftReportDocument'
 import type { ShiftReportsArchive } from './shiftReportArchive'
@@ -477,13 +478,9 @@ export default function ShiftReportPanel({
       onToast?.('יש למלא אימייל מנהל, שרת SMTP, משתמש וסיסמה')
       return
     }
-    if (!window.listeApi?.sendShiftReportTestEmail) {
-      onToast?.('בדיקת דוא״ל אינה זמינה')
-      return
-    }
     setTestingEmail(true)
     try {
-      const result = await window.listeApi.sendShiftReportTestEmail({
+      const result = await sendShiftReportTestEmail({
         directorEmail,
         smtpHost,
         smtpPort,
