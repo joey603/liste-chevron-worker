@@ -3280,143 +3280,157 @@ export default function App() {
           <section className="shift-section shift-settings-card presence-settings-card">
             {isWebFolderSupported() ? (
               <div className="presence-settings-block">
-                <h3>1 · נתונים</h3>
+                <h3>נתונים קבועים</h3>
                 <p className="shift-settings-note">
                   בחרו תיקייה רגילה (Desktop / Documents) עם liste-data.json —
                   השמירה נשארת אחרי סגירת הדפדפן.
                 </p>
-                <div className="shift-settings-test-row presence-settings-actions">
-                  <button
-                    type="button"
-                    className="btn btn-ghost"
-                    style={{ width: 'auto' }}
-                    disabled={pickingDataFolder}
-                    onClick={() => {
-                      void (async () => {
-                        setPickingDataFolder(true)
-                        try {
-                          const picked = await pickDataFolder()
-                          if (!picked.ok) {
-                            if (!picked.canceled) {
+                <div className="roster-excel-bar authorized-excel-bar presence-data-folder-bar">
+                  <input
+                    className="roster-excel-path-input"
+                    value={dataFolderName ?? ''}
+                    readOnly
+                    placeholder="אין תיקייה — בחרו תיקייה רגילה (לא AppData)"
+                    aria-label="תיקיית נתונים קבועה"
+                    dir="ltr"
+                    title={
+                      dataFolderName
+                        ? `תיקייה פעילה: ${dataFolderName}`
+                        : 'אין תיקייה נבחרת'
+                    }
+                  />
+                  <div className="roster-excel-actions">
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      style={{ width: 'auto' }}
+                      disabled={pickingDataFolder}
+                      onClick={() => {
+                        void (async () => {
+                          setPickingDataFolder(true)
+                          try {
+                            const picked = await pickDataFolder()
+                            if (!picked.ok) {
+                              if (!picked.canceled) {
+                                setToast({
+                                  message:
+                                    picked.error === 'unsupported'
+                                      ? 'בחירת תיקייה לא נתמכת בדפדפן זה — השתמשו ב־Edge או Chrome'
+                                      : 'בחירת התיקייה נכשלה',
+                                })
+                              }
+                              return
+                            }
+                            webDataDir = picked.handle
+                            setDataFolderName(picked.name)
+                            const fromFolder = await readAppFilesFromFolder(
+                              picked.handle,
+                            )
+                            if (
+                              fromFolder.mainRaw != null ||
+                              fromFolder.localRaw != null
+                            ) {
+                              const merged = mergeShiftIntoMain(
+                                (fromFolder.mainRaw as object) ?? {},
+                                (fromFolder.localRaw as object) ?? {},
+                              )
+                              const next = withWebSaveFolders(
+                                normalizeData(merged),
+                              )
+                              setData(next)
+                              await saveData(next)
                               setToast({
-                                message:
-                                  picked.error === 'unsupported'
-                                    ? 'בחירת תיקייה לא נתמכת בדפדפן זה — השתמשו ב־Edge או Chrome'
-                                    : 'בחירת התיקייה נכשלה',
+                                message: `הכל נטען מ־${picked.name} (קבוע בדיסק)`,
+                              })
+                            } else if (data) {
+                              const next = withWebSaveFolders(data)
+                              setData(next)
+                              await saveData(next)
+                              setToast({
+                                message: `התיקייה נבחרה — כל הנתונים נשמרים עכשיו בדיסק`,
+                              })
+                            } else {
+                              setToast({
+                                message: `התיקייה נבחרה: ${picked.name}`,
                               })
                             }
-                            return
+                          } finally {
+                            setPickingDataFolder(false)
+                            restoreUiInteractivity()
                           }
-                          webDataDir = picked.handle
-                          setDataFolderName(picked.name)
-                          const fromFolder = await readAppFilesFromFolder(
-                            picked.handle,
-                          )
-                          if (
-                            fromFolder.mainRaw != null ||
-                            fromFolder.localRaw != null
-                          ) {
-                            const merged = mergeShiftIntoMain(
-                              (fromFolder.mainRaw as object) ?? {},
-                              (fromFolder.localRaw as object) ?? {},
-                            )
-                            const next = withWebSaveFolders(
-                              normalizeData(merged),
-                            )
-                            setData(next)
-                            await saveData(next)
-                            setToast({
-                              message: `הכל נטען מ־${picked.name} (קבוע בדיסק)`,
-                            })
-                          } else if (data) {
-                            const next = withWebSaveFolders(data)
-                            setData(next)
-                            await saveData(next)
-                            setToast({
-                              message: `התיקייה נבחרה — כל הנתונים נשמרים עכשיו בדיסק`,
-                            })
-                          } else {
-                            setToast({ message: `התיקייה נבחרה: ${picked.name}` })
-                          }
-                        } finally {
-                          setPickingDataFolder(false)
-                          restoreUiInteractivity()
-                        }
-                      })()
-                    }}
-                  >
-                    {pickingDataFolder
-                      ? 'פותח…'
-                      : dataFolderName
-                        ? 'החלף תיקייה'
-                        : 'בחר תיקיית נתונים'}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-ghost"
-                    style={{ width: 'auto' }}
-                    disabled={pickingDataFolder}
-                    onClick={() => {
-                      void (async () => {
-                        setPickingDataFolder(true)
-                        try {
-                          const imported = await pickListeDataJsonFile()
-                          if (!imported.ok) {
-                            if (!imported.canceled) {
-                              setToast({
-                                message:
-                                  imported.error === 'invalid_json'
-                                    ? 'קובץ JSON לא תקין'
-                                    : 'טעינת הקובץ נכשלה',
-                              })
-                            }
-                            return
-                          }
-                          const base = data ?? normalizeData(null)
-                          const merged = mergeShiftIntoMain(
-                            imported.localRaw
-                              ? stripShiftFromMain(base)
-                              : ((imported.mainRaw as object) ??
-                                  stripShiftFromMain(base)),
-                            imported.localRaw
-                              ? (imported.localRaw as object)
-                              : extractShiftLocalPayload(base),
-                          )
-                          const mergedKeepReports =
-                            imported.mainRaw && !imported.localRaw
-                              ? mergeShiftIntoMain(
-                                  imported.mainRaw as object,
-                                  extractShiftLocalPayload(base),
-                                )
-                              : merged
-                          const next = withWebSaveFolders(
-                            normalizeData(mergedKeepReports),
-                          )
-                          setData(next)
-                          await saveData(next)
-                          setToast({
-                            message: imported.localRaw
-                              ? dataFolderName
-                                ? 'דוח משמרת / מצלמות נטען ונשמר בתיקייה'
-                                : 'דוח משמרת נטען — בחרו גם תיקייה לשמירה קבועה'
-                              : dataFolderName
-                                ? 'liste-data.json נטען ונשמר בתיקייה שנבחרה'
-                                : 'liste-data.json נטען — עכשיו בחרו תיקייה רגילה לשמירה קבועה',
-                          })
-                        } finally {
-                          setPickingDataFolder(false)
-                          restoreUiInteractivity()
-                        }
-                      })()
-                    }}
-                  >
-                    ייבוא JSON (liste / דוח)
-                  </button>
-                  {dataFolderName ? (
+                        })()
+                      }}
+                    >
+                      {pickingDataFolder
+                        ? 'פותח…'
+                        : dataFolderName
+                          ? 'החלף תיקייה'
+                          : 'בחר תיקייה'}
+                    </button>
                     <button
                       type="button"
                       className="btn btn-ghost"
-                      style={{ width: 'auto' }}
+                      disabled={pickingDataFolder}
+                      onClick={() => {
+                        void (async () => {
+                          setPickingDataFolder(true)
+                          try {
+                            const imported = await pickListeDataJsonFile()
+                            if (!imported.ok) {
+                              if (!imported.canceled) {
+                                setToast({
+                                  message:
+                                    imported.error === 'invalid_json'
+                                      ? 'קובץ JSON לא תקין'
+                                      : 'טעינת הקובץ נכשלה',
+                                })
+                              }
+                              return
+                            }
+                            const base = data ?? normalizeData(null)
+                            const merged = mergeShiftIntoMain(
+                              imported.localRaw
+                                ? stripShiftFromMain(base)
+                                : ((imported.mainRaw as object) ??
+                                    stripShiftFromMain(base)),
+                              imported.localRaw
+                                ? (imported.localRaw as object)
+                                : extractShiftLocalPayload(base),
+                            )
+                            const mergedKeepReports =
+                              imported.mainRaw && !imported.localRaw
+                                ? mergeShiftIntoMain(
+                                    imported.mainRaw as object,
+                                    extractShiftLocalPayload(base),
+                                  )
+                                : merged
+                            const next = withWebSaveFolders(
+                              normalizeData(mergedKeepReports),
+                            )
+                            setData(next)
+                            await saveData(next)
+                            setToast({
+                              message: imported.localRaw
+                                ? dataFolderName
+                                  ? 'דוח משמרת / מצלמות נטען ונשמר בתיקייה'
+                                  : 'דוח משמרת נטען — בחרו גם תיקייה לשמירה קבועה'
+                                : dataFolderName
+                                  ? 'liste-data.json נטען ונשמר בתיקייה שנבחרה'
+                                  : 'liste-data.json נטען — עכשיו בחרו תיקייה רגילה לשמירה קבועה',
+                            })
+                          } finally {
+                            setPickingDataFolder(false)
+                            restoreUiInteractivity()
+                          }
+                        })()
+                      }}
+                    >
+                      ייבוא JSON
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      disabled={!dataFolderName}
                       onClick={() => {
                         void (async () => {
                           await clearStoredDataFolder()
@@ -3431,18 +3445,13 @@ export default function App() {
                     >
                       בטל תיקייה
                     </button>
-                  ) : null}
+                  </div>
                 </div>
-                <p className="shift-settings-test-hint">
-                  {dataFolderName
-                    ? `תיקייה פעילה: ${dataFolderName} · שמירה קבועה בדיסק`
-                    : 'אל תבחרו AppData — רק תיקייה רגילה (Desktop / Documents).'}
-                </p>
               </div>
             ) : null}
 
             <div className="presence-settings-block">
-              <h3>2 · סנכרון מורשים (Excel)</h3>
+              <h3>סנכרון רשימת מורשים</h3>
               <p className="shift-settings-note">
                 קובץ משותף ב־Drive — קבוע / ויזיטור. האפליקציה בודקת כל כמה
                 שניות ומסנכרנת אוטומטית כשהקובץ משתנה.
@@ -3494,7 +3503,7 @@ export default function App() {
             </div>
 
             <div className="presence-settings-block">
-              <h3>3 · Telegram</h3>
+              <h3>Telegram</h3>
               <p className="shift-settings-note">
                 Token ו-chat_id נדרשים לחירום, להתראות כניסה/יציאה ולשליחה
                 יומית.
@@ -3633,7 +3642,7 @@ export default function App() {
             </div>
 
             <div className="presence-settings-block">
-              <h3>4 · התראות כניסה / יציאה</h3>
+              <h3>התראות כניסה / יציאה</h3>
               <p className="shift-settings-note">
                 כשפעיל — כניסה ויציאה נשלחות לקבוצת Telegram. העובד למעקב לא
                 מקבל הודעה.
@@ -3734,7 +3743,7 @@ export default function App() {
             </div>
 
             <div className="presence-settings-block">
-              <h3>5 · שליחה יומית לקבוצה</h3>
+              <h3>שליחה יומית לקבוצה</h3>
               <p className="shift-settings-note">
                 רשימת הנוכחים נשלחת לקבוצה כל יום בשעה שנבחרה (הדף חייב להיות
                 פתוח).
@@ -3814,7 +3823,7 @@ export default function App() {
 
             {!isElectronApp() ? (
               <div className="presence-settings-block">
-                <h3>6 · Cloudflare (אופציונלי)</h3>
+                <h3>Cloudflare (אופציונלי)</h3>
                 <p className="shift-settings-note">
                   חירום וטקסט Telegram עובדים בלי Cloudflare. השאירו כאן רק אם
                   תרצו Worker לדוא״ל / תמונות.
