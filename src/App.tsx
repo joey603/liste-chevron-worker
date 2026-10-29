@@ -3278,65 +3278,14 @@ export default function App() {
 
         {showPresenceSettings && data ? (
           <section className="shift-section shift-settings-card presence-settings-card">
-            <h3>סנכרון רשימת מורשים (Excel)</h3>
-            <p className="shift-settings-note">
-              קובץ משותף ב־Drive — קבוע / ויזיטור. האפליקציה בודקת כל כמה
-              שניות ומסנכרנת אוטומטית ברגע שהקובץ משתנה.
-            </p>
-            <AuthorizedPeopleSyncBar
-              excelPath={data.settings.authorizedListExcelPath ?? ''}
-              peopleCount={(data.authorizedPeople ?? []).length}
-              workers={data.workers ?? []}
-              visitors={data.cardlessPeople ?? []}
-              onSynced={({ path, people, message }) => {
-                const merged = mergeAuthorizedIntoSidebar(
-                  data.workers,
-                  data.cardlessPeople,
-                  people,
-                )
-                const added =
-                  merged.addedWorkers + merged.addedVisitors
-                const tip =
-                  added > 0
-                    ? `${message ?? 'נטען מה־Excel'} · נוספו ${added} לסרגל`
-                    : message
-                void persist(
-                  {
-                    ...data,
-                    authorizedPeople: people,
-                    workers: merged.workers,
-                    cardlessPeople: merged.cardlessPeople,
-                    settings: {
-                      ...data.settings,
-                      authorizedListExcelPath: path,
-                      authorizedListLastSyncedAt: new Date().toISOString(),
-                    },
-                  },
-                  tip,
-                )
-              }}
-              onToast={(message) => setToast({ message })}
-            />
-            <div className="shift-settings-grid presence-sync-time-grid">
-              <div className="shift-field presence-last-sync">
-                <span>סנכרון אחרון</span>
-                <strong>
-                  {data.settings.authorizedListLastSyncedAt
-                    ? formatDateTime(data.settings.authorizedListLastSyncedAt)
-                    : 'עדיין לא סונכרן'}
-                </strong>
-              </div>
-            </div>
-
             {isWebFolderSupported() ? (
-              <>
-                <h3>תיקיית נתונים קבועה</h3>
+              <div className="presence-settings-block">
+                <h3>1 · נתונים</h3>
                 <p className="shift-settings-note">
-                  הדפדפן חוסם לרוב את AppData. צרו תיקייה רגילה למשל על שולחן
-                  העבודה: Documents\Liste Chevron או Desktop\Liste Chevron —
-                  העתיקו לשם את liste-data.json, ואז בחרו את התיקייה כאן.
+                  בחרו תיקייה רגילה (Desktop / Documents) עם liste-data.json —
+                  השמירה נשארת אחרי סגירת הדפדפן.
                 </p>
-                <div className="shift-settings-test-row">
+                <div className="shift-settings-test-row presence-settings-actions">
                   <button
                     type="button"
                     className="btn btn-ghost"
@@ -3402,15 +3351,6 @@ export default function App() {
                         ? 'החלף תיקייה'
                         : 'בחר תיקיית נתונים'}
                   </button>
-                  {dataFolderName ? (
-                    <span className="shift-settings-test-hint">
-                      תיקייה פעילה: {dataFolderName} · שמירה קבועה בדיסק
-                    </span>
-                  ) : (
-                    <span className="shift-settings-test-hint">
-                      אל תבחרו AppData — רק תיקייה רגילה (Desktop / Documents).
-                    </span>
-                  )}
                   <button
                     type="button"
                     className="btn btn-ghost"
@@ -3442,7 +3382,6 @@ export default function App() {
                               ? (imported.localRaw as object)
                               : extractShiftLocalPayload(base),
                           )
-                          // Si on importe la liste principale, garder les rapports déjà chargés
                           const mergedKeepReports =
                             imported.mainRaw && !imported.localRaw
                               ? mergeShiftIntoMain(
@@ -3494,377 +3433,441 @@ export default function App() {
                     </button>
                   ) : null}
                 </div>
-              </>
+                <p className="shift-settings-test-hint">
+                  {dataFolderName
+                    ? `תיקייה פעילה: ${dataFolderName} · שמירה קבועה בדיסק`
+                    : 'אל תבחרו AppData — רק תיקייה רגילה (Desktop / Documents).'}
+                </p>
+              </div>
             ) : null}
-            <h3>התראות כניסה / יציאה</h3>
-            <p className="shift-settings-note">
-              כבוי כברירת מחדל. כשפעיל — כניסה ויציאה נשלחות לקבוצת Telegram
-              שהוגדרה (API רשמית). העובד למעקב לא מקבל הודעה.
-            </p>
-            <h3>Cloudflare (גרסת דפדפן)</h3>
-            <p className="shift-settings-note">
-              לשימוש בלי התקנה: כתובת ה-Worker כבר ממולאת. הדביקו רק את מפתח
-              ACCESS_KEY, וגם את Token + chat_id חירום של Telegram (או ייבוא
-              liste-data.json). חירום לא עובד עם המפתח לבד.
-            </p>
-            <div className="shift-settings-grid presence-watch-grid">
-              <label className="shift-field">
-                <span>כתובת Worker</span>
-                <input
-                  type="text"
-                  dir="ltr"
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={data.settings.cloudflareRelayUrl ?? ''}
-                  placeholder="https://weathered-cell-7a63.yoelibarthel603.workers.dev"
-                  onChange={(e) =>
-                    void persist({
+
+            <div className="presence-settings-block">
+              <h3>2 · סנכרון מורשים (Excel)</h3>
+              <p className="shift-settings-note">
+                קובץ משותף ב־Drive — קבוע / ויזיטור. האפליקציה בודקת כל כמה
+                שניות ומסנכרנת אוטומטית כשהקובץ משתנה.
+              </p>
+              <AuthorizedPeopleSyncBar
+                excelPath={data.settings.authorizedListExcelPath ?? ''}
+                peopleCount={(data.authorizedPeople ?? []).length}
+                workers={data.workers ?? []}
+                visitors={data.cardlessPeople ?? []}
+                onSynced={({ path, people, message }) => {
+                  const merged = mergeAuthorizedIntoSidebar(
+                    data.workers,
+                    data.cardlessPeople,
+                    people,
+                  )
+                  const added =
+                    merged.addedWorkers + merged.addedVisitors
+                  const tip =
+                    added > 0
+                      ? `${message ?? 'נטען מה־Excel'} · נוספו ${added} לסרגל`
+                      : message
+                  void persist(
+                    {
                       ...data,
+                      authorizedPeople: people,
+                      workers: merged.workers,
+                      cardlessPeople: merged.cardlessPeople,
                       settings: {
                         ...data.settings,
-                        cloudflareRelayUrl: e.target.value.trim(),
+                        authorizedListExcelPath: path,
+                        authorizedListLastSyncedAt: new Date().toISOString(),
                       },
-                    })
-                  }
-                />
-              </label>
-              <label className="shift-field">
-                <span>מפתח גישה</span>
-                <input
-                  type="text"
-                  dir="ltr"
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={data.settings.cloudflareRelayKey ?? ''}
-                  placeholder="ACCESS_KEY"
-                  onChange={(e) =>
-                    void persist({
-                      ...data,
-                      settings: {
-                        ...data.settings,
-                        cloudflareRelayKey: e.target.value.trim(),
-                      },
-                    })
-                  }
-                />
-              </label>
-            </div>
-            {!hasTelegramEmergency(data) ? (
-              <p className="shift-settings-test-hint">
-                חסר Token או chat_id חירום — ייבאו liste-data.json או מלאו אותם
-                למטה. בלי זה חירום לא ישלח.
-              </p>
-            ) : !(data.settings.cloudflareRelayKey ?? '').trim() ? (
-              <p className="shift-settings-test-hint">
-                מלאו את מפתח הגישה ואז לחצו חירום.
-              </p>
-            ) : (
-              <p className="shift-settings-test-hint">
-                Cloudflare + Telegram מוכנים לשליחת חירום.
-              </p>
-            )}
-            <p className="shift-settings-test-hint" dir="ltr">
-              {describeRelaySettings(data.settings)}
-            </p>
-            <div className="shift-settings-test-row">
-              <button
-                type="button"
-                className="btn btn-ghost"
-                style={{ width: 'auto' }}
-                disabled={testingTelegram}
-                onClick={() => {
-                  void (async () => {
-                    setTestingTelegram(true)
-                    try {
-                      const target =
-                        data.settings.telegramEmergencyChatId?.trim() ||
-                        data.settings.telegramChatId?.trim()
-                      const result = await sendTelegramTextNow(
-                        'בדיקת Cloudflare — Liste Chevron',
-                        target,
-                        data.settings,
-                      )
-                      if (result?.ok) {
-                        setToast({
-                          message: 'בדיקה נשלחה ב־Telegram — חירום אמור לעבוד',
-                        })
-                      } else {
-                        setToast({
-                          message: `${telegramErrorMessage(result?.error)} (${describeRelaySettings(data.settings)})`,
-                        })
-                      }
-                    } finally {
-                      setTestingTelegram(false)
-                      restoreUiInteractivity()
-                    }
-                  })()
+                    },
+                    tip,
+                  )
                 }}
-              >
-                {testingTelegram ? 'שולח…' : 'בדיקת חירום / Cloudflare'}
-              </button>
-            </div>
-            <label className="shift-field presence-watch-enable">
-              <span>שליחה אוטומטית</span>
-              <div className="type-toggle presence-watch-toggle" role="group">
-                <button
-                  type="button"
-                  className={`type-toggle-btn ${
-                    data.settings.absenceWatchEnabled ? '' : 'active'
-                  }`}
-                  onClick={() =>
-                    void persist({
-                      ...data,
-                      settings: {
-                        ...data.settings,
-                        absenceWatchEnabled: false,
-                      },
-                    })
-                  }
-                >
-                  כבוי
-                </button>
-                <button
-                  type="button"
-                  className={`type-toggle-btn ${
-                    data.settings.absenceWatchEnabled ? 'active' : ''
-                  }`}
-                  onClick={() =>
-                    void persist({
-                      ...data,
-                      settings: {
-                        ...data.settings,
-                        absenceWatchEnabled: true,
-                      },
-                    })
-                  }
-                >
-                  פעיל
-                </button>
+                onToast={(message) => setToast({ message })}
+              />
+              <div className="shift-settings-grid presence-sync-time-grid">
+                <div className="shift-field presence-last-sync">
+                  <span>סנכרון אחרון</span>
+                  <strong>
+                    {data.settings.authorizedListLastSyncedAt
+                      ? formatDateTime(data.settings.authorizedListLastSyncedAt)
+                      : 'עדיין לא סונכרן'}
+                  </strong>
+                </div>
               </div>
-            </label>
-            <div className="shift-settings-grid presence-watch-grid">
-              <label className="shift-field">
-                <span>Telegram — Token (BotFather)</span>
-                <input
-                  type="text"
-                  dir="ltr"
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={data.settings.telegramBotToken ?? ''}
-                  placeholder="123456:ABC…"
-                  onChange={(e) =>
-                    void persist({
-                      ...data,
-                      settings: {
-                        ...data.settings,
-                        telegramBotToken: e.target.value,
-                      },
-                    })
-                  }
-                />
-              </label>
-              <label className="shift-field">
-                <span>Telegram — chat_id קבוצה</span>
-                <input
-                  type="text"
-                  dir="ltr"
-                  inputMode="numeric"
-                  value={data.settings.telegramChatId ?? ''}
-                  placeholder="-5323849196"
-                  onChange={(e) =>
-                    void persist({
-                      ...data,
-                      settings: {
-                        ...data.settings,
-                        telegramChatId: e.target.value.trim(),
-                      },
-                    })
-                  }
-                />
-              </label>
-              <label className="shift-field">
-                <span>Telegram — chat_id חירום</span>
-                <input
-                  type="text"
-                  dir="ltr"
-                  inputMode="numeric"
-                  value={data.settings.telegramEmergencyChatId ?? ''}
-                  placeholder="8622612663"
-                  onChange={(e) =>
-                    void persist({
-                      ...data,
-                      settings: {
-                        ...data.settings,
-                        telegramEmergencyChatId: e.target.value.trim(),
-                      },
-                    })
-                  }
-                />
-              </label>
             </div>
-            <h3>שליחת רשימה יומית לקבוצה</h3>
-            <p className="shift-settings-note">
-              כשפעיל — רשימת הנוכחים נשלחת אוטומטית לקבוצת Telegram כל יום בשעה
-              שנבחרה (האפליקציה חייבת להיות פתוחה).
-            </p>
-            <label className="shift-field presence-watch-enable">
-              <span>שליחה יומית</span>
-              <div className="type-toggle presence-watch-toggle" role="group">
-                <button
-                  type="button"
-                  className={`type-toggle-btn ${
-                    data.settings.telegramDailyListEnabled ? '' : 'active'
-                  }`}
-                  onClick={() =>
-                    void persist({
-                      ...data,
-                      settings: {
-                        ...data.settings,
-                        telegramDailyListEnabled: false,
-                      },
-                    })
-                  }
-                >
-                  כבוי
-                </button>
-                <button
-                  type="button"
-                  className={`type-toggle-btn ${
-                    data.settings.telegramDailyListEnabled ? 'active' : ''
-                  }`}
-                  onClick={() =>
-                    void persist({
-                      ...data,
-                      settings: {
-                        ...data.settings,
-                        telegramDailyListEnabled: true,
-                      },
-                    })
-                  }
-                >
-                  פעיל
-                </button>
-              </div>
-            </label>
-            <div className="shift-settings-grid presence-watch-grid">
-              <label className="shift-field">
-                <span>שעת שליחה יומית</span>
-                <input
-                  type="time"
-                  value={data.settings.telegramDailyListTime ?? '07:00'}
-                  onChange={(e) =>
-                    void persist({
-                      ...data,
-                      settings: {
-                        ...data.settings,
-                        telegramDailyListTime: e.target.value || '07:00',
-                      },
-                    })
-                  }
-                />
-              </label>
-            </div>
-            {!data.settings.telegramDailyListEnabled ? (
-              <p className="shift-settings-test-hint">
-                השליחה היומית כבויה.
+
+            <div className="presence-settings-block">
+              <h3>3 · Telegram</h3>
+              <p className="shift-settings-note">
+                Token ו-chat_id נדרשים לחירום, להתראות כניסה/יציאה ולשליחה
+                יומית.
               </p>
-            ) : !hasTelegramWatch(data) ? (
-              <p className="shift-settings-test-hint">
-                מלאו Token ו-chat_id קבוצה כדי לאפשר שליחה יומית.
-              </p>
-            ) : (
-              <p className="shift-settings-test-hint">
-                הרשימה תישלח לקבוצה כל יום ב־
-                {data.settings.telegramDailyListTime ?? '07:00'}.
-              </p>
-            )}
-            <div className="shift-settings-test-row">
-              <button
-                type="button"
-                className="btn btn-ghost"
-                style={{ width: 'auto' }}
-                disabled={
-                  testingTelegram ||
-                  !(data.settings.telegramBotToken ?? '').trim() ||
-                  !(data.settings.telegramChatId ?? '').trim()
-                }
-                onClick={() => {
-                  void (async () => {
-                    setTestingTelegram(true)
-                    try {
-                      const result = await testTelegramNow(data.settings)
-                      if (result?.ok) {
-                        setToast({ message: 'הודעת בדיקה נשלחה ב־Telegram' })
-                      } else {
-                        setToast({
-                          message: telegramErrorMessage(result?.error),
-                        })
-                      }
-                    } finally {
-                      setTestingTelegram(false)
-                      restoreUiInteractivity()
+              <div className="shift-settings-grid presence-watch-grid">
+                <label className="shift-field">
+                  <span>Token (BotFather)</span>
+                  <input
+                    type="text"
+                    dir="ltr"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={data.settings.telegramBotToken ?? ''}
+                    placeholder="123456:ABC…"
+                    onChange={(e) =>
+                      void persist({
+                        ...data,
+                        settings: {
+                          ...data.settings,
+                          telegramBotToken: e.target.value,
+                        },
+                      })
                     }
-                  })()
-                }}
-              >
-                {testingTelegram ? 'שולח…' : 'בדיקת Telegram'}
-              </button>
-            </div>
-            <div className="shift-settings-grid presence-watch-grid">
-              <label className="shift-field">
-                <span>עובד למעקב</span>
-                <select
-                  value={data.settings.absenceWatchWorkerId ?? ''}
-                  onChange={(e) => {
-                    const absenceWatchWorkerId = e.target.value
-                    void persist({
-                      ...data,
-                      settings: { ...data.settings, absenceWatchWorkerId },
-                    })
+                  />
+                </label>
+                <label className="shift-field">
+                  <span>chat_id קבוצה</span>
+                  <input
+                    type="text"
+                    dir="ltr"
+                    inputMode="numeric"
+                    value={data.settings.telegramChatId ?? ''}
+                    placeholder="-5323849196"
+                    onChange={(e) =>
+                      void persist({
+                        ...data,
+                        settings: {
+                          ...data.settings,
+                          telegramChatId: e.target.value.trim(),
+                        },
+                      })
+                    }
+                  />
+                </label>
+                <label className="shift-field">
+                  <span>chat_id חירום</span>
+                  <input
+                    type="text"
+                    dir="ltr"
+                    inputMode="numeric"
+                    value={data.settings.telegramEmergencyChatId ?? ''}
+                    placeholder="8622612663"
+                    onChange={(e) =>
+                      void persist({
+                        ...data,
+                        settings: {
+                          ...data.settings,
+                          telegramEmergencyChatId: e.target.value.trim(),
+                        },
+                      })
+                    }
+                  />
+                </label>
+              </div>
+              <div className="shift-settings-test-row presence-settings-actions">
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ width: 'auto' }}
+                  disabled={
+                    testingTelegram ||
+                    !(data.settings.telegramBotToken ?? '').trim() ||
+                    !(data.settings.telegramChatId ?? '').trim()
+                  }
+                  onClick={() => {
+                    void (async () => {
+                      setTestingTelegram(true)
+                      try {
+                        const result = await testTelegramNow(data.settings)
+                        if (result?.ok) {
+                          setToast({ message: 'הודעת בדיקה נשלחה ב־Telegram' })
+                        } else {
+                          setToast({
+                            message: telegramErrorMessage(result?.error),
+                          })
+                        }
+                      } finally {
+                        setTestingTelegram(false)
+                        restoreUiInteractivity()
+                      }
+                    })()
                   }}
                 >
-                  <option value="">— ללא עובד —</option>
-                  {data.settings.absenceWatchWorkerId &&
-                  !data.workers.some(
-                    (w) => w.id === data.settings.absenceWatchWorkerId,
-                  ) ? (
-                    <option value={data.settings.absenceWatchWorkerId}>
-                      עובד שנמחק
-                    </option>
-                  ) : null}
-                  {[...data.workers]
-                    .sort((a, b) =>
-                      workerDisplayName(a).localeCompare(
-                        workerDisplayName(b),
-                        'he',
-                      ),
-                    )
-                    .map((worker) => (
-                      <option key={worker.id} value={worker.id}>
-                        {workerDisplayName(worker)}
-                      </option>
-                    ))}
-                </select>
-              </label>
+                  {testingTelegram ? 'שולח…' : 'בדיקת Telegram'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ width: 'auto' }}
+                  disabled={testingTelegram || !hasTelegramEmergency(data)}
+                  onClick={() => {
+                    void (async () => {
+                      setTestingTelegram(true)
+                      try {
+                        const target =
+                          data.settings.telegramEmergencyChatId!.trim()
+                        const result = await sendTelegramTextNow(
+                          'בדיקת חירום — Liste Chevron',
+                          target,
+                          data.settings,
+                        )
+                        if (result?.ok) {
+                          setToast({
+                            message: 'בדיקת חירום נשלחה ב־Telegram',
+                          })
+                        } else {
+                          setToast({
+                            message: telegramErrorMessage(result?.error),
+                          })
+                        }
+                      } finally {
+                        setTestingTelegram(false)
+                        restoreUiInteractivity()
+                      }
+                    })()
+                  }}
+                >
+                  {testingTelegram ? 'שולח…' : 'בדיקת חירום'}
+                </button>
+              </div>
+              {!hasTelegramEmergency(data) ? (
+                <p className="shift-settings-test-hint">
+                  חסר Token או chat_id חירום — חירום לא ישלח.
+                </p>
+              ) : null}
             </div>
-            {!data.settings.absenceWatchEnabled ? (
-              <p className="shift-settings-test-hint">
-                השליחה האוטומטית כבויה — אין הודעה בכניסה או ביציאה.
+
+            <div className="presence-settings-block">
+              <h3>4 · התראות כניסה / יציאה</h3>
+              <p className="shift-settings-note">
+                כשפעיל — כניסה ויציאה נשלחות לקבוצת Telegram. העובד למעקב לא
+                מקבל הודעה.
               </p>
-            ) : !hasTelegramWatch(data) ? (
-              <p className="shift-settings-test-hint">
-                מלאו Token ו-chat_id של Telegram כדי לאפשר שליחה אוטומטית.
+              <label className="shift-field presence-watch-enable">
+                <span>שליחה אוטומטית</span>
+                <div className="type-toggle presence-watch-toggle" role="group">
+                  <button
+                    type="button"
+                    className={`type-toggle-btn ${
+                      data.settings.absenceWatchEnabled ? '' : 'active'
+                    }`}
+                    onClick={() =>
+                      void persist({
+                        ...data,
+                        settings: {
+                          ...data.settings,
+                          absenceWatchEnabled: false,
+                        },
+                      })
+                    }
+                  >
+                    כבוי
+                  </button>
+                  <button
+                    type="button"
+                    className={`type-toggle-btn ${
+                      data.settings.absenceWatchEnabled ? 'active' : ''
+                    }`}
+                    onClick={() =>
+                      void persist({
+                        ...data,
+                        settings: {
+                          ...data.settings,
+                          absenceWatchEnabled: true,
+                        },
+                      })
+                    }
+                  >
+                    פעיל
+                  </button>
+                </div>
+              </label>
+              <div className="shift-settings-grid presence-watch-grid">
+                <label className="shift-field">
+                  <span>עובד למעקב (ללא התראה)</span>
+                  <select
+                    value={data.settings.absenceWatchWorkerId ?? ''}
+                    onChange={(e) => {
+                      const absenceWatchWorkerId = e.target.value
+                      void persist({
+                        ...data,
+                        settings: { ...data.settings, absenceWatchWorkerId },
+                      })
+                    }}
+                  >
+                    <option value="">— ללא עובד —</option>
+                    {data.settings.absenceWatchWorkerId &&
+                    !data.workers.some(
+                      (w) => w.id === data.settings.absenceWatchWorkerId,
+                    ) ? (
+                      <option value={data.settings.absenceWatchWorkerId}>
+                        עובד שנמחק
+                      </option>
+                    ) : null}
+                    {[...data.workers]
+                      .sort((a, b) =>
+                        workerDisplayName(a).localeCompare(
+                          workerDisplayName(b),
+                          'he',
+                        ),
+                      )
+                      .map((worker) => (
+                        <option key={worker.id} value={worker.id}>
+                          {workerDisplayName(worker)}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+              </div>
+              {!data.settings.absenceWatchEnabled ? (
+                <p className="shift-settings-test-hint">
+                  השליחה האוטומטית כבויה — אין הודעה בכניסה או ביציאה.
+                </p>
+              ) : !hasTelegramWatch(data) ? (
+                <p className="shift-settings-test-hint">
+                  מלאו Token ו-chat_id קבוצה בסעיף Telegram.
+                </p>
+              ) : !(data.settings.absenceWatchWorkerId ?? '').trim() ? (
+                <p className="shift-settings-test-hint">
+                  ללא עובד — כל הכניסות והיציאות יישלחו.
+                </p>
+              ) : (
+                <p className="shift-settings-test-hint">
+                  כניסה ויציאה של העובד למעקב לא יישלחו.
+                </p>
+              )}
+            </div>
+
+            <div className="presence-settings-block">
+              <h3>5 · שליחה יומית לקבוצה</h3>
+              <p className="shift-settings-note">
+                רשימת הנוכחים נשלחת לקבוצה כל יום בשעה שנבחרה (הדף חייב להיות
+                פתוח).
               </p>
-            ) : !(data.settings.absenceWatchWorkerId ?? '').trim() ? (
-              <p className="shift-settings-test-hint">
-                ללא עובד — כל הכניסות והיציאות יישלחו.
-              </p>
-            ) : (
-              <p className="shift-settings-test-hint">
-                כניסה ויציאה של העובד למעקב לא יישלחו.
-              </p>
-            )}
+              <label className="shift-field presence-watch-enable">
+                <span>שליחה יומית</span>
+                <div className="type-toggle presence-watch-toggle" role="group">
+                  <button
+                    type="button"
+                    className={`type-toggle-btn ${
+                      data.settings.telegramDailyListEnabled ? '' : 'active'
+                    }`}
+                    onClick={() =>
+                      void persist({
+                        ...data,
+                        settings: {
+                          ...data.settings,
+                          telegramDailyListEnabled: false,
+                        },
+                      })
+                    }
+                  >
+                    כבוי
+                  </button>
+                  <button
+                    type="button"
+                    className={`type-toggle-btn ${
+                      data.settings.telegramDailyListEnabled ? 'active' : ''
+                    }`}
+                    onClick={() =>
+                      void persist({
+                        ...data,
+                        settings: {
+                          ...data.settings,
+                          telegramDailyListEnabled: true,
+                        },
+                      })
+                    }
+                  >
+                    פעיל
+                  </button>
+                </div>
+              </label>
+              <div className="shift-settings-grid presence-watch-grid">
+                <label className="shift-field">
+                  <span>שעת שליחה</span>
+                  <input
+                    type="time"
+                    value={data.settings.telegramDailyListTime ?? '07:00'}
+                    onChange={(e) =>
+                      void persist({
+                        ...data,
+                        settings: {
+                          ...data.settings,
+                          telegramDailyListTime: e.target.value || '07:00',
+                        },
+                      })
+                    }
+                  />
+                </label>
+              </div>
+              {!data.settings.telegramDailyListEnabled ? (
+                <p className="shift-settings-test-hint">
+                  השליחה היומית כבויה.
+                </p>
+              ) : !hasTelegramWatch(data) ? (
+                <p className="shift-settings-test-hint">
+                  מלאו Token ו-chat_id קבוצה בסעיף Telegram.
+                </p>
+              ) : (
+                <p className="shift-settings-test-hint">
+                  הרשימה תישלח לקבוצה כל יום ב־
+                  {data.settings.telegramDailyListTime ?? '07:00'}.
+                </p>
+              )}
+            </div>
+
+            {!isElectronApp() ? (
+              <div className="presence-settings-block">
+                <h3>6 · Cloudflare (אופציונלי)</h3>
+                <p className="shift-settings-note">
+                  חירום וטקסט Telegram עובדים בלי Cloudflare. השאירו כאן רק אם
+                  תרצו Worker לדוא״ל / תמונות.
+                </p>
+                <div className="shift-settings-grid presence-watch-grid">
+                  <label className="shift-field">
+                    <span>כתובת Worker</span>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={data.settings.cloudflareRelayUrl ?? ''}
+                      placeholder="https://weathered-cell-7a63.yoelibarthel603.workers.dev"
+                      onChange={(e) =>
+                        void persist({
+                          ...data,
+                          settings: {
+                            ...data.settings,
+                            cloudflareRelayUrl: e.target.value.trim(),
+                          },
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="shift-field">
+                    <span>מפתח גישה</span>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={data.settings.cloudflareRelayKey ?? ''}
+                      placeholder="ACCESS_KEY"
+                      onChange={(e) =>
+                        void persist({
+                          ...data,
+                          settings: {
+                            ...data.settings,
+                            cloudflareRelayKey: e.target.value.trim(),
+                          },
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+                <p className="shift-settings-test-hint" dir="ltr">
+                  {describeRelaySettings(data.settings)}
+                </p>
+              </div>
+            ) : null}
           </section>
+        ) : null}
         ) : null}
 
         <div ref={listRef} className="list-capture panel">
