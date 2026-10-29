@@ -25,8 +25,8 @@ export const CAMERA_FOLDER_CANDIDATES = [
 export const WEB_SHIFTS_SUBDIR = SHIFT_FOLDER_CANDIDATES[0]
 export const WEB_CAMERAS_SUBDIR = CAMERA_FOLDER_CANDIDATES[0]
 
-let boundShiftFolderName = WEB_SHIFTS_SUBDIR
-let boundCameraFolderName = WEB_CAMERAS_SUBDIR
+let boundShiftFolderName: string = WEB_SHIFTS_SUBDIR
+let boundCameraFolderName: string = WEB_CAMERAS_SUBDIR
 
 type DirHandle = FileSystemDirectoryHandle
 
@@ -278,16 +278,6 @@ async function findChildDir(
   parent: DirHandle,
   names: readonly string[],
 ): Promise<{ handle: DirHandle; name: string } | null> {
-  const wanted = new Set(names)
-  try {
-    for await (const entry of parent.values()) {
-      if (entry.kind === 'directory' && wanted.has(entry.name)) {
-        return { handle: entry as DirHandle, name: entry.name }
-      }
-    }
-  } catch {
-    /* values() indisponible */
-  }
   for (const name of names) {
     try {
       const handle = await parent.getDirectoryHandle(name, { create: false })

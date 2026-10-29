@@ -3877,7 +3877,6 @@ export default function App() {
             ) : null}
           </section>
         ) : null}
-        ) : null}
 
         <div ref={listRef} className="list-capture panel">
           {renderPresenceListBody(filteredPresentPeople, {
