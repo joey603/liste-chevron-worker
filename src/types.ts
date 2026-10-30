@@ -157,6 +157,8 @@ export type ShiftEmailSentLogItem = {
   sentAt: string
   messageId?: string
   to: string
+  /** Fichiers דוח joints réellement envoyés */
+  attachmentNames?: string[]
 }
 
 export function normalizeEmailSendMode(raw: unknown): EmailSendMode {

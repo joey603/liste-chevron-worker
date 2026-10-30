@@ -44,7 +44,6 @@ import {
   buildShiftAutoSendBadgeState,
   type ShiftAutoSendBadgeState,
 } from './webAutoSend'
-import { parseShiftReportDate } from './shiftReportPaths'
 import { getWebShiftEmailSent } from './webEmailSentLog'
 import type { AppSettings, ShiftEmailSentLogItem } from './types'
 import { buildShiftReportDocumentModel } from './shiftReportDocument'

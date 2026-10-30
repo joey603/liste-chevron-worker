@@ -14,6 +14,20 @@ function formatSentAt(iso: string): string {
   }
 }
 
+function formatReportsLabel(entry: ShiftEmailSentLogItem): string {
+  const names = entry.attachmentNames?.filter(Boolean) ?? []
+  if (names.length === 0) return 'בוקר, צוהריים, לילה'
+  return names
+    .map((name) =>
+      name
+        .replace(/^משמרת\s+/u, '')
+        .replace(/\.docx$/iu, '')
+        .trim(),
+    )
+    .filter(Boolean)
+    .join(' · ')
+}
+
 export default function EmailSendLogModal({
   entries,
   loading = false,
@@ -29,8 +43,8 @@ export default function EmailSendLogModal({
       >
         <h3 id="email-send-log-title">יומן שליחות — דוחות משמרת</h3>
         <p className="shift-settings-test-hint">
-          ימים שבהם נשלחו דוחות המשמרת (בוקר, צוהריים, לילה) בדוא״ל — לפי
-          אימות SMTP.
+          ימים שבהם דוחות המשמרת נשלחו והתקבלו בדוא״ל (Gmail / SMTP) — רק
+          שליחות שהצליחו.
         </p>
         {loading ? (
           <p>טוען…</p>
@@ -43,6 +57,7 @@ export default function EmailSendLogModal({
                 <tr>
                   <th>יום הדוח</th>
                   <th>דוחות שנשלחו</th>
+                  <th>סטטוס</th>
                   <th>מועד שליחה</th>
                   <th>נמען</th>
                 </tr>
@@ -51,7 +66,16 @@ export default function EmailSendLogModal({
                 {entries.map((entry) => (
                   <tr key={`${entry.date}-${entry.sentAt}`}>
                     <td>{entry.date}</td>
-                    <td>בוקר, צוהריים, לילה</td>
+                    <td>{formatReportsLabel(entry)}</td>
+                    <td>
+                      <span
+                        className={`email-send-log-status${
+                          entry.messageId ? ' is-received' : ' is-sent'
+                        }`}
+                      >
+                        {entry.messageId ? 'התקבל' : 'נשלח'}
+                      </span>
+                    </td>
                     <td>{formatSentAt(entry.sentAt)}</td>
                     <td>{entry.to || '—'}</td>
                   </tr>

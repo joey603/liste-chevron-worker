@@ -4,6 +4,8 @@ export type WebEmailSentEntry = {
   sentAt: string
   messageId?: string
   to: string
+  /** Noms des fichiers joints (דוחות) au moment de l’envoi */
+  attachmentNames?: string[]
 }
 
 type WebEmailSentLog = {
@@ -94,4 +96,29 @@ export function recordWebTelegramDailySent(dateKey: string) {
   const log = loadLog()
   log.telegramDaily = dateKey
   saveLog(log)
+}
+
+function shiftDateSortKey(dateKey: string): number {
+  const m = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(dateKey.trim())
+  if (!m) return 0
+  return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])).getTime()
+}
+
+export function listWebShiftEmailSentLog(): Array<{
+  date: string
+  sentAt: string
+  messageId?: string
+  to: string
+  attachmentNames?: string[]
+}> {
+  const log = loadLog()
+  return Object.entries(log.shift)
+    .map(([date, entry]) => ({
+      date,
+      sentAt: entry.sentAt,
+      messageId: entry.messageId,
+      to: entry.to,
+      attachmentNames: entry.attachmentNames,
+    }))
+    .sort((a, b) => shiftDateSortKey(b.date) - shiftDateSortKey(a.date))
 }

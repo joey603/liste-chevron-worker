@@ -39,6 +39,7 @@ import { hebrewMonthName } from './shiftReportPaths'
 import {
   getWebCameraMonthlyEmailSent,
   getWebShiftEmailSent,
+  listWebShiftEmailSentLog,
   recordWebCameraMonthlyEmailSent,
   recordWebShiftEmailSent,
 } from './webEmailSentLog'
@@ -178,10 +179,7 @@ export function installWebListeApi(): void {
         to: entry.to,
       }
     },
-    getShiftReportEmailSentLog: async () => {
-      // Pas de journal détaillé côté web pour l’instant
-      return []
-    },
+    getShiftReportEmailSentLog: async () => listWebShiftEmailSentLog(),
     sendShiftReportEmail: async (payload) => {
       const existing = getWebShiftEmailSent(payload.date)
       if (existing && !payload.force) {
@@ -236,6 +234,7 @@ export function installWebListeApi(): void {
           sentAt,
           messageId: result.messageId,
           to,
+          attachmentNames: attachments.map((a) => a.name),
         })
         return { ...result, sentAt, to }
       }
