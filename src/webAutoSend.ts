@@ -4,6 +4,7 @@ import {
 } from './cameraReportMonthly'
 import { hasGmailToken } from './gmailSend'
 import { formatShiftDate } from './shiftReport'
+import { parseShiftReportDate, shiftDateToDate } from './shiftReportPaths'
 import {
   buildPresenceListMessage,
   hasTelegramWatch,
@@ -58,6 +59,24 @@ export function shiftAutoSendReportDateKey(now = new Date()): string {
   return formatShiftDate(reportDay)
 }
 
+/**
+ * Moment d’envoi auto pour un rapport daté `reportDate` :
+ * le lendemain à l’heure réglée (ex. 30 → 31 à 07:00).
+ */
+export function shiftAutoSendScheduledAt(
+  reportDate: string,
+  targetTime: string,
+): Date | null {
+  const parsed = parseShiftReportDate(reportDate)
+  if (!parsed) return null
+  const target = parseTimeToMinutes(targetTime) ?? parseTimeToMinutes('07:00')
+  if (target == null) return null
+  const sendDay = shiftDateToDate(parsed.formatted)
+  sendDay.setDate(sendDay.getDate() + 1)
+  sendDay.setHours(Math.floor(target / 60), target % 60, 0, 0)
+  return sendDay
+}
+
 export function msUntilScheduledTime(now: Date, targetTime: string): number {
   const target = parseTimeToMinutes(targetTime) ?? parseTimeToMinutes('07:00')
   if (target == null) return 0
@@ -68,9 +87,13 @@ export function msUntilScheduledTime(now: Date, targetTime: string): number {
 
 export function formatRemainingHebrew(ms: number): string {
   const totalSec = Math.max(0, Math.ceil(ms / 1000))
-  const hours = Math.floor(totalSec / 3600)
+  const days = Math.floor(totalSec / 86400)
+  const hours = Math.floor((totalSec % 86400) / 3600)
   const mins = Math.floor((totalSec % 3600) / 60)
   const secs = totalSec % 60
+  if (days > 0) {
+    return hours > 0 ? `${days} ימ׳ ${hours} שע׳` : `${days} ימ׳`
+  }
   if (hours > 0) {
     return mins > 0 ? `${hours} שע׳ ${mins} דק׳` : `${hours} שע׳`
   }
@@ -89,14 +112,21 @@ export type ShiftAutoSendBadgeState =
 export function buildShiftAutoSendBadgeState(options: {
   mode?: string | null
   targetTime?: string | null
+  /** Date du דוח affiché (DD.MM.YYYY) — envoi le lendemain */
+  reportDate: string
   sent: boolean
   now?: Date
 }): ShiftAutoSendBadgeState {
   if ((options.mode ?? 'auto') === 'manual') return { kind: 'hidden' }
   const targetTime = options.targetTime?.trim() || '07:00'
   const now = options.now ?? new Date()
-  if (!hasReachedScheduledTime(now, targetTime)) {
-    const remaining = formatRemainingHebrew(msUntilScheduledTime(now, targetTime))
+  const scheduledAt = shiftAutoSendScheduledAt(options.reportDate, targetTime)
+  if (!scheduledAt) return { kind: 'hidden' }
+
+  if (now.getTime() < scheduledAt.getTime()) {
+    const remaining = formatRemainingHebrew(
+      scheduledAt.getTime() - now.getTime(),
+    )
     return {
       kind: 'waiting',
       targetTime,

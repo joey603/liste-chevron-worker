@@ -42,9 +42,9 @@ import {
 } from './gmailSend'
 import {
   buildShiftAutoSendBadgeState,
-  shiftAutoSendReportDateKey,
   type ShiftAutoSendBadgeState,
 } from './webAutoSend'
+import { parseShiftReportDate } from './shiftReportPaths'
 import { getWebShiftEmailSent } from './webEmailSentLog'
 import type { AppSettings, ShiftEmailSentLogItem } from './types'
 import { buildShiftReportDocumentModel } from './shiftReportDocument'
@@ -158,7 +158,7 @@ function ShiftDayStatusRow({
         if (!cancelled) setAutoBadge({ kind: 'hidden' })
         return
       }
-      const dateKey = shiftAutoSendReportDateKey()
+      const dateKey = parseShiftReportDate(date)?.formatted ?? date.trim()
       let sent = Boolean(getWebShiftEmailSent(dateKey))
       if (!sent && window.listeApi?.getShiftReportEmailStatus) {
         try {
@@ -175,6 +175,7 @@ function ShiftDayStatusRow({
         buildShiftAutoSendBadgeState({
           mode,
           targetTime,
+          reportDate: dateKey,
           sent,
         }),
       )
@@ -186,7 +187,7 @@ function ShiftDayStatusRow({
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [settings?.shiftReportEmailMode, settings?.shiftReportEmailTime])
+  }, [date, settings?.shiftReportEmailMode, settings?.shiftReportEmailTime])
 
   return (
     <div className="shift-day-status" aria-label="סטטוס משמרות היום">
@@ -202,10 +203,10 @@ function ShiftDayStatusRow({
             className={`shift-auto-send-badge is-${autoBadge.kind}`}
             title={
               autoBadge.kind === 'waiting'
-                ? `שליחה אוטומטית ב־${autoBadge.targetTime}`
+                ? `שליחה אוטומטית למחרת ב־${autoBadge.targetTime}`
                 : autoBadge.kind === 'sent'
-                  ? `נשלח אוטומטית (יעד ${autoBadge.targetTime})`
-                  : `לא נשלח בשעה ${autoBadge.targetTime}`
+                  ? `נשלח אוטומטית למחרת ב־${autoBadge.targetTime}`
+                  : `לא נשלח למחרת ב־${autoBadge.targetTime}`
             }
             role="status"
           >
