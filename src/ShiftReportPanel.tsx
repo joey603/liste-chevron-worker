@@ -40,6 +40,12 @@ import {
   hasGmailToken,
   subscribeGmailAuth,
 } from './gmailSend'
+import {
+  buildShiftAutoSendBadgeState,
+  shiftAutoSendReportDateKey,
+  type ShiftAutoSendBadgeState,
+} from './webAutoSend'
+import { getWebShiftEmailSent } from './webEmailSentLog'
 import type { AppSettings, ShiftEmailSentLogItem } from './types'
 import { buildShiftReportDocumentModel } from './shiftReportDocument'
 import type { ShiftReportsArchive } from './shiftReportArchive'
@@ -128,22 +134,84 @@ function ShiftDayStatusRow({
   archive,
   current,
   onSelectShift,
+  settings,
 }: {
   date: string
   archive?: ShiftReportsArchive
   current: ShiftReport
   onSelectShift: (shift: ShiftKind) => void
+  settings?: AppSettings
 }) {
   const items = getShiftDayStatus(archive, date, current)
   const filledCount = items.filter((i) => i.filled).length
+  const [autoBadge, setAutoBadge] = useState<ShiftAutoSendBadgeState>({
+    kind: 'hidden',
+  })
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function refresh() {
+      const mode = settings?.shiftReportEmailMode ?? 'auto'
+      const targetTime = settings?.shiftReportEmailTime ?? '07:00'
+      if (mode === 'manual') {
+        if (!cancelled) setAutoBadge({ kind: 'hidden' })
+        return
+      }
+      const dateKey = shiftAutoSendReportDateKey()
+      let sent = Boolean(getWebShiftEmailSent(dateKey))
+      if (!sent && window.listeApi?.getShiftReportEmailStatus) {
+        try {
+          const status = await window.listeApi.getShiftReportEmailStatus({
+            date: dateKey,
+          })
+          sent = Boolean(status.sent)
+        } catch {
+          /* ignore */
+        }
+      }
+      if (cancelled) return
+      setAutoBadge(
+        buildShiftAutoSendBadgeState({
+          mode,
+          targetTime,
+          sent,
+        }),
+      )
+    }
+
+    void refresh()
+    const timer = window.setInterval(() => void refresh(), 1000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [settings?.shiftReportEmailMode, settings?.shiftReportEmailTime])
 
   return (
     <div className="shift-day-status" aria-label="סטטוס משמרות היום">
-      <div className="shift-day-status-head">
-        <span className="shift-day-status-title">משמרות היום</span>
-        <span className="shift-day-status-count">
-          {filledCount}/3 מולאו
-        </span>
+      <div className="shift-day-status-top">
+        <div className="shift-day-status-head">
+          <span className="shift-day-status-title">משמרות היום</span>
+          <span className="shift-day-status-count">
+            {filledCount}/3 מולאו
+          </span>
+        </div>
+        {autoBadge.kind !== 'hidden' ? (
+          <span
+            className={`shift-auto-send-badge is-${autoBadge.kind}`}
+            title={
+              autoBadge.kind === 'waiting'
+                ? `שליחה אוטומטית ב־${autoBadge.targetTime}`
+                : autoBadge.kind === 'sent'
+                  ? `נשלח אוטומטית (יעד ${autoBadge.targetTime})`
+                  : `לא נשלח בשעה ${autoBadge.targetTime}`
+            }
+            role="status"
+          >
+            {autoBadge.label}
+          </span>
+        ) : null}
       </div>
       <div className="shift-day-status-pills">
         {items.map((item) => (
@@ -1177,6 +1245,7 @@ export default function ShiftReportPanel({
           archive={archive}
           current={report}
           onSelectShift={handleShiftChange}
+          settings={settings}
         />
         <div className="shift-meta-grid">
           <ShiftReportDateField

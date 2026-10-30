@@ -51,6 +51,64 @@ export function hasReachedScheduledTime(now: Date, targetTime: string): boolean 
   return nowMinutes >= target
 }
 
+/** Date du rapport envoyé à l’heure auto (veille du jour calendaire). */
+export function shiftAutoSendReportDateKey(now = new Date()): string {
+  const reportDay = new Date(now)
+  reportDay.setDate(reportDay.getDate() - 1)
+  return formatShiftDate(reportDay)
+}
+
+export function msUntilScheduledTime(now: Date, targetTime: string): number {
+  const target = parseTimeToMinutes(targetTime) ?? parseTimeToMinutes('07:00')
+  if (target == null) return 0
+  const scheduled = new Date(now)
+  scheduled.setHours(Math.floor(target / 60), target % 60, 0, 0)
+  return Math.max(0, scheduled.getTime() - now.getTime())
+}
+
+export function formatRemainingHebrew(ms: number): string {
+  const totalSec = Math.max(0, Math.ceil(ms / 1000))
+  const hours = Math.floor(totalSec / 3600)
+  const mins = Math.floor((totalSec % 3600) / 60)
+  const secs = totalSec % 60
+  if (hours > 0) {
+    return mins > 0 ? `${hours} שע׳ ${mins} דק׳` : `${hours} שע׳`
+  }
+  if (mins > 0) {
+    return secs > 0 && mins < 5 ? `${mins} דק׳ ${secs} שנ׳` : `${mins} דק׳`
+  }
+  return `${secs} שנ׳`
+}
+
+export type ShiftAutoSendBadgeState =
+  | { kind: 'hidden' }
+  | { kind: 'waiting'; label: string; targetTime: string }
+  | { kind: 'sent'; label: string; targetTime: string }
+  | { kind: 'missed'; label: string; targetTime: string }
+
+export function buildShiftAutoSendBadgeState(options: {
+  mode?: string | null
+  targetTime?: string | null
+  sent: boolean
+  now?: Date
+}): ShiftAutoSendBadgeState {
+  if ((options.mode ?? 'auto') === 'manual') return { kind: 'hidden' }
+  const targetTime = options.targetTime?.trim() || '07:00'
+  const now = options.now ?? new Date()
+  if (!hasReachedScheduledTime(now, targetTime)) {
+    const remaining = formatRemainingHebrew(msUntilScheduledTime(now, targetTime))
+    return {
+      kind: 'waiting',
+      targetTime,
+      label: `יישלח בעוד ${remaining}`,
+    }
+  }
+  if (options.sent) {
+    return { kind: 'sent', targetTime, label: 'נשלח' }
+  }
+  return { kind: 'missed', targetTime, label: 'לא נשלח' }
+}
+
 function localCalendarDateKey(d: Date): string {
   const yyyy = d.getFullYear()
   const mm = String(d.getMonth() + 1).padStart(2, '0')

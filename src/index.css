@@ -2234,12 +2234,53 @@ button.emergency-status-button:hover {
   min-width: min(100%, 280px);
 }
 
+.shift-day-status-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  flex-wrap: wrap;
+}
+
 .shift-day-status-head {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 0;
   flex-shrink: 0;
+}
+
+.shift-auto-send-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.shift-auto-send-badge.is-waiting {
+  color: var(--chevron-blue-dark);
+  background: rgba(0, 87, 168, 0.1);
+  border-color: rgba(0, 87, 168, 0.28);
+}
+
+.shift-auto-send-badge.is-sent {
+  color: #0f6b3a;
+  background: rgba(22, 163, 74, 0.14);
+  border-color: rgba(22, 163, 74, 0.4);
+}
+
+.shift-auto-send-badge.is-missed {
+  color: var(--chevron-red-dark);
+  background: rgba(227, 24, 55, 0.1);
+  border-color: rgba(227, 24, 55, 0.35);
 }
 
 .shift-day-status-title {
