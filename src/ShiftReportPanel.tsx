@@ -35,7 +35,11 @@ import {
 import { restoreUiInteractivity } from './captureDomToPng'
 import { sendShiftReportTestEmail } from './webRelay'
 import { isElectronApp } from './webDataFolder'
-import { connectGmail, hasGmailToken } from './gmailSend'
+import {
+  connectGmail,
+  hasGmailToken,
+  subscribeGmailAuth,
+} from './gmailSend'
 import type { AppSettings, ShiftEmailSentLogItem } from './types'
 import { buildShiftReportDocumentModel } from './shiftReportDocument'
 import type { ShiftReportsArchive } from './shiftReportArchive'
@@ -69,6 +73,8 @@ type Props = {
     currentReport?: ShiftReport,
   ) => void
   getOperationalDayDate?: (now?: Date, shift?: ShiftKind) => string
+  /** Incrémente pour ouvrir les réglages et surligner «התחבר ל־Gmail» */
+  gmailConnectFocusToken?: number
 }
 
 type EditSection = 'reminders' | 'faults' | 'general' | 'dept' | 'station' | null
@@ -181,6 +187,7 @@ export default function ShiftReportPanel({
   archive,
   onShiftContextChange,
   getOperationalDayDate,
+  gmailConnectFocusToken = 0,
 }: Props) {
   const [report, setReport] = useState<ShiftReport>(() =>
     normalizeShiftReport(value),
@@ -190,6 +197,12 @@ export default function ShiftReportPanel({
   const [exporting, setExporting] = useState(false)
   const [testingEmail, setTestingEmail] = useState(false)
   const [connectingGmail, setConnectingGmail] = useState(false)
+  const [gmailConnected, setGmailConnected] = useState(() =>
+    isElectronApp() ? true : hasGmailToken(),
+  )
+  const [highlightGmailConnect, setHighlightGmailConnect] = useState(false)
+  const gmailConnectBtnRef = useRef<HTMLButtonElement>(null)
+  const lastGmailFocusToken = useRef(0)
   const [sendingEmail, setSendingEmail] = useState(false)
   const [alreadySentInfo, setAlreadySentInfo] = useState<{
     sentAt?: string
@@ -284,6 +297,35 @@ export default function ShiftReportPanel({
   useEffect(() => {
     setTexts(normalizeShiftReportTexts(textsProp))
   }, [textsProp])
+
+  useEffect(() => {
+    if (isElectronApp()) return
+    const sync = () => setGmailConnected(hasGmailToken())
+    sync()
+    return subscribeGmailAuth(sync)
+  }, [])
+
+  useEffect(() => {
+    if (!gmailConnectFocusToken || gmailConnectFocusToken === lastGmailFocusToken.current) {
+      return
+    }
+    lastGmailFocusToken.current = gmailConnectFocusToken
+    setShowSettings(true)
+    setHighlightGmailConnect(true)
+    const timer = window.setTimeout(() => {
+      const btn = gmailConnectBtnRef.current
+      if (!btn) return
+      btn.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      btn.focus()
+    }, 120)
+    const clearHighlight = window.setTimeout(() => {
+      setHighlightGmailConnect(false)
+    }, 4500)
+    return () => {
+      window.clearTimeout(timer)
+      window.clearTimeout(clearHighlight)
+    }
+  }, [gmailConnectFocusToken])
 
   useEffect(() => {
     if (!value) return
@@ -1071,8 +1113,12 @@ export default function ShiftReportPanel({
             </button>
             {!isElectronApp() ? (
               <button
+                ref={gmailConnectBtnRef}
+                id="gmail-connect-btn"
                 type="button"
-                className="btn btn-ghost"
+                className={`btn btn-ghost gmail-connect-btn${
+                  highlightGmailConnect ? ' is-highlight' : ''
+                }`}
                 style={{ width: 'auto' }}
                 disabled={connectingGmail || !(settings?.googleClientId ?? '').trim()}
                 onClick={() => {
@@ -1082,6 +1128,10 @@ export default function ShiftReportPanel({
                       const result = await connectGmail(
                         settings?.googleClientId ?? '',
                       )
+                      if (result.ok) {
+                        setGmailConnected(true)
+                        setHighlightGmailConnect(false)
+                      }
                       onToast?.(
                         result.ok
                           ? 'Gmail מחובר — השליחה תצא מהחשבון שלכם'
@@ -1095,7 +1145,7 @@ export default function ShiftReportPanel({
               >
                 {connectingGmail
                   ? 'מתחבר…'
-                  : hasGmailToken()
+                  : gmailConnected
                     ? 'Gmail מחובר'
                     : 'התחבר ל־Gmail'}
               </button>
@@ -1109,7 +1159,8 @@ export default function ShiftReportPanel({
               יומן שליחות
             </button>
             <span className="shift-settings-test-hint">
-              בדפדפן: מלאו Client ID, התחברו ל־Gmail, ואז שלחו. המייל יוצא מהחשבון שלכם אל המנהל, עם קבצי הדוח.
+              בדפדפן: מלאו Client ID והתחברו ל־Gmail. במצב אוטומטי השליחה יוצאת בשעה שנקבעה
+              (הדף חייב להישאר פתוח). המייל יוצא מהחשבון שלכם אל המנהל, עם קבצי הדוח.
             </span>
           </div>
         </section>

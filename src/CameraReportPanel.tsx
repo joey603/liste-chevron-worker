@@ -757,8 +757,9 @@ export default function CameraReportPanel({
           </div>
           {!isElectronApp() ? (
             <p className="shift-settings-test-hint">
-              אותו Gmail כמו בדוח משמרת. שלח יומן שולח את קובץ ה-Excel מהחשבון
-              שלכם אל המנהל.
+              אותו Gmail כמו בדוח משמרת. במצב אוטומטי: ב־1 בחודש בשעה שנקבעה
+              (הדף חייב להישאר פתוח). שלח יומן שולח את קובץ ה-Excel מהחשבון שלכם
+              אל המנהל.
             </p>
           ) : null}
         </section>

@@ -95,6 +95,8 @@ import {
   writeAppFilesToFolder,
 } from './webDataFolder'
 import { installWebListeApi } from './webListeApi'
+import { hasGmailToken, subscribeGmailAuth } from './gmailSend'
+import { startWebAutoSend } from './webAutoSend'
 import chevronLogo from './assets/chevron-logo.png'
 
 installWebListeApi()
@@ -625,6 +627,10 @@ export default function App() {
   const [showPresenceSettings, setShowPresenceSettings] = useState(false)
   const [dataFolderName, setDataFolderName] = useState<string | null>(null)
   const [pickingDataFolder, setPickingDataFolder] = useState(false)
+  const [gmailConnected, setGmailConnected] = useState(() =>
+    isElectronApp() ? true : hasGmailToken(),
+  )
+  const [gmailConnectFocusToken, setGmailConnectFocusToken] = useState(0)
   const [excelNotePopup, setExcelNotePopup] = useState<{
     name: string
     notes: string
@@ -701,12 +707,39 @@ export default function App() {
   const workersAlphaLettersRef = useRef<HTMLDivElement>(null)
   const cardlessScrollRef = useRef<HTMLDivElement>(null)
   const cardlessAlphaLettersRef = useRef<HTMLDivElement>(null)
+  const dataRef = useRef(data)
+  dataRef.current = data
 
   useEffect(() => {
     loadData().then((loaded) => setData(normalizeData(loaded)))
     if (isWebFolderSupported()) {
       void getStoredDataFolderName().then((name) => setDataFolderName(name))
     }
+  }, [])
+
+  useEffect(() => {
+    if (isElectronApp()) return
+    const sync = () => setGmailConnected(hasGmailToken())
+    sync()
+    const unsubscribe = subscribeGmailAuth(sync)
+    const timer = window.setInterval(sync, 30_000)
+    return () => {
+      unsubscribe()
+      window.clearInterval(timer)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (isElectronApp()) return
+    return startWebAutoSend({
+      getData: () => dataRef.current,
+      onToast: (message) => setToast({ message }),
+      onNeedGmail: () => {
+        setGmailConnected(false)
+        setActiveTab('shift')
+        setGmailConnectFocusToken((n) => n + 1)
+      },
+    })
   }, [])
 
   // Filet de sécurité : calques de capture orphelins / focus après dialogues
@@ -2678,6 +2711,26 @@ export default function App() {
         </div>
       ) : null}
 
+      {!isElectronApp() && !gmailConnected ? (
+        <div className="web-gmail-disconnect-banner" role="alert">
+          <span>
+            Gmail מנותק — השליחה האוטומטית לא תצא. לחצו כדי לעבור לכפתור
+            «התחבר ל־Gmail».
+          </span>
+          <button
+            type="button"
+            className="btn btn-danger"
+            onClick={() => {
+              clearManageMode()
+              setActiveTab('shift')
+              setGmailConnectFocusToken((n) => n + 1)
+            }}
+          >
+            התחבר ל־Gmail עכשיו
+          </button>
+        </div>
+      ) : null}
+
       <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       {activeTab === 'presence' && (
         <>
@@ -3816,7 +3869,8 @@ export default function App() {
               ) : (
                 <p className="shift-settings-test-hint">
                   הרשימה תישלח לקבוצה כל יום ב־
-                  {data.settings.telegramDailyListTime ?? '07:00'}.
+                  {data.settings.telegramDailyListTime ?? '07:00'}
+                  {!isElectronApp() ? ' (הדף חייב להישאר פתוח)' : ''}.
                 </p>
               )}
             </div>
@@ -4084,6 +4138,7 @@ export default function App() {
               archive={data?.shiftReportsArchive}
               onShiftContextChange={onShiftContextChange}
               getOperationalDayDate={getOperationalDayDate}
+              gmailConnectFocusToken={gmailConnectFocusToken}
             />
         </main>
       )}

@@ -33,8 +33,15 @@ import {
   cameraReportMonthlyRelativeDir,
   cameraReportMonthlyWorkbookFileName,
   monthlyCameraReportHasContent,
+  monthlyCameraReportKey,
 } from './cameraReportMonthly'
 import { hebrewMonthName } from './shiftReportPaths'
+import {
+  getWebCameraMonthlyEmailSent,
+  getWebShiftEmailSent,
+  recordWebCameraMonthlyEmailSent,
+  recordWebShiftEmailSent,
+} from './webEmailSentLog'
 
 function noopUnsub() {
   return () => {}
@@ -161,9 +168,31 @@ export function installWebListeApi(): void {
     },
     sendShiftReportTestEmail,
     sendShiftReportsEmail,
-    getShiftReportEmailStatus: async () => ({ sent: false }),
-    getShiftReportEmailSentLog: async () => [],
+    getShiftReportEmailStatus: async (payload) => {
+      const entry = getWebShiftEmailSent(payload.date)
+      if (!entry) return { sent: false }
+      return {
+        sent: true,
+        sentAt: entry.sentAt,
+        messageId: entry.messageId,
+        to: entry.to,
+      }
+    },
+    getShiftReportEmailSentLog: async () => {
+      // Pas de journal détaillé côté web pour l’instant
+      return []
+    },
     sendShiftReportEmail: async (payload) => {
+      const existing = getWebShiftEmailSent(payload.date)
+      if (existing && !payload.force) {
+        return {
+          ok: false,
+          alreadySent: true,
+          sentAt: existing.sentAt,
+          messageId: existing.messageId,
+          to: existing.to,
+        }
+      }
       let settings
       try {
         const main = JSON.parse(
@@ -201,10 +230,40 @@ export function installWebListeApi(): void {
         smtpPass: settings.shiftReportSmtpPass ?? '',
         attachments,
       })
+      if (result.ok) {
+        const sentAt = new Date().toISOString()
+        recordWebShiftEmailSent(payload.date, {
+          sentAt,
+          messageId: result.messageId,
+          to,
+        })
+        return { ...result, sentAt, to }
+      }
       return result
     },
-    getCameraMonthlyEmailStatus: async () => ({ sent: false }),
+    getCameraMonthlyEmailStatus: async (payload) => {
+      const monthKey = monthlyCameraReportKey(payload.year, payload.month)
+      const entry = getWebCameraMonthlyEmailSent(monthKey)
+      if (!entry) return { sent: false }
+      return {
+        sent: true,
+        sentAt: entry.sentAt,
+        messageId: entry.messageId,
+        to: entry.to,
+      }
+    },
     sendCameraMonthlyEmail: async (payload) => {
+      const monthKey = monthlyCameraReportKey(payload.year, payload.month)
+      const existing = getWebCameraMonthlyEmailSent(monthKey)
+      if (existing && !payload.force) {
+        return {
+          ok: false,
+          alreadySent: true,
+          sentAt: existing.sentAt,
+          messageId: existing.messageId,
+          to: existing.to,
+        }
+      }
       let data
       try {
         const main = JSON.parse(
@@ -260,13 +319,23 @@ export function installWebListeApi(): void {
           return { ok: false, error: 'workbook_build_failed' }
         }
       }
-      return sendCameraMonthlyReportEmail({
+      const result = await sendCameraMonthlyReportEmail({
         hebrewMonth: hebrewMonthName(payload.month),
         year: payload.year,
         directorEmail: to,
         attachmentName: fileName,
         attachmentBytes: Array.from(bytes),
       })
+      if (result.ok) {
+        const sentAt = new Date().toISOString()
+        recordWebCameraMonthlyEmailSent(monthKey, {
+          sentAt,
+          messageId: result.messageId,
+          to,
+        })
+        return { ...result, sentAt, to }
+      }
+      return result
     },
     onUpdateAvailable: () => noopUnsub(),
     onUpdateProgress: () => noopUnsub(),

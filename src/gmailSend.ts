@@ -22,12 +22,42 @@ declare global {
   }
 }
 
+type GmailAuthListener = () => void
+const gmailAuthListeners = new Set<GmailAuthListener>()
+
+function notifyGmailAuthChange() {
+  for (const listener of gmailAuthListeners) {
+    try {
+      listener()
+    } catch {
+      /* ignore listener errors */
+    }
+  }
+}
+
+export function subscribeGmailAuth(listener: GmailAuthListener): () => void {
+  gmailAuthListeners.add(listener)
+  return () => {
+    gmailAuthListeners.delete(listener)
+  }
+}
+
+function clearStoredToken() {
+  sessionStorage.removeItem(TOKEN_KEY)
+  sessionStorage.removeItem(TOKEN_EXP_KEY)
+  notifyGmailAuthChange()
+}
+
 function readStoredToken(): string {
   const token = sessionStorage.getItem(TOKEN_KEY) ?? ''
   const exp = Number(sessionStorage.getItem(TOKEN_EXP_KEY) ?? 0)
   if (!token || !exp || Date.now() >= exp) {
-    sessionStorage.removeItem(TOKEN_KEY)
-    sessionStorage.removeItem(TOKEN_EXP_KEY)
+    if (token || exp) {
+      sessionStorage.removeItem(TOKEN_KEY)
+      sessionStorage.removeItem(TOKEN_EXP_KEY)
+      // Évite setState pendant un rendu React
+      queueMicrotask(() => notifyGmailAuthChange())
+    }
     return ''
   }
   return token
@@ -37,6 +67,7 @@ function storeToken(token: string, expiresInSec?: number) {
   const ttl = Math.max(60, (expiresInSec ?? 3600) - 60)
   sessionStorage.setItem(TOKEN_KEY, token)
   sessionStorage.setItem(TOKEN_EXP_KEY, String(Date.now() + ttl * 1000))
+  notifyGmailAuthChange()
 }
 
 export function hasGmailToken(): boolean {
@@ -217,8 +248,7 @@ export async function sendGmailMessage(payload: {
     } | null
     if (!res.ok) {
       if (res.status === 401) {
-        sessionStorage.removeItem(TOKEN_KEY)
-        sessionStorage.removeItem(TOKEN_EXP_KEY)
+        clearStoredToken()
         return { ok: false, error: 'gmail_denied' }
       }
       return { ok: false, error: data?.error?.message || 'gmail_send_failed' }
