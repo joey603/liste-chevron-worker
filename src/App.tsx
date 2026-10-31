@@ -95,7 +95,11 @@ import {
   writeAppFilesToFolder,
 } from './webDataFolder'
 import { installWebListeApi } from './webListeApi'
-import { hasGmailToken, subscribeGmailAuth } from './gmailSend'
+import {
+  hasGmailToken,
+  startGmailTokenKeepAlive,
+  subscribeGmailAuth,
+} from './gmailSend'
 import { startWebAutoSend } from './webAutoSend'
 import chevronLogo from './assets/chevron-logo.png'
 
@@ -723,9 +727,13 @@ export default function App() {
     sync()
     const unsubscribe = subscribeGmailAuth(sync)
     const timer = window.setInterval(sync, 30_000)
+    const stopKeepAlive = startGmailTokenKeepAlive(
+      () => dataRef.current?.settings.googleClientId?.trim() ?? '',
+    )
     return () => {
       unsubscribe()
       window.clearInterval(timer)
+      stopKeepAlive()
     }
   }, [])
 

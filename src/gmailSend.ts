@@ -1,9 +1,19 @@
 const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.send'
 const TOKEN_KEY = 'liste-gmail-token'
 const TOKEN_EXP_KEY = 'liste-gmail-token-exp'
+/** Rafraîchir silencieusement quand il reste moins de 10 min */
+const REFRESH_BEFORE_MS = 10 * 60 * 1000
+/** Ping keep-alive toutes les 5 min */
+const KEEPALIVE_INTERVAL_MS = 5 * 60 * 1000
 
 type TokenClient = {
   requestAccessToken: (opts?: { prompt?: string }) => void
+}
+
+type TokenResponse = {
+  access_token?: string
+  expires_in?: number
+  error?: string
 }
 
 declare global {
@@ -14,7 +24,7 @@ declare global {
           initTokenClient: (cfg: {
             client_id: string
             scope: string
-            callback: (resp: { access_token?: string; error?: string }) => void
+            callback: (resp: TokenResponse) => void
           }) => TokenClient
         }
       }
@@ -42,20 +52,65 @@ export function subscribeGmailAuth(listener: GmailAuthListener): () => void {
   }
 }
 
+function storageGet(key: string): string {
+  try {
+    const fromLocal = localStorage.getItem(key)
+    if (fromLocal) return fromLocal
+    const fromSession = sessionStorage.getItem(key)
+    if (fromSession) {
+      localStorage.setItem(key, fromSession)
+      sessionStorage.removeItem(key)
+      return fromSession
+    }
+  } catch {
+    /* ignore */
+  }
+  return ''
+}
+
+function storageSet(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value)
+    sessionStorage.removeItem(key)
+  } catch {
+    try {
+      sessionStorage.setItem(key, value)
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function storageRemove(key: string) {
+  try {
+    localStorage.removeItem(key)
+  } catch {
+    /* ignore */
+  }
+  try {
+    sessionStorage.removeItem(key)
+  } catch {
+    /* ignore */
+  }
+}
+
 function clearStoredToken() {
-  sessionStorage.removeItem(TOKEN_KEY)
-  sessionStorage.removeItem(TOKEN_EXP_KEY)
+  storageRemove(TOKEN_KEY)
+  storageRemove(TOKEN_EXP_KEY)
   notifyGmailAuthChange()
 }
 
+function readTokenExpiry(): number {
+  return Number(storageGet(TOKEN_EXP_KEY) || 0)
+}
+
 function readStoredToken(): string {
-  const token = sessionStorage.getItem(TOKEN_KEY) ?? ''
-  const exp = Number(sessionStorage.getItem(TOKEN_EXP_KEY) ?? 0)
+  const token = storageGet(TOKEN_KEY)
+  const exp = readTokenExpiry()
   if (!token || !exp || Date.now() >= exp) {
     if (token || exp) {
-      sessionStorage.removeItem(TOKEN_KEY)
-      sessionStorage.removeItem(TOKEN_EXP_KEY)
-      // Évite setState pendant un rendu React
+      storageRemove(TOKEN_KEY)
+      storageRemove(TOKEN_EXP_KEY)
       queueMicrotask(() => notifyGmailAuthChange())
     }
     return ''
@@ -64,14 +119,25 @@ function readStoredToken(): string {
 }
 
 function storeToken(token: string, expiresInSec?: number) {
-  const ttl = Math.max(60, (expiresInSec ?? 3600) - 60)
-  sessionStorage.setItem(TOKEN_KEY, token)
-  sessionStorage.setItem(TOKEN_EXP_KEY, String(Date.now() + ttl * 1000))
+  const rawTtl = Number.isFinite(expiresInSec) ? Number(expiresInSec) : 3600
+  // Garde 2 min de marge avant l’expiry Google
+  const ttl = Math.max(120, rawTtl - 120)
+  storageSet(TOKEN_KEY, token)
+  storageSet(TOKEN_EXP_KEY, String(Date.now() + ttl * 1000))
   notifyGmailAuthChange()
 }
 
 export function hasGmailToken(): boolean {
   return Boolean(readStoredToken())
+}
+
+/** True si un token existe encore, ou s’il expire bientôt (keep-alive possible). */
+export function hasGmailSessionHint(): boolean {
+  if (readStoredToken()) return true
+  const exp = readTokenExpiry()
+  // Token récemment expiré (< 30 min) : une refresh silencieuse peut encore marcher
+  if (exp && Date.now() - exp < 30 * 60 * 1000) return true
+  return Boolean(storageGet(TOKEN_KEY))
 }
 
 function loadGis(): Promise<void> {
@@ -106,7 +172,7 @@ function requestToken(clientId: string, prompt: '' | 'consent'): Promise<string>
           reject(new Error(resp.error || 'gmail_denied'))
           return
         }
-        storeToken(resp.access_token)
+        storeToken(resp.access_token, resp.expires_in)
         resolve(resp.access_token)
       },
     })
@@ -131,14 +197,85 @@ export async function connectGmail(clientId: string): Promise<{ ok: boolean; err
   }
 }
 
-async function getAccessToken(clientId: string): Promise<string> {
+/**
+ * Obtient un access token valide : cache, sinon refresh silencieuse (sans popup),
+ * sinon popup consent si nécessaire.
+ */
+export async function ensureGmailToken(clientId: string): Promise<string> {
+  const id = clientId.trim()
+  if (!id) throw new Error('gmail_client_missing')
   const existing = readStoredToken()
   if (existing) return existing
   await loadGis()
   try {
-    return await requestToken(clientId, '')
+    return await requestToken(id, '')
   } catch {
-    return requestToken(clientId, 'consent')
+    return requestToken(id, 'consent')
+  }
+}
+
+async function getAccessToken(clientId: string): Promise<string> {
+  return ensureGmailToken(clientId)
+}
+
+/** Refresh silencieuse si le token expire bientôt. Retourne true si encore connecté. */
+export async function refreshGmailTokenIfNeeded(
+  clientId: string,
+): Promise<boolean> {
+  const id = clientId.trim()
+  if (!id) return false
+  const token = readStoredToken()
+  const exp = readTokenExpiry()
+  if (token && exp - Date.now() > REFRESH_BEFORE_MS) return true
+  try {
+    await loadGis()
+    await requestToken(id, '')
+    return true
+  } catch {
+    // Pas de popup ici — keep-alive uniquement silencieux
+    return Boolean(readStoredToken())
+  }
+}
+
+let keepAliveTimer: number | null = null
+let keepAliveInFlight = false
+
+/**
+ * Ping périodique : prolonge la session Gmail tant que l’onglet est ouvert
+ * et que la session Google du navigateur est encore valide.
+ */
+export function startGmailTokenKeepAlive(
+  getClientId: () => string,
+): () => void {
+  const tick = () => {
+    if (document.visibilityState === 'hidden') return
+    const clientId = getClientId().trim()
+    if (!clientId) return
+    if (!hasGmailToken() && !hasGmailSessionHint()) return
+    if (keepAliveInFlight) return
+    keepAliveInFlight = true
+    void refreshGmailTokenIfNeeded(clientId).finally(() => {
+      keepAliveInFlight = false
+    })
+  }
+
+  tick()
+  if (keepAliveTimer != null) window.clearInterval(keepAliveTimer)
+  keepAliveTimer = window.setInterval(tick, KEEPALIVE_INTERVAL_MS)
+
+  const onVisible = () => {
+    if (document.visibilityState === 'visible') tick()
+  }
+  document.addEventListener('visibilitychange', onVisible)
+  window.addEventListener('focus', tick)
+
+  return () => {
+    if (keepAliveTimer != null) {
+      window.clearInterval(keepAliveTimer)
+      keepAliveTimer = null
+    }
+    document.removeEventListener('visibilitychange', onVisible)
+    window.removeEventListener('focus', tick)
   }
 }
 
@@ -249,7 +386,36 @@ export async function sendGmailMessage(payload: {
     if (!res.ok) {
       if (res.status === 401) {
         clearStoredToken()
-        return { ok: false, error: 'gmail_denied' }
+        // Une tentative de refresh silencieuse puis retry unique
+        try {
+          token = await ensureGmailToken(clientId)
+          const retry = await fetch(
+            'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
+            {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ raw }),
+            },
+          )
+          const retryData = (await retry.json().catch(() => null)) as {
+            id?: string
+            error?: { message?: string }
+          } | null
+          if (retry.ok) return { ok: true, messageId: retryData?.id }
+          if (retry.status === 401) {
+            clearStoredToken()
+            return { ok: false, error: 'gmail_denied' }
+          }
+          return {
+            ok: false,
+            error: retryData?.error?.message || 'gmail_send_failed',
+          }
+        } catch {
+          return { ok: false, error: 'gmail_denied' }
+        }
       }
       return { ok: false, error: data?.error?.message || 'gmail_send_failed' }
     }

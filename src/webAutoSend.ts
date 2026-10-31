@@ -2,7 +2,7 @@ import {
   getPreviousCalendarMonth,
   monthlyCameraReportKey,
 } from './cameraReportMonthly'
-import { hasGmailToken } from './gmailSend'
+import { ensureGmailToken, hasGmailToken } from './gmailSend'
 import { formatShiftDate } from './shiftReport'
 import { parseShiftReportDate, shiftDateToDate } from './shiftReportPaths'
 import {
@@ -191,6 +191,12 @@ async function trySendDailyShiftReports(handlers: WebAutoSendHandlers) {
   const dateKey = formatShiftDate(reportDay)
   if (getWebShiftEmailSent(dateKey)) return
 
+  try {
+    await ensureGmailToken(clientId)
+  } catch {
+    notifyGmailMissOnce('shift', localCalendarDateKey(now), handlers)
+    return
+  }
   if (!hasGmailToken()) {
     notifyGmailMissOnce('shift', localCalendarDateKey(now), handlers)
     return
@@ -251,6 +257,12 @@ async function trySendMonthlyCameraReports(handlers: WebAutoSendHandlers) {
   const monthKey = monthlyCameraReportKey(year, month)
   if (getWebCameraMonthlyEmailSent(monthKey)) return
 
+  try {
+    await ensureGmailToken(clientId)
+  } catch {
+    notifyGmailMissOnce('camera', monthKey, handlers)
+    return
+  }
   if (!hasGmailToken()) {
     notifyGmailMissOnce('camera', monthKey, handlers)
     return
