@@ -39,6 +39,7 @@ import { hebrewMonthName } from './shiftReportPaths'
 import {
   getWebCameraMonthlyEmailSentForRecipient,
   getWebShiftEmailSentForRecipient,
+  listWebCameraMonthlyEmailSentLog,
   listWebShiftEmailSentLog,
   recordWebCameraMonthlyEmailSent,
   recordWebShiftEmailSent,
@@ -195,6 +196,7 @@ export function installWebListeApi(): void {
       }
     },
     getShiftReportEmailSentLog: async () => listWebShiftEmailSentLog(),
+    getCameraMonthlyEmailSentLog: async () => listWebCameraMonthlyEmailSentLog(),
     sendShiftReportEmail: async (payload) => {
       let settings
       try {
@@ -361,6 +363,7 @@ export function installWebListeApi(): void {
           sentAt,
           messageId: result.messageId,
           to,
+          attachmentNames: [fileName],
         })
         return { ...result, sentAt, to }
       }

@@ -31,13 +31,14 @@ import GuardNameField from './GuardNameField'
 import GuardNamesManager from './GuardNamesManager'
 import ShiftReportDateField from './ShiftReportDateField'
 import EmailAlreadySentModal from './EmailAlreadySentModal'
+import EmailSendLogModal from './EmailSendLogModal'
 import { SHIFT_LABELS, normalizeShiftReportTexts, type ShiftKind, type ShiftReportTexts } from './shiftReport'
 import { parseShiftReportDate, getNextDayReportContext, shiftDateToDate } from './shiftReportPaths'
 import { sendShiftReportTestEmail } from './webRelay'
 import { isElectronApp } from './webDataFolder'
 import { isAppsScriptMailConfigured } from './webRelay'
 import { createId } from './types'
-import type { AppSettings } from './types'
+import type { AppSettings, CameraMonthlyEmailSentLogItem } from './types'
 
 type Props = {
   value?: CameraReport | null
@@ -129,6 +130,11 @@ export default function CameraReportPanel({
   const [showPreview, setShowPreview] = useState(false)
   const [testingEmail, setTestingEmail] = useState(false)
   const [sendingEmail, setSendingEmail] = useState(false)
+  const [showEmailLog, setShowEmailLog] = useState(false)
+  const [emailLogEntries, setEmailLogEntries] = useState<
+    CameraMonthlyEmailSentLogItem[]
+  >([])
+  const [loadingEmailLog, setLoadingEmailLog] = useState(false)
   const [alreadySentInfo, setAlreadySentInfo] = useState<{
     sentAt?: string
     messageId?: string
@@ -432,6 +438,24 @@ export default function CameraReportPanel({
     }
   }
 
+  async function openEmailSendLog() {
+    if (!window.listeApi?.getCameraMonthlyEmailSentLog) {
+      onToast?.('יומן השליחות אינו זמין')
+      return
+    }
+    setShowEmailLog(true)
+    setLoadingEmailLog(true)
+    try {
+      const entries = await window.listeApi.getCameraMonthlyEmailSentLog()
+      setEmailLogEntries(entries)
+    } catch {
+      onToast?.('טעינת יומן השליחות נכשלה')
+      setShowEmailLog(false)
+    } finally {
+      setLoadingEmailLog(false)
+    }
+  }
+
   async function sendMonthlyEmail(options?: { force?: boolean }) {
     if (sendingEmail) return
     const parsed = parseShiftReportDate(report.date)
@@ -713,6 +737,14 @@ export default function CameraReportPanel({
             >
               {testingEmail ? 'שולח בדיקה…' : 'בדיקת דוא״ל'}
             </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ width: 'auto' }}
+              onClick={() => void openEmailSendLog()}
+            >
+              יומן שליחות
+            </button>
           </div>
           {!isElectronApp() ? (
             <p className="shift-settings-test-hint">
@@ -905,6 +937,18 @@ export default function CameraReportPanel({
               resending={sendingEmail}
               onClose={() => setAlreadySentInfo(null)}
               onResend={() => void sendMonthlyEmail({ force: true })}
+            />,
+            document.body,
+          )
+        : null}
+
+      {showEmailLog
+        ? createPortal(
+            <EmailSendLogModal
+              kind="camera"
+              entries={emailLogEntries}
+              loading={loadingEmailLog}
+              onClose={() => setShowEmailLog(false)}
             />,
             document.body,
           )

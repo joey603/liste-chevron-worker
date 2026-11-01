@@ -153,3 +153,56 @@ export function listWebShiftEmailSentLog(): Array<{
     }))
     .sort((a, b) => shiftDateSortKey(b.date) - shiftDateSortKey(a.date))
 }
+
+const HEBREW_MONTHS = [
+  'ינואר',
+  'פברואר',
+  'מרץ',
+  'אפריל',
+  'מאי',
+  'יוני',
+  'יולי',
+  'אוגוסט',
+  'ספטמבר',
+  'אוקטובר',
+  'נובמבר',
+  'דצמבר',
+] as const
+
+function cameraMonthSortKey(monthKey: string): number {
+  const m = /^(\d{4})-(\d{2})$/.exec(monthKey.trim())
+  if (!m) return 0
+  return Number(m[1]) * 100 + Number(m[2])
+}
+
+function cameraMonthLabel(monthKey: string): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(monthKey.trim())
+  if (!m) return monthKey
+  const year = m[1]
+  const month = Number(m[2])
+  const name = HEBREW_MONTHS[month - 1] ?? m[2]
+  return `${name} ${year}`
+}
+
+export function listWebCameraMonthlyEmailSentLog(): Array<{
+  monthKey: string
+  label: string
+  sentAt: string
+  messageId?: string
+  to: string
+  attachmentNames?: string[]
+}> {
+  const log = loadLog()
+  return Object.entries(log.cameraMonthly)
+    .map(([monthKey, entry]) => ({
+      monthKey,
+      label: cameraMonthLabel(monthKey),
+      sentAt: entry.sentAt,
+      messageId: entry.messageId,
+      to: entry.to,
+      attachmentNames: entry.attachmentNames,
+    }))
+    .sort(
+      (a, b) => cameraMonthSortKey(b.monthKey) - cameraMonthSortKey(a.monthKey),
+    )
+}

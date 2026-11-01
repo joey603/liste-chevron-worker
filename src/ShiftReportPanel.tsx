@@ -1811,6 +1811,7 @@ export default function ShiftReportPanel({
       {showEmailLog
         ? createPortal(
             <EmailSendLogModal
+              kind="shift"
               entries={emailLogEntries}
               loading={loadingEmailLog}
               onClose={() => setShowEmailLog(false)}

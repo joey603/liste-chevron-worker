@@ -168,6 +168,16 @@ export type ShiftEmailSentLogItem = {
   attachmentNames?: string[]
 }
 
+export type CameraMonthlyEmailSentLogItem = {
+  monthKey: string
+  /** Affichage hébreu, ex. אוקטובר 2026 */
+  label: string
+  sentAt: string
+  messageId?: string
+  to: string
+  attachmentNames?: string[]
+}
+
 export function normalizeEmailSendMode(raw: unknown): EmailSendMode {
   return raw === 'manual' ? 'manual' : 'auto'
 }
@@ -413,6 +423,7 @@ export type ListeApi = {
     year: number
     month: number
   }) => Promise<EmailSentStatus>
+  getCameraMonthlyEmailSentLog?: () => Promise<CameraMonthlyEmailSentLogItem[]>
   sendCameraMonthlyEmail?: (payload: {
     year: number
     month: number
