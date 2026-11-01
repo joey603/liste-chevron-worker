@@ -79,7 +79,6 @@ import {
   sendTelegramPhoto as sendTelegramPhotoNow,
   sendTelegramText as sendTelegramTextNow,
   testTelegram as testTelegramNow,
-  describeRelaySettings,
 } from './webRelay'
 import {
   clearStoredDataFolder,
@@ -95,11 +94,7 @@ import {
   writeAppFilesToFolder,
 } from './webDataFolder'
 import { installWebListeApi } from './webListeApi'
-import {
-  hasGmailToken,
-  startGmailTokenKeepAlive,
-  subscribeGmailAuth,
-} from './gmailSend'
+import { scrubObsoleteWebMailAppData } from './webMailSettings'
 import { isAppsScriptMailConfigured } from './webRelay'
 import { startWebAutoSend } from './webAutoSend'
 import chevronLogo from './assets/chevron-logo.png'
@@ -544,7 +539,9 @@ async function loadData(): Promise<AppData> {
           (fromFolder.mainRaw as object) ?? {},
           (fromFolder.localRaw as object) ?? {},
         )
-        return normalizeData(withWebSaveFolders(merged))
+        return scrubObsoleteWebMailAppData(
+          normalizeData(withWebSaveFolders(merged)),
+        )
       }
       // Dossier choisi mais encore vide → reprendre localStorage si présent
       const fromLs = readLocalStorageParts()
@@ -553,11 +550,13 @@ async function loadData(): Promise<AppData> {
           (fromLs.mainRaw as object) ?? {},
           fromLs.localRaw,
         )
-        const normalized = normalizeData(withWebSaveFolders(merged))
+        const normalized = scrubObsoleteWebMailAppData(
+          normalizeData(withWebSaveFolders(merged)),
+        )
         await saveData(normalized)
         return normalized
       }
-      return withWebSaveFolders(normalizeData(null))
+      return scrubObsoleteWebMailAppData(withWebSaveFolders(normalizeData(null)))
     } catch {
       /* fallback below */
     }
@@ -569,9 +568,9 @@ async function loadData(): Promise<AppData> {
       (mainRaw as object) ?? {},
       localRaw,
     )
-    return normalizeData(merged)
+    return scrubObsoleteWebMailAppData(normalizeData(merged))
   } catch {
-    return browserFallback()
+    return scrubObsoleteWebMailAppData(browserFallback())
   }
 }
 
@@ -580,9 +579,10 @@ async function saveData(data: AppData): Promise<void> {
     await window.listeApi.saveData(data)
     return
   }
+  const scrubbed = scrubObsoleteWebMailAppData(data)
   const normalized = webDataDir
-    ? withWebSaveFolders(normalizeData(data))
-    : normalizeData(data)
+    ? withWebSaveFolders(normalizeData(scrubbed))
+    : normalizeData(scrubbed)
   const { localRaw: existingLocal } = readLocalStorageParts()
   const localPayload = buildLocalPayload(normalized, existingLocal)
   const mainJson = JSON.stringify(stripShiftFromMain(normalized))
@@ -632,9 +632,6 @@ export default function App() {
   const [showPresenceSettings, setShowPresenceSettings] = useState(false)
   const [dataFolderName, setDataFolderName] = useState<string | null>(null)
   const [pickingDataFolder, setPickingDataFolder] = useState(false)
-  const [gmailConnected, setGmailConnected] = useState(() =>
-    isElectronApp() ? true : hasGmailToken(),
-  )
   const [gmailConnectFocusToken, setGmailConnectFocusToken] = useState(0)
   const [excelNotePopup, setExcelNotePopup] = useState<{
     name: string
@@ -716,25 +713,14 @@ export default function App() {
   dataRef.current = data
 
   useEffect(() => {
-    loadData().then((loaded) => setData(normalizeData(loaded)))
+    void loadData().then((loaded) => {
+      const next = normalizeData(loaded)
+      setData(next)
+      // Réécrit le JSON sans les champs SMTP / Cloudflare / OAuth obsolètes
+      if (!isElectronApp()) void saveData(next)
+    })
     if (isWebFolderSupported()) {
       void getStoredDataFolderName().then((name) => setDataFolderName(name))
-    }
-  }, [])
-
-  useEffect(() => {
-    if (isElectronApp()) return
-    const sync = () => setGmailConnected(hasGmailToken())
-    sync()
-    const unsubscribe = subscribeGmailAuth(sync)
-    const timer = window.setInterval(sync, 30_000)
-    const stopKeepAlive = startGmailTokenKeepAlive(
-      () => dataRef.current?.settings.googleClientId?.trim() ?? '',
-    )
-    return () => {
-      unsubscribe()
-      window.clearInterval(timer)
-      stopKeepAlive()
     }
   }, [])
 
@@ -744,7 +730,6 @@ export default function App() {
       getData: () => dataRef.current,
       onToast: (message) => setToast({ message }),
       onNeedGmail: () => {
-        setGmailConnected(false)
         setActiveTab('shift')
         setGmailConnectFocusToken((n) => n + 1)
       },
@@ -2721,12 +2706,11 @@ export default function App() {
       ) : null}
 
       {!isElectronApp() &&
-      !isAppsScriptMailConfigured(data?.settings) &&
-      !gmailConnected ? (
+      data &&
+      !isAppsScriptMailConfigured(data.settings) ? (
         <div className="web-gmail-disconnect-banner" role="alert">
           <span>
-            Gmail מנותק — השליחה האוטומטית לא תצא. מלאו Apps Script בהגדרות
-            (מומלץ) או לחצו להתחברות OAuth קצרה.
+            חסר Apps Script — מלאו URL וסוד בהגדרות דוח משמרת כדי שהמייל יישלח.
           </span>
           <button
             type="button"
@@ -2737,7 +2721,7 @@ export default function App() {
               setGmailConnectFocusToken((n) => n + 1)
             }}
           >
-            התחבר ל־Gmail עכשיו
+            פתח הגדרות דוא״ל
           </button>
         </div>
       ) : null}
@@ -3886,60 +3870,6 @@ export default function App() {
               )}
             </div>
 
-            {!isElectronApp() ? (
-              <div className="presence-settings-block">
-                <h3>Cloudflare (אופציונלי)</h3>
-                <p className="shift-settings-note">
-                  חירום וטקסט Telegram עובדים בלי Cloudflare. השאירו כאן רק אם
-                  תרצו Worker לדוא״ל / תמונות.
-                </p>
-                <div className="shift-settings-grid presence-watch-grid">
-                  <label className="shift-field">
-                    <span>כתובת Worker</span>
-                    <input
-                      type="text"
-                      dir="ltr"
-                      autoComplete="off"
-                      spellCheck={false}
-                      value={data.settings.cloudflareRelayUrl ?? ''}
-                      placeholder="https://weathered-cell-7a63.yoelibarthel603.workers.dev"
-                      onChange={(e) =>
-                        void persist({
-                          ...data,
-                          settings: {
-                            ...data.settings,
-                            cloudflareRelayUrl: e.target.value.trim(),
-                          },
-                        })
-                      }
-                    />
-                  </label>
-                  <label className="shift-field">
-                    <span>מפתח גישה</span>
-                    <input
-                      type="text"
-                      dir="ltr"
-                      autoComplete="off"
-                      spellCheck={false}
-                      value={data.settings.cloudflareRelayKey ?? ''}
-                      placeholder="ACCESS_KEY"
-                      onChange={(e) =>
-                        void persist({
-                          ...data,
-                          settings: {
-                            ...data.settings,
-                            cloudflareRelayKey: e.target.value.trim(),
-                          },
-                        })
-                      }
-                    />
-                  </label>
-                </div>
-                <p className="shift-settings-test-hint" dir="ltr">
-                  {describeRelaySettings(data.settings)}
-                </p>
-              </div>
-            ) : null}
           </section>
         ) : null}
 

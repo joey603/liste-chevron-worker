@@ -2,7 +2,6 @@ import {
   getPreviousCalendarMonth,
   monthlyCameraReportKey,
 } from './cameraReportMonthly'
-import { ensureGmailToken, hasGmailToken } from './gmailSend'
 import { isAppsScriptMailConfigured } from './webRelay'
 import { formatShiftDate } from './shiftReport'
 import { parseShiftReportDate, shiftDateToDate } from './shiftReportPaths'
@@ -162,7 +161,7 @@ function notifyGmailMissOnce(
     /* ignore */
   }
   handlers.onToast?.(
-    'Gmail מנותק — השליחה האוטומטית לא יצאה. התחברו ל־Gmail.',
+    'שליחה אוטומטית נכשלה — בדקו Apps Script (URL + סוד) בהגדרות.',
   )
   handlers.onNeedGmail?.()
 }
@@ -179,9 +178,7 @@ async function trySendDailyShiftReports(handlers: WebAutoSendHandlers) {
   if ((settings.shiftReportEmailMode ?? 'auto') === 'manual') return
 
   const email = settings.directorEmail?.trim()
-  const clientId = settings.googleClientId?.trim()
-  const durableMail = isAppsScriptMailConfigured(settings)
-  if (!email || (!durableMail && !clientId)) return
+  if (!email || !isAppsScriptMailConfigured(settings)) return
   if (!window.listeApi?.sendShiftReportEmail) return
 
   const now = new Date()
@@ -193,19 +190,6 @@ async function trySendDailyShiftReports(handlers: WebAutoSendHandlers) {
   const dateKey = formatShiftDate(reportDay)
   if (getWebShiftEmailSent(dateKey)) return
 
-  if (!durableMail) {
-    try {
-      await ensureGmailToken(clientId!)
-    } catch {
-      notifyGmailMissOnce('shift', localCalendarDateKey(now), handlers)
-      return
-    }
-    if (!hasGmailToken()) {
-      notifyGmailMissOnce('shift', localCalendarDateKey(now), handlers)
-      return
-    }
-  }
-
   shiftInFlight = true
   try {
     const result = await window.listeApi.sendShiftReportEmail({ date: dateKey })
@@ -214,11 +198,7 @@ async function trySendDailyShiftReports(handlers: WebAutoSendHandlers) {
       handlers.onToast?.(`דוחות משמרת נשלחו אוטומטית (${dateKey})`)
       return
     }
-    if (
-      !durableMail &&
-      (result.error === 'gmail_denied' ||
-        result.error === 'gmail_client_missing')
-    ) {
+    if (result.error === 'relay_not_configured' || result.error === 'unauthorized') {
       notifyGmailMissOnce('shift', localCalendarDateKey(now), handlers)
       return
     }
@@ -245,9 +225,7 @@ async function trySendMonthlyCameraReports(handlers: WebAutoSendHandlers) {
   if ((settings.cameraReportEmailMode ?? 'auto') === 'manual') return
 
   const email = settings.directorEmail?.trim()
-  const clientId = settings.googleClientId?.trim()
-  const durableMail = isAppsScriptMailConfigured(settings)
-  if (!email || (!durableMail && !clientId)) return
+  if (!email || !isAppsScriptMailConfigured(settings)) return
   if (!window.listeApi?.sendCameraMonthlyEmail) return
 
   const now = new Date()
@@ -263,19 +241,6 @@ async function trySendMonthlyCameraReports(handlers: WebAutoSendHandlers) {
   const monthKey = monthlyCameraReportKey(year, month)
   if (getWebCameraMonthlyEmailSent(monthKey)) return
 
-  if (!durableMail) {
-    try {
-      await ensureGmailToken(clientId!)
-    } catch {
-      notifyGmailMissOnce('camera', monthKey, handlers)
-      return
-    }
-    if (!hasGmailToken()) {
-      notifyGmailMissOnce('camera', monthKey, handlers)
-      return
-    }
-  }
-
   cameraInFlight = true
   try {
     const result = await window.listeApi.sendCameraMonthlyEmail({ year, month })
@@ -284,11 +249,7 @@ async function trySendMonthlyCameraReports(handlers: WebAutoSendHandlers) {
       handlers.onToast?.(`יומן מצלמות נשלח אוטומטית (${monthKey})`)
       return
     }
-    if (
-      !durableMail &&
-      (result.error === 'gmail_denied' ||
-        result.error === 'gmail_client_missing')
-    ) {
+    if (result.error === 'relay_not_configured' || result.error === 'unauthorized') {
       notifyGmailMissOnce('camera', monthKey, handlers)
       return
     }

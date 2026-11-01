@@ -35,7 +35,6 @@ import { SHIFT_LABELS, normalizeShiftReportTexts, type ShiftKind, type ShiftRepo
 import { parseShiftReportDate, getNextDayReportContext, shiftDateToDate } from './shiftReportPaths'
 import { sendShiftReportTestEmail } from './webRelay'
 import { isElectronApp } from './webDataFolder'
-import { connectGmail, hasGmailToken } from './gmailSend'
 import { isAppsScriptMailConfigured } from './webRelay'
 import { createId } from './types'
 import type { AppSettings } from './types'
@@ -129,7 +128,6 @@ export default function CameraReportPanel({
   const [showSettings, setShowSettings] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [testingEmail, setTestingEmail] = useState(false)
-  const [connectingGmail, setConnectingGmail] = useState(false)
   const [sendingEmail, setSendingEmail] = useState(false)
   const [alreadySentInfo, setAlreadySentInfo] = useState<{
     sentAt?: string
@@ -648,49 +646,53 @@ export default function CameraReportPanel({
                 <option value="manual">ידנית בלבד</option>
               </select>
             </label>
-            <label className="shift-field">
-              <span>שרת SMTP</span>
-              <input
-                type="text"
-                value={settings?.shiftReportSmtpHost ?? ''}
-                placeholder="smtp.office365.com"
-                onChange={(e) =>
-                  onSettingsChange?.({ shiftReportSmtpHost: e.target.value })
-                }
-              />
-            </label>
-            <label className="shift-field">
-              <span>פורט SMTP</span>
-              <input
-                type="number"
-                value={settings?.shiftReportSmtpPort ?? 587}
-                onChange={(e) =>
-                  onSettingsChange?.({
-                    shiftReportSmtpPort: Number(e.target.value) || 587,
-                  })
-                }
-              />
-            </label>
-            <label className="shift-field">
-              <span>משתמש SMTP</span>
-              <input
-                type="text"
-                value={settings?.shiftReportSmtpUser ?? ''}
-                onChange={(e) =>
-                  onSettingsChange?.({ shiftReportSmtpUser: e.target.value })
-                }
-              />
-            </label>
-            <label className="shift-field">
-              <span>סיסמת SMTP</span>
-              <input
-                type="password"
-                value={settings?.shiftReportSmtpPass ?? ''}
-                onChange={(e) =>
-                  onSettingsChange?.({ shiftReportSmtpPass: e.target.value })
-                }
-              />
-            </label>
+            {isElectronApp() ? (
+              <>
+                <label className="shift-field">
+                  <span>שרת SMTP</span>
+                  <input
+                    type="text"
+                    value={settings?.shiftReportSmtpHost ?? ''}
+                    placeholder="smtp.gmail.com"
+                    onChange={(e) =>
+                      onSettingsChange?.({ shiftReportSmtpHost: e.target.value })
+                    }
+                  />
+                </label>
+                <label className="shift-field">
+                  <span>פורט SMTP</span>
+                  <input
+                    type="number"
+                    value={settings?.shiftReportSmtpPort ?? 587}
+                    onChange={(e) =>
+                      onSettingsChange?.({
+                        shiftReportSmtpPort: Number(e.target.value) || 587,
+                      })
+                    }
+                  />
+                </label>
+                <label className="shift-field">
+                  <span>משתמש SMTP</span>
+                  <input
+                    type="text"
+                    value={settings?.shiftReportSmtpUser ?? ''}
+                    onChange={(e) =>
+                      onSettingsChange?.({ shiftReportSmtpUser: e.target.value })
+                    }
+                  />
+                </label>
+                <label className="shift-field">
+                  <span>סיסמת SMTP</span>
+                  <input
+                    type="password"
+                    value={settings?.shiftReportSmtpPass ?? ''}
+                    onChange={(e) =>
+                      onSettingsChange?.({ shiftReportSmtpPass: e.target.value })
+                    }
+                  />
+                </label>
+              </>
+            ) : null}
           </div>
           <div className="shift-settings-test-row">
             <button
@@ -711,45 +713,12 @@ export default function CameraReportPanel({
             >
               {testingEmail ? 'שולח בדיקה…' : 'בדיקת דוא״ל'}
             </button>
-            {!isElectronApp() && !isAppsScriptMailConfigured(settings) ? (
-              <button
-                type="button"
-                className="btn btn-ghost"
-                style={{ width: 'auto' }}
-                disabled={
-                  connectingGmail || !(settings?.googleClientId ?? '').trim()
-                }
-                onClick={() => {
-                  void (async () => {
-                    setConnectingGmail(true)
-                    try {
-                      const result = await connectGmail(
-                        settings?.googleClientId ?? '',
-                      )
-                      onToast?.(
-                        result.ok
-                          ? 'Gmail מחובר — השליחה תצא מהחשבון שלכם'
-                          : `Gmail: ${emailSendErrorMessage(result.error)}`,
-                      )
-                    } finally {
-                      setConnectingGmail(false)
-                    }
-                  })()
-                }}
-              >
-                {connectingGmail
-                  ? 'מתחבר…'
-                  : hasGmailToken()
-                    ? 'Gmail מחובר'
-                    : 'התחבר ל־Gmail'}
-              </button>
-            ) : null}
           </div>
           {!isElectronApp() ? (
             <p className="shift-settings-test-hint">
               {isAppsScriptMailConfigured(settings)
-                ? 'Apps Script פעיל (כמו בדוח משמרת). אוטומטי ב־1 בחודש — הדף חייב להיות פתוח.'
-                : 'הגדירו Apps Script בדוח משמרת (מומלץ) או OAuth. אוטומטי ב־1 בחודש — הדף חייב להיות פתוח.'}
+                ? 'Apps Script מדוח משמרת פעיל. אוטומטי ב־1 בחודש — הדף חייב להיות פתוח.'
+                : 'הגדירו Apps Script בהגדרות דוח משמרת. אוטומטי ב־1 בחודש — הדף חייב להיות פתוח.'}
             </p>
           ) : null}
         </section>

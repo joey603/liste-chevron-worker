@@ -8,7 +8,6 @@ import {
   type TelegramSendResult,
 } from './types'
 import { isElectronApp } from './webDataFolder'
-import { sendGmailMessage } from './gmailSend'
 
 const DATA_KEY = 'liste-chevron-data'
 
@@ -255,25 +254,16 @@ async function sendEmailBrowser(payload: {
 }> {
   if (!payload.to.trim()) return { ok: false, error: 'missing_config' }
   const settings = readSettings()
-  if (isAppsScriptMailConfigured(settings)) {
-    return sendEmailViaAppsScript({
-      to: payload.to,
-      subject: payload.subject,
-      text: payload.text,
-      attachments: payload.attachments,
-      settings,
-    })
+  if (!isAppsScriptMailConfigured(settings)) {
+    return { ok: false, error: 'relay_not_configured' }
   }
-  const clientId = settings.googleClientId ?? ''
-  const sent = await sendGmailMessage({
-    clientId,
+  return sendEmailViaAppsScript({
     to: payload.to,
     subject: payload.subject,
     text: payload.text,
     attachments: payload.attachments,
+    settings,
   })
-  if (!sent.ok) return sent
-  return { ...sent, via: 'gmail' }
 }
 
 export async function sendTelegramText(

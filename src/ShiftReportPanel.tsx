@@ -39,11 +39,6 @@ import {
 } from './webRelay'
 import { isElectronApp } from './webDataFolder'
 import {
-  connectGmail,
-  hasGmailToken,
-  subscribeGmailAuth,
-} from './gmailSend'
-import {
   buildShiftAutoSendBadgeState,
   type ShiftAutoSendBadgeState,
 } from './webAutoSend'
@@ -81,7 +76,7 @@ type Props = {
     currentReport?: ShiftReport,
   ) => void
   getOperationalDayDate?: (now?: Date, shift?: ShiftKind) => string
-  /** Incrémente pour ouvrir les réglages et surligner «התחבר ל־Gmail» */
+  /** Incrémente pour ouvrir les réglages mail (Apps Script) */
   gmailConnectFocusToken?: number
 }
 
@@ -267,12 +262,7 @@ export default function ShiftReportPanel({
   const [texts, setTexts] = useState(() => normalizeShiftReportTexts(textsProp))
   const [exporting, setExporting] = useState(false)
   const [testingEmail, setTestingEmail] = useState(false)
-  const [connectingGmail, setConnectingGmail] = useState(false)
-  const [gmailConnected, setGmailConnected] = useState(() =>
-    isElectronApp() ? true : hasGmailToken(),
-  )
-  const [highlightGmailConnect, setHighlightGmailConnect] = useState(false)
-  const gmailConnectBtnRef = useRef<HTMLButtonElement>(null)
+  const appsScriptUrlRef = useRef<HTMLInputElement>(null)
   const lastGmailFocusToken = useRef(0)
   const [sendingEmail, setSendingEmail] = useState(false)
   const [alreadySentInfo, setAlreadySentInfo] = useState<{
@@ -370,31 +360,19 @@ export default function ShiftReportPanel({
   }, [textsProp])
 
   useEffect(() => {
-    if (isElectronApp()) return
-    const sync = () => setGmailConnected(hasGmailToken())
-    sync()
-    return subscribeGmailAuth(sync)
-  }, [])
-
-  useEffect(() => {
     if (!gmailConnectFocusToken || gmailConnectFocusToken === lastGmailFocusToken.current) {
       return
     }
     lastGmailFocusToken.current = gmailConnectFocusToken
     setShowSettings(true)
-    setHighlightGmailConnect(true)
     const timer = window.setTimeout(() => {
-      const btn = gmailConnectBtnRef.current
-      if (!btn) return
-      btn.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      btn.focus()
+      const input = appsScriptUrlRef.current
+      if (!input) return
+      input.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      input.focus()
     }, 120)
-    const clearHighlight = window.setTimeout(() => {
-      setHighlightGmailConnect(false)
-    }, 4500)
     return () => {
       window.clearTimeout(timer)
-      window.clearTimeout(clearHighlight)
     }
   }, [gmailConnectFocusToken])
 
@@ -1091,8 +1069,10 @@ export default function ShiftReportPanel({
             {!isElectronApp() ? (
               <>
                 <label className="shift-field shift-settings-path">
-                  <span>Apps Script — URL (מומלץ, בלי ניתוק כל שעה)</span>
+                  <span>Apps Script — URL</span>
                   <input
+                    ref={appsScriptUrlRef}
+                    id="apps-script-url"
                     type="url"
                     dir="ltr"
                     autoComplete="off"
@@ -1118,22 +1098,6 @@ export default function ShiftReportPanel({
                     onChange={(e) =>
                       onSettingsChange?.({
                         gmailAppsScriptSecret: e.target.value.trim(),
-                      })
-                    }
-                  />
-                </label>
-                <label className="shift-field">
-                  <span>Gmail — Client ID (גיבוי OAuth ~1 שע׳)</span>
-                  <input
-                    type="text"
-                    dir="ltr"
-                    autoComplete="off"
-                    spellCheck={false}
-                    value={settings?.googleClientId ?? ''}
-                    placeholder="….apps.googleusercontent.com"
-                    onChange={(e) =>
-                      onSettingsChange?.({
-                        googleClientId: e.target.value.trim(),
                       })
                     }
                   />
@@ -1165,49 +1129,53 @@ export default function ShiftReportPanel({
                 <option value="manual">ידנית בלבד</option>
               </select>
             </label>
-            <label className="shift-field">
-              <span>שרת SMTP</span>
-              <input
-                type="text"
-                value={settings?.shiftReportSmtpHost ?? ''}
-                placeholder="smtp.office365.com"
-                onChange={(e) =>
-                  onSettingsChange?.({ shiftReportSmtpHost: e.target.value })
-                }
-              />
-            </label>
-            <label className="shift-field">
-              <span>פורט SMTP</span>
-              <input
-                type="number"
-                value={settings?.shiftReportSmtpPort ?? 587}
-                onChange={(e) =>
-                  onSettingsChange?.({
-                    shiftReportSmtpPort: Number(e.target.value) || 587,
-                  })
-                }
-              />
-            </label>
-            <label className="shift-field">
-              <span>משתמש SMTP</span>
-              <input
-                type="text"
-                value={settings?.shiftReportSmtpUser ?? ''}
-                onChange={(e) =>
-                  onSettingsChange?.({ shiftReportSmtpUser: e.target.value })
-                }
-              />
-            </label>
-            <label className="shift-field">
-              <span>סיסמת SMTP</span>
-              <input
-                type="password"
-                value={settings?.shiftReportSmtpPass ?? ''}
-                onChange={(e) =>
-                  onSettingsChange?.({ shiftReportSmtpPass: e.target.value })
-                }
-              />
-            </label>
+            {isElectronApp() ? (
+              <>
+                <label className="shift-field">
+                  <span>שרת SMTP</span>
+                  <input
+                    type="text"
+                    value={settings?.shiftReportSmtpHost ?? ''}
+                    placeholder="smtp.gmail.com"
+                    onChange={(e) =>
+                      onSettingsChange?.({ shiftReportSmtpHost: e.target.value })
+                    }
+                  />
+                </label>
+                <label className="shift-field">
+                  <span>פורט SMTP</span>
+                  <input
+                    type="number"
+                    value={settings?.shiftReportSmtpPort ?? 587}
+                    onChange={(e) =>
+                      onSettingsChange?.({
+                        shiftReportSmtpPort: Number(e.target.value) || 587,
+                      })
+                    }
+                  />
+                </label>
+                <label className="shift-field">
+                  <span>משתמש SMTP</span>
+                  <input
+                    type="text"
+                    value={settings?.shiftReportSmtpUser ?? ''}
+                    onChange={(e) =>
+                      onSettingsChange?.({ shiftReportSmtpUser: e.target.value })
+                    }
+                  />
+                </label>
+                <label className="shift-field">
+                  <span>סיסמת SMTP</span>
+                  <input
+                    type="password"
+                    value={settings?.shiftReportSmtpPass ?? ''}
+                    onChange={(e) =>
+                      onSettingsChange?.({ shiftReportSmtpPass: e.target.value })
+                    }
+                  />
+                </label>
+              </>
+            ) : null}
           </div>
           <div className="shift-settings-test-row">
             <button
@@ -1228,45 +1196,6 @@ export default function ShiftReportPanel({
             >
               {testingEmail ? 'שולח בדיקה…' : 'בדיקת דוא״ל'}
             </button>
-            {!isElectronApp() && !isAppsScriptMailConfigured(settings) ? (
-              <button
-                ref={gmailConnectBtnRef}
-                id="gmail-connect-btn"
-                type="button"
-                className={`btn btn-ghost gmail-connect-btn${
-                  highlightGmailConnect ? ' is-highlight' : ''
-                }`}
-                style={{ width: 'auto' }}
-                disabled={connectingGmail || !(settings?.googleClientId ?? '').trim()}
-                onClick={() => {
-                  void (async () => {
-                    setConnectingGmail(true)
-                    try {
-                      const result = await connectGmail(
-                        settings?.googleClientId ?? '',
-                      )
-                      if (result.ok) {
-                        setGmailConnected(true)
-                        setHighlightGmailConnect(false)
-                      }
-                      onToast?.(
-                        result.ok
-                          ? 'Gmail מחובר — השליחה תצא מהחשבון שלכם'
-                          : `Gmail: ${emailSendErrorMessage(result.error)}`,
-                      )
-                    } finally {
-                      setConnectingGmail(false)
-                    }
-                  })()
-                }}
-              >
-                {connectingGmail
-                  ? 'מתחבר…'
-                  : gmailConnected
-                    ? 'Gmail מחובר'
-                    : 'התחבר ל־Gmail'}
-              </button>
-            ) : null}
             <button
               type="button"
               className="btn btn-ghost"
@@ -1276,9 +1205,11 @@ export default function ShiftReportPanel({
               יומן שליחות
             </button>
             <span className="shift-settings-test-hint">
-              {isAppsScriptMailConfigured(settings)
-                ? 'Apps Script פעיל — השליחה יציבה בלי התחברות כל שעה. הדף עדיין חייב להיות פתוח לשליחה אוטומטית.'
-                : 'מומלץ: פרסו Apps Script (קובץ apps-script/liste-chevron-mail.gs) ומלאו URL + סוד. אחרת OAuth Gmail מתנתק כל ~שעה.'}
+              {!isElectronApp()
+                ? isAppsScriptMailConfigured(settings)
+                  ? 'Apps Script פעיל — שליחה יציבה. לשליחה אוטומטית הדף חייב להישאר פתוח.'
+                  : 'מלאו URL + סוד Apps Script (קובץ apps-script/liste-chevron-mail.gs).'
+                : 'מלאו SMTP לשליחת דוא״ל מהאפליקציה המותקנת.'}
             </span>
           </div>
         </section>

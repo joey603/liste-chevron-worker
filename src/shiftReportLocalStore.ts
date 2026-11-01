@@ -7,12 +7,8 @@ export type ShiftReportLocalSettings = {
   shiftReportEmailMode?: 'auto' | 'manual'
   cameraReportEmailTime?: string
   cameraReportEmailMode?: 'auto' | 'manual'
-  shiftReportSmtpHost?: string
-  shiftReportSmtpPort?: number
-  shiftReportSmtpUser?: string
-  shiftReportSmtpPass?: string
-  cloudflareRelayUrl?: string
-  cloudflareRelayKey?: string
+  gmailAppsScriptUrl?: string
+  gmailAppsScriptSecret?: string
 }
 
 export type ShiftReportLocalPayload = {
@@ -41,12 +37,8 @@ const SETTINGS_KEYS = [
   'shiftReportEmailMode',
   'cameraReportEmailTime',
   'cameraReportEmailMode',
-  'shiftReportSmtpHost',
-  'shiftReportSmtpPort',
-  'shiftReportSmtpUser',
-  'shiftReportSmtpPass',
-  'cloudflareRelayUrl',
-  'cloudflareRelayKey',
+  'gmailAppsScriptUrl',
+  'gmailAppsScriptSecret',
 ] as const satisfies ReadonlyArray<keyof ShiftReportLocalSettings>
 
 function isFilledSettingValue(value: unknown): boolean {
@@ -87,12 +79,8 @@ function extractSettings(
     shiftReportEmailMode: settings.shiftReportEmailMode,
     cameraReportEmailTime: settings.cameraReportEmailTime,
     cameraReportEmailMode: settings.cameraReportEmailMode,
-    shiftReportSmtpHost: settings.shiftReportSmtpHost,
-    shiftReportSmtpPort: settings.shiftReportSmtpPort,
-    shiftReportSmtpUser: settings.shiftReportSmtpUser,
-    shiftReportSmtpPass: settings.shiftReportSmtpPass,
-    cloudflareRelayUrl: settings.cloudflareRelayUrl,
-    cloudflareRelayKey: settings.cloudflareRelayKey,
+    gmailAppsScriptUrl: settings.gmailAppsScriptUrl,
+    gmailAppsScriptSecret: settings.gmailAppsScriptSecret,
   }
 }
 
@@ -129,10 +117,8 @@ export function hasShiftLocalContent(payload: ShiftReportLocalPayload): boolean 
     s.shiftReportSaveFolder?.trim() ||
       s.cameraReportSaveFolder?.trim() ||
       s.directorEmail?.trim() ||
-      s.shiftReportSmtpHost?.trim() ||
-      s.shiftReportSmtpUser?.trim() ||
-      s.shiftReportSmtpPass ||
-      s.cloudflareRelayKey?.trim(),
+      s.gmailAppsScriptUrl?.trim() ||
+      s.gmailAppsScriptSecret?.trim(),
   )
 }
 
