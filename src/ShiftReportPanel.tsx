@@ -42,7 +42,7 @@ import {
   buildShiftAutoSendBadgeState,
   type ShiftAutoSendBadgeState,
 } from './webAutoSend'
-import { getWebShiftEmailSent } from './webEmailSentLog'
+import { getWebShiftEmailSentForRecipient } from './webEmailSentLog'
 import type { AppSettings, ShiftEmailSentLogItem } from './types'
 import { buildShiftReportDocumentModel } from './shiftReportDocument'
 import type { ShiftReportsArchive } from './shiftReportArchive'
@@ -156,7 +156,10 @@ function ShiftDayStatusRow({
         return
       }
       const dateKey = parseShiftReportDate(date)?.formatted ?? date.trim()
-      let sent = Boolean(getWebShiftEmailSent(dateKey))
+      const recipient = settings?.directorEmail?.trim() ?? ''
+      let sent = Boolean(
+        getWebShiftEmailSentForRecipient(dateKey, recipient),
+      )
       if (!sent && window.listeApi?.getShiftReportEmailStatus) {
         try {
           const status = await window.listeApi.getShiftReportEmailStatus({
@@ -184,7 +187,12 @@ function ShiftDayStatusRow({
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [date, settings?.shiftReportEmailMode, settings?.shiftReportEmailTime])
+  }, [
+    date,
+    settings?.directorEmail,
+    settings?.shiftReportEmailMode,
+    settings?.shiftReportEmailTime,
+  ])
 
   return (
     <div className="shift-day-status" aria-label="סטטוס משמרות היום">

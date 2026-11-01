@@ -12,8 +12,8 @@ import {
 } from './types'
 import { isElectronApp } from './webDataFolder'
 import {
-  getWebCameraMonthlyEmailSent,
-  getWebShiftEmailSent,
+  getWebCameraMonthlyEmailSentForRecipient,
+  getWebShiftEmailSentForRecipient,
   getWebTelegramDailyLastSentDate,
   recordWebTelegramDailySent,
 } from './webEmailSentLog'
@@ -188,7 +188,7 @@ async function trySendDailyShiftReports(handlers: WebAutoSendHandlers) {
   const reportDay = new Date(now)
   reportDay.setDate(reportDay.getDate() - 1)
   const dateKey = formatShiftDate(reportDay)
-  if (getWebShiftEmailSent(dateKey)) return
+  if (getWebShiftEmailSentForRecipient(dateKey, email)) return
 
   shiftInFlight = true
   try {
@@ -239,7 +239,7 @@ async function trySendMonthlyCameraReports(handlers: WebAutoSendHandlers) {
 
   const { month, year } = getPreviousCalendarMonth(now)
   const monthKey = monthlyCameraReportKey(year, month)
-  if (getWebCameraMonthlyEmailSent(monthKey)) return
+  if (getWebCameraMonthlyEmailSentForRecipient(monthKey, email)) return
 
   cameraInFlight = true
   try {

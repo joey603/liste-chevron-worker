@@ -57,11 +57,34 @@ function saveLog(log: WebEmailSentLog) {
   }
 }
 
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase()
+}
+
+/** True si l’entrée compte pour ce destinataire (changement d’email = pas encore envoyé). */
+export function isEmailSentToRecipient(
+  entry: WebEmailSentEntry | null | undefined,
+  recipientEmail: string,
+): entry is WebEmailSentEntry {
+  if (!entry) return false
+  const expected = normalizeEmail(recipientEmail)
+  if (!expected) return false
+  return normalizeEmail(entry.to) === expected
+}
+
 export function getWebShiftEmailSent(
   dateKey: string,
 ): WebEmailSentEntry | null {
   const key = normalizeShiftKey(dateKey)
   return loadLog().shift[key] ?? null
+}
+
+export function getWebShiftEmailSentForRecipient(
+  dateKey: string,
+  recipientEmail: string,
+): WebEmailSentEntry | null {
+  const entry = getWebShiftEmailSent(dateKey)
+  return isEmailSentToRecipient(entry, recipientEmail) ? entry : null
 }
 
 export function recordWebShiftEmailSent(
@@ -77,6 +100,14 @@ export function getWebCameraMonthlyEmailSent(
   monthKey: string,
 ): WebEmailSentEntry | null {
   return loadLog().cameraMonthly[monthKey] ?? null
+}
+
+export function getWebCameraMonthlyEmailSentForRecipient(
+  monthKey: string,
+  recipientEmail: string,
+): WebEmailSentEntry | null {
+  const entry = getWebCameraMonthlyEmailSent(monthKey)
+  return isEmailSentToRecipient(entry, recipientEmail) ? entry : null
 }
 
 export function recordWebCameraMonthlyEmailSent(

@@ -5455,7 +5455,7 @@ button.camera-xls-tab:hover:not(.is-disabled):not(.is-active) {
 }
 
 .email-send-log-modal {
-  width: min(760px, 100%);
+  width: min(920px, 100%);
 }
 
 .email-send-log-table-wrap {
@@ -5464,14 +5464,44 @@ button.camera-xls-tab:hover:not(.is-disabled):not(.is-active) {
   margin: 12px 0;
 }
 
+.email-send-log-table {
+  width: 100%;
+  table-layout: fixed;
+}
+
 .email-send-log-table th,
 .email-send-log-table td {
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+}
+
+.email-send-log-table th:nth-child(1),
+.email-send-log-table td:nth-child(1) {
+  width: 16%;
   white-space: nowrap;
 }
 
+.email-send-log-table th:nth-child(2),
 .email-send-log-table td:nth-child(2) {
-  white-space: normal;
-  max-width: 220px;
+  width: 26%;
+}
+
+.email-send-log-table th:nth-child(3),
+.email-send-log-table td:nth-child(3) {
+  width: 12%;
+  white-space: nowrap;
+}
+
+.email-send-log-table th:nth-child(4),
+.email-send-log-table td:nth-child(4) {
+  width: 22%;
+}
+
+.email-send-log-table th:nth-child(5),
+.email-send-log-table td:nth-child(5) {
+  width: 24%;
 }
 
 .email-send-log-status {

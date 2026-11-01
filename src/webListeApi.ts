@@ -37,8 +37,8 @@ import {
 } from './cameraReportMonthly'
 import { hebrewMonthName } from './shiftReportPaths'
 import {
-  getWebCameraMonthlyEmailSent,
-  getWebShiftEmailSent,
+  getWebCameraMonthlyEmailSentForRecipient,
+  getWebShiftEmailSentForRecipient,
   listWebShiftEmailSentLog,
   recordWebCameraMonthlyEmailSent,
   recordWebShiftEmailSent,
@@ -170,7 +170,22 @@ export function installWebListeApi(): void {
     sendShiftReportTestEmail,
     sendShiftReportsEmail,
     getShiftReportEmailStatus: async (payload) => {
-      const entry = getWebShiftEmailSent(payload.date)
+      let to = ''
+      try {
+        const main = JSON.parse(
+          localStorage.getItem('liste-chevron-data') ?? 'null',
+        )
+        const local = JSON.parse(
+          localStorage.getItem(SHIFT_REPORT_LOCAL_STORAGE_KEY) ?? 'null',
+        )
+        to =
+          normalizeData(
+            mergeShiftIntoMain((main as object) ?? {}, (local as object) ?? {}),
+          ).settings.directorEmail?.trim() ?? ''
+      } catch {
+        /* ignore */
+      }
+      const entry = getWebShiftEmailSentForRecipient(payload.date, to)
       if (!entry) return { sent: false }
       return {
         sent: true,
@@ -181,16 +196,6 @@ export function installWebListeApi(): void {
     },
     getShiftReportEmailSentLog: async () => listWebShiftEmailSentLog(),
     sendShiftReportEmail: async (payload) => {
-      const existing = getWebShiftEmailSent(payload.date)
-      if (existing && !payload.force) {
-        return {
-          ok: false,
-          alreadySent: true,
-          sentAt: existing.sentAt,
-          messageId: existing.messageId,
-          to: existing.to,
-        }
-      }
       let settings
       try {
         const main = JSON.parse(
@@ -207,6 +212,16 @@ export function installWebListeApi(): void {
       }
       const to = settings.directorEmail?.trim() ?? ''
       if (!to) return { ok: false, error: 'missing_config' }
+      const existing = getWebShiftEmailSentForRecipient(payload.date, to)
+      if (existing && !payload.force) {
+        return {
+          ok: false,
+          alreadySent: true,
+          sentAt: existing.sentAt,
+          messageId: existing.messageId,
+          to: existing.to,
+        }
+      }
       const folder = settings.shiftReportSaveFolder?.trim() || WEB_FOLDER_SHIFTS
       const attachments: Array<{ name: string; bytes: number[] }> = []
       for (const item of shiftReportDocxPathsForDay(payload.date)) {
@@ -242,7 +257,22 @@ export function installWebListeApi(): void {
     },
     getCameraMonthlyEmailStatus: async (payload) => {
       const monthKey = monthlyCameraReportKey(payload.year, payload.month)
-      const entry = getWebCameraMonthlyEmailSent(monthKey)
+      let to = ''
+      try {
+        const main = JSON.parse(
+          localStorage.getItem('liste-chevron-data') ?? 'null',
+        )
+        const local = JSON.parse(
+          localStorage.getItem(SHIFT_REPORT_LOCAL_STORAGE_KEY) ?? 'null',
+        )
+        to =
+          normalizeData(
+            mergeShiftIntoMain((main as object) ?? {}, (local as object) ?? {}),
+          ).settings.directorEmail?.trim() ?? ''
+      } catch {
+        /* ignore */
+      }
+      const entry = getWebCameraMonthlyEmailSentForRecipient(monthKey, to)
       if (!entry) return { sent: false }
       return {
         sent: true,
@@ -253,16 +283,6 @@ export function installWebListeApi(): void {
     },
     sendCameraMonthlyEmail: async (payload) => {
       const monthKey = monthlyCameraReportKey(payload.year, payload.month)
-      const existing = getWebCameraMonthlyEmailSent(monthKey)
-      if (existing && !payload.force) {
-        return {
-          ok: false,
-          alreadySent: true,
-          sentAt: existing.sentAt,
-          messageId: existing.messageId,
-          to: existing.to,
-        }
-      }
       let data
       try {
         const main = JSON.parse(
@@ -279,6 +299,16 @@ export function installWebListeApi(): void {
       }
       const to = data.settings.directorEmail?.trim() ?? ''
       if (!to) return { ok: false, error: 'missing_config' }
+      const existing = getWebCameraMonthlyEmailSentForRecipient(monthKey, to)
+      if (existing && !payload.force) {
+        return {
+          ok: false,
+          alreadySent: true,
+          sentAt: existing.sentAt,
+          messageId: existing.messageId,
+          to: existing.to,
+        }
+      }
       const monthly = buildMonthlyCameraReport(
         data.cameraReportsArchive,
         payload.year,

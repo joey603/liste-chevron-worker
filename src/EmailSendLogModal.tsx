@@ -43,8 +43,8 @@ export default function EmailSendLogModal({
       >
         <h3 id="email-send-log-title">יומן שליחות — דוחות משמרת</h3>
         <p className="shift-settings-test-hint">
-          ימים שבהם דוחות המשמרת נשלחו והתקבלו בדוא״ל (Gmail / SMTP) — רק
-          שליחות שהצליחו.
+          ימים שבהם דוחות המשמרת נשלחו והתקבלו בדוא״ל — רק שליחות שהצליחו.
+          אם מחליפים את אימייל המנהל, אפשר לשלוח שוב לאותו יום.
         </p>
         {loading ? (
           <p>טוען…</p>
