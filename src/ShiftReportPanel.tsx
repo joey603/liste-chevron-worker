@@ -33,7 +33,10 @@ import {
   scheduleShiftReportAutoSave,
 } from './shiftReportAutoSave'
 import { restoreUiInteractivity } from './captureDomToPng'
-import { sendShiftReportTestEmail } from './webRelay'
+import {
+  isAppsScriptMailConfigured,
+  sendShiftReportTestEmail,
+} from './webRelay'
 import { isElectronApp } from './webDataFolder'
 import {
   connectGmail,
@@ -606,9 +609,11 @@ export default function ShiftReportPanel({
       })
       if (result.ok) {
         onToast?.(
-          result.via === 'gmail'
-            ? 'הודעת הבדיקה נשלחה מ־Gmail שלכם'
-            : 'הודעת בדיקה נשלחה בהצלחה',
+          result.via === 'apps_script'
+            ? 'הודעת הבדיקה נשלחה דרך Apps Script'
+            : result.via === 'gmail'
+              ? 'הודעת הבדיקה נשלחה מ־Gmail שלכם'
+              : 'הודעת בדיקה נשלחה בהצלחה',
         )
         return
       }
@@ -634,6 +639,12 @@ export default function ShiftReportPanel({
         return 'טעינת Google נכשלה — בדקו את החיבור'
       case 'gmail_send_failed':
         return 'שליחת Gmail נכשלה'
+      case 'relay_not_configured':
+        return 'מלאו URL וסוד של Apps Script בהגדרות'
+      case 'relay_blocked':
+        return 'גישה ל־Apps Script נחסמה — בדקו רשת / כתובת'
+      case 'unauthorized':
+        return 'סוד Apps Script שגוי'
       case 'no_report_data':
         return 'אין נתוני דוח ליום זה'
       case 'no_attachments':
@@ -682,9 +693,11 @@ export default function ShiftReportPanel({
       if (result.ok) {
         setAlreadySentInfo(null)
         onToast?.(
-          result.via === 'gmail'
-            ? 'הדוחות נשלחו מ־Gmail שלכם'
-            : 'דוא״ל נשלח בהצלחה',
+          result.via === 'apps_script'
+            ? 'הדוחות נשלחו דרך Apps Script'
+            : result.via === 'gmail'
+              ? 'הדוחות נשלחו מ־Gmail שלכם'
+              : 'דוא״ל נשלח בהצלחה',
         )
         return
       }
@@ -1076,20 +1089,56 @@ export default function ShiftReportPanel({
               />
             </label>
             {!isElectronApp() ? (
-              <label className="shift-field">
-                <span>Gmail — Client ID</span>
-                <input
-                  type="text"
-                  dir="ltr"
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={settings?.googleClientId ?? ''}
-                  placeholder="….apps.googleusercontent.com"
-                  onChange={(e) =>
-                    onSettingsChange?.({ googleClientId: e.target.value.trim() })
-                  }
-                />
-              </label>
+              <>
+                <label className="shift-field shift-settings-path">
+                  <span>Apps Script — URL (מומלץ, בלי ניתוק כל שעה)</span>
+                  <input
+                    type="url"
+                    dir="ltr"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={settings?.gmailAppsScriptUrl ?? ''}
+                    placeholder="https://script.google.com/macros/s/…/exec"
+                    onChange={(e) =>
+                      onSettingsChange?.({
+                        gmailAppsScriptUrl: e.target.value.trim(),
+                      })
+                    }
+                  />
+                </label>
+                <label className="shift-field">
+                  <span>Apps Script — סוד (MAIL_SECRET)</span>
+                  <input
+                    type="password"
+                    dir="ltr"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={settings?.gmailAppsScriptSecret ?? ''}
+                    placeholder="מפתח סודי מהסקריפט"
+                    onChange={(e) =>
+                      onSettingsChange?.({
+                        gmailAppsScriptSecret: e.target.value.trim(),
+                      })
+                    }
+                  />
+                </label>
+                <label className="shift-field">
+                  <span>Gmail — Client ID (גיבוי OAuth ~1 שע׳)</span>
+                  <input
+                    type="text"
+                    dir="ltr"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={settings?.googleClientId ?? ''}
+                    placeholder="….apps.googleusercontent.com"
+                    onChange={(e) =>
+                      onSettingsChange?.({
+                        googleClientId: e.target.value.trim(),
+                      })
+                    }
+                  />
+                </label>
+              </>
             ) : null}
             <label className="shift-field">
               <span>שעת שליחה יומית</span>
@@ -1179,7 +1228,7 @@ export default function ShiftReportPanel({
             >
               {testingEmail ? 'שולח בדיקה…' : 'בדיקת דוא״ל'}
             </button>
-            {!isElectronApp() ? (
+            {!isElectronApp() && !isAppsScriptMailConfigured(settings) ? (
               <button
                 ref={gmailConnectBtnRef}
                 id="gmail-connect-btn"
@@ -1227,9 +1276,9 @@ export default function ShiftReportPanel({
               יומן שליחות
             </button>
             <span className="shift-settings-test-hint">
-              בדפדפן: מלאו Client ID והתחברו ל־Gmail (נשמר בדפדפן ומתחדש אוטומטית כל עוד
-              הדף פתוח). במצב אוטומטי השליחה יוצאת בשעה שנקבעה. המייל יוצא מהחשבון שלכם
-              אל המנהל, עם קבצי הדוח.
+              {isAppsScriptMailConfigured(settings)
+                ? 'Apps Script פעיל — השליחה יציבה בלי התחברות כל שעה. הדף עדיין חייב להיות פתוח לשליחה אוטומטית.'
+                : 'מומלץ: פרסו Apps Script (קובץ apps-script/liste-chevron-mail.gs) ומלאו URL + סוד. אחרת OAuth Gmail מתנתק כל ~שעה.'}
             </span>
           </div>
         </section>

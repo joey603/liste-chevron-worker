@@ -3,6 +3,7 @@ import {
   monthlyCameraReportKey,
 } from './cameraReportMonthly'
 import { ensureGmailToken, hasGmailToken } from './gmailSend'
+import { isAppsScriptMailConfigured } from './webRelay'
 import { formatShiftDate } from './shiftReport'
 import { parseShiftReportDate, shiftDateToDate } from './shiftReportPaths'
 import {
@@ -179,7 +180,8 @@ async function trySendDailyShiftReports(handlers: WebAutoSendHandlers) {
 
   const email = settings.directorEmail?.trim()
   const clientId = settings.googleClientId?.trim()
-  if (!email || !clientId) return
+  const durableMail = isAppsScriptMailConfigured(settings)
+  if (!email || (!durableMail && !clientId)) return
   if (!window.listeApi?.sendShiftReportEmail) return
 
   const now = new Date()
@@ -191,15 +193,17 @@ async function trySendDailyShiftReports(handlers: WebAutoSendHandlers) {
   const dateKey = formatShiftDate(reportDay)
   if (getWebShiftEmailSent(dateKey)) return
 
-  try {
-    await ensureGmailToken(clientId)
-  } catch {
-    notifyGmailMissOnce('shift', localCalendarDateKey(now), handlers)
-    return
-  }
-  if (!hasGmailToken()) {
-    notifyGmailMissOnce('shift', localCalendarDateKey(now), handlers)
-    return
+  if (!durableMail) {
+    try {
+      await ensureGmailToken(clientId!)
+    } catch {
+      notifyGmailMissOnce('shift', localCalendarDateKey(now), handlers)
+      return
+    }
+    if (!hasGmailToken()) {
+      notifyGmailMissOnce('shift', localCalendarDateKey(now), handlers)
+      return
+    }
   }
 
   shiftInFlight = true
@@ -211,8 +215,9 @@ async function trySendDailyShiftReports(handlers: WebAutoSendHandlers) {
       return
     }
     if (
-      result.error === 'gmail_denied' ||
-      result.error === 'gmail_client_missing'
+      !durableMail &&
+      (result.error === 'gmail_denied' ||
+        result.error === 'gmail_client_missing')
     ) {
       notifyGmailMissOnce('shift', localCalendarDateKey(now), handlers)
       return
@@ -241,7 +246,8 @@ async function trySendMonthlyCameraReports(handlers: WebAutoSendHandlers) {
 
   const email = settings.directorEmail?.trim()
   const clientId = settings.googleClientId?.trim()
-  if (!email || !clientId) return
+  const durableMail = isAppsScriptMailConfigured(settings)
+  if (!email || (!durableMail && !clientId)) return
   if (!window.listeApi?.sendCameraMonthlyEmail) return
 
   const now = new Date()
@@ -257,15 +263,17 @@ async function trySendMonthlyCameraReports(handlers: WebAutoSendHandlers) {
   const monthKey = monthlyCameraReportKey(year, month)
   if (getWebCameraMonthlyEmailSent(monthKey)) return
 
-  try {
-    await ensureGmailToken(clientId)
-  } catch {
-    notifyGmailMissOnce('camera', monthKey, handlers)
-    return
-  }
-  if (!hasGmailToken()) {
-    notifyGmailMissOnce('camera', monthKey, handlers)
-    return
+  if (!durableMail) {
+    try {
+      await ensureGmailToken(clientId!)
+    } catch {
+      notifyGmailMissOnce('camera', monthKey, handlers)
+      return
+    }
+    if (!hasGmailToken()) {
+      notifyGmailMissOnce('camera', monthKey, handlers)
+      return
+    }
   }
 
   cameraInFlight = true
@@ -277,8 +285,9 @@ async function trySendMonthlyCameraReports(handlers: WebAutoSendHandlers) {
       return
     }
     if (
-      result.error === 'gmail_denied' ||
-      result.error === 'gmail_client_missing'
+      !durableMail &&
+      (result.error === 'gmail_denied' ||
+        result.error === 'gmail_client_missing')
     ) {
       notifyGmailMissOnce('camera', monthKey, handlers)
       return

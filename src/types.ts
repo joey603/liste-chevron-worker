@@ -123,6 +123,13 @@ export type AppSettings = {
   /** OAuth Client ID Google (Gmail send, version navigateur) */
   googleClientId?: string
   /**
+   * URL déploiement Apps Script (/exec) — envoi mail durable sans jeton 1 h
+   * (recommandé si Cloudflare est bloqué).
+   */
+  gmailAppsScriptUrl?: string
+  /** Clé secrète MAIL_SECRET du script Apps Script */
+  gmailAppsScriptSecret?: string
+  /**
    * הערות Excel שכבר נצפו: מפתח שם → תוכן ההערה שנצפה.
    * אם התוכן הנוכחי שונה — מוצג badge NEW על אייקון ההודעה.
    */
@@ -142,7 +149,7 @@ export type EmailSendResult = {
   messageId?: string
   to?: string
   error?: string
-  via?: 'worker' | 'outlook' | 'gmail'
+  via?: 'worker' | 'outlook' | 'gmail' | 'apps_script'
 }
 
 export type EmailSentStatus = {
@@ -939,6 +946,18 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
     googleClientId:
       typeof rawSettings?.googleClientId === 'string'
         ? rawSettings.googleClientId.replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').trim()
+        : '',
+    gmailAppsScriptUrl:
+      typeof rawSettings?.gmailAppsScriptUrl === 'string'
+        ? rawSettings.gmailAppsScriptUrl
+            .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
+            .trim()
+        : '',
+    gmailAppsScriptSecret:
+      typeof rawSettings?.gmailAppsScriptSecret === 'string'
+        ? rawSettings.gmailAppsScriptSecret
+            .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
+            .trim()
         : '',
     seenExcelNotes: normalizeSeenExcelNotes(rawSettings?.seenExcelNotes),
   }

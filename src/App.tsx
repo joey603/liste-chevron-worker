@@ -100,6 +100,7 @@ import {
   startGmailTokenKeepAlive,
   subscribeGmailAuth,
 } from './gmailSend'
+import { isAppsScriptMailConfigured } from './webRelay'
 import { startWebAutoSend } from './webAutoSend'
 import chevronLogo from './assets/chevron-logo.png'
 
@@ -2719,11 +2720,13 @@ export default function App() {
         </div>
       ) : null}
 
-      {!isElectronApp() && !gmailConnected ? (
+      {!isElectronApp() &&
+      !isAppsScriptMailConfigured(data?.settings) &&
+      !gmailConnected ? (
         <div className="web-gmail-disconnect-banner" role="alert">
           <span>
-            Gmail מנותק — השליחה האוטומטית לא תצא. לחצו כדי לעבור לכפתור
-            «התחבר ל־Gmail».
+            Gmail מנותק — השליחה האוטומטית לא תצא. מלאו Apps Script בהגדרות
+            (מומלץ) או לחצו להתחברות OAuth קצרה.
           </span>
           <button
             type="button"

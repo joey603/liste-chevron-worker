@@ -36,6 +36,7 @@ import { parseShiftReportDate, getNextDayReportContext, shiftDateToDate } from '
 import { sendShiftReportTestEmail } from './webRelay'
 import { isElectronApp } from './webDataFolder'
 import { connectGmail, hasGmailToken } from './gmailSend'
+import { isAppsScriptMailConfigured } from './webRelay'
 import { createId } from './types'
 import type { AppSettings } from './types'
 
@@ -616,20 +617,9 @@ export default function CameraReportPanel({
               />
             </label>
             {!isElectronApp() ? (
-              <label className="shift-field">
-                <span>Gmail — Client ID</span>
-                <input
-                  type="text"
-                  dir="ltr"
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={settings?.googleClientId ?? ''}
-                  placeholder="….apps.googleusercontent.com"
-                  onChange={(e) =>
-                    onSettingsChange?.({ googleClientId: e.target.value.trim() })
-                  }
-                />
-              </label>
+              <p className="shift-settings-test-hint" style={{ gridColumn: '1 / -1' }}>
+                דוא״ל: אותו Apps Script / Gmail כמו בדוח משמרת (הגדרות שם).
+              </p>
             ) : null}
             <label className="shift-field">
               <span>שעת שליחה חודשית (1 בחודש)</span>
@@ -721,7 +711,7 @@ export default function CameraReportPanel({
             >
               {testingEmail ? 'שולח בדיקה…' : 'בדיקת דוא״ל'}
             </button>
-            {!isElectronApp() ? (
+            {!isElectronApp() && !isAppsScriptMailConfigured(settings) ? (
               <button
                 type="button"
                 className="btn btn-ghost"
@@ -757,9 +747,9 @@ export default function CameraReportPanel({
           </div>
           {!isElectronApp() ? (
             <p className="shift-settings-test-hint">
-              אותו Gmail כמו בדוח משמרת. במצב אוטומטי: ב־1 בחודש בשעה שנקבעה
-              (הדף חייב להישאר פתוח). שלח יומן שולח את קובץ ה-Excel מהחשבון שלכם
-              אל המנהל.
+              {isAppsScriptMailConfigured(settings)
+                ? 'Apps Script פעיל (כמו בדוח משמרת). אוטומטי ב־1 בחודש — הדף חייב להיות פתוח.'
+                : 'הגדירו Apps Script בדוח משמרת (מומלץ) או OAuth. אוטומטי ב־1 בחודש — הדף חייב להיות פתוח.'}
             </p>
           ) : null}
         </section>

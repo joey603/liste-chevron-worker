@@ -142,6 +142,101 @@ async function relayPost(
   }
 }
 
+/** Relais Apps Script configuré (URL + secret) — session mail durable. */
+export function isAppsScriptMailConfigured(settings?: AppSettings): boolean {
+  const s = settings ?? readSettings()
+  return Boolean(
+    sanitizeRelayText(s.gmailAppsScriptUrl ?? '') &&
+      sanitizeRelayText(s.gmailAppsScriptSecret ?? ''),
+  )
+}
+
+function bytesToBase64(bytes: number[]): string {
+  const chunk = 0x8000
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.slice(i, i + chunk))
+  }
+  return btoa(binary)
+}
+
+/**
+ * Envoi via Google Apps Script (text/plain pour éviter le preflight CORS).
+ */
+async function sendEmailViaAppsScript(payload: {
+  to: string
+  subject: string
+  text: string
+  attachments?: Array<{ name: string; bytes: number[] }>
+  settings?: AppSettings
+}): Promise<{
+  ok: boolean
+  error?: string
+  messageId?: string
+  via?: 'apps_script'
+}> {
+  const settings = payload.settings ?? readSettings()
+  const url = sanitizeRelayText(settings.gmailAppsScriptUrl ?? '')
+  const secret = sanitizeRelayText(settings.gmailAppsScriptSecret ?? '')
+  if (!url || !secret) return { ok: false, error: 'relay_not_configured' }
+
+  const body = {
+    secret,
+    to: payload.to,
+    subject: payload.subject,
+    text: payload.text,
+    attachments: (payload.attachments ?? []).map((a) => ({
+      name: a.name,
+      base64: bytesToBase64(a.bytes),
+    })),
+  }
+
+  const ctrl = new AbortController()
+  const timer = window.setTimeout(() => ctrl.abort(), 90000)
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      // text/plain = pas de preflight OPTIONS (Apps Script ne le gère pas bien)
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+      redirect: 'follow',
+    })
+    const data = (await res.json().catch(() => null)) as {
+      ok?: boolean
+      error?: string
+      messageId?: string
+    } | null
+    if (!data) return { ok: false, error: 'relay_failed' }
+    if (!data.ok) {
+      return {
+        ok: false,
+        error:
+          data.error ||
+          (res.status === 401 || data.error === 'unauthorized'
+            ? 'unauthorized'
+            : 'relay_failed'),
+      }
+    }
+    return {
+      ok: true,
+      messageId: data.messageId || 'apps-script',
+      via: 'apps_script',
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : ''
+    if (
+      (err instanceof DOMException && err.name === 'AbortError') ||
+      /failed to fetch|networkerror|load failed|abort/i.test(msg)
+    ) {
+      return { ok: false, error: 'relay_blocked' }
+    }
+    return { ok: false, error: 'offline' }
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+
 async function sendEmailBrowser(payload: {
   to: string
   subject: string
@@ -152,9 +247,24 @@ async function sendEmailBrowser(payload: {
   smtpUser?: string
   smtpPass?: string
   directorEmail?: string
-}): Promise<{ ok: boolean; error?: string; messageId?: string; via?: 'worker' | 'outlook' | 'gmail' }> {
+}): Promise<{
+  ok: boolean
+  error?: string
+  messageId?: string
+  via?: 'worker' | 'outlook' | 'gmail' | 'apps_script'
+}> {
   if (!payload.to.trim()) return { ok: false, error: 'missing_config' }
-  const clientId = readSettings().googleClientId ?? ''
+  const settings = readSettings()
+  if (isAppsScriptMailConfigured(settings)) {
+    return sendEmailViaAppsScript({
+      to: payload.to,
+      subject: payload.subject,
+      text: payload.text,
+      attachments: payload.attachments,
+      settings,
+    })
+  }
+  const clientId = settings.googleClientId ?? ''
   const sent = await sendGmailMessage({
     clientId,
     to: payload.to,
@@ -222,7 +332,11 @@ export async function sendShiftReportTestEmail(payload: {
   smtpPort: number
   smtpUser: string
   smtpPass: string
-}): Promise<{ ok: boolean; error?: string; via?: 'worker' | 'outlook' | 'gmail' }> {
+}): Promise<{
+  ok: boolean
+  error?: string
+  via?: 'worker' | 'outlook' | 'gmail' | 'apps_script'
+}> {
   if (isElectronApp() && window.listeApi?.sendShiftReportTestEmail) {
     return window.listeApi.sendShiftReportTestEmail(payload)
   }
@@ -249,7 +363,7 @@ export async function sendShiftReportsEmail(payload: {
   ok: boolean
   messageId?: string
   error?: string
-  via?: 'worker' | 'outlook' | 'gmail'
+  via?: 'worker' | 'outlook' | 'gmail' | 'apps_script'
 }> {
   if (isElectronApp() && window.listeApi?.sendShiftReportsEmail) {
     return window.listeApi.sendShiftReportsEmail(payload)
@@ -272,7 +386,7 @@ export async function sendCameraMonthlyReportEmail(payload: {
   ok: boolean
   messageId?: string
   error?: string
-  via?: 'worker' | 'outlook' | 'gmail'
+  via?: 'worker' | 'outlook' | 'gmail' | 'apps_script'
 }> {
   if (isElectronApp() && window.listeApi?.sendCameraMonthlyEmail) {
     return { ok: false, error: 'use_electron_send' }
