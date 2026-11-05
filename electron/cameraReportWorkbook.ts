@@ -44,8 +44,6 @@ const COLORS = {
 } as const
 
 const ROW_BODY = cameraXlsRowHeightPt(CAMERA_XLS_LAYOUT.rowHeightPx)
-const ROW_HEAD = cameraXlsRowHeightPt(CAMERA_XLS_LAYOUT.headerRowHeightPx)
-const ROW_ROSTER = cameraXlsRowHeightPt(CAMERA_XLS_LAYOUT.rosterRowHeightPx)
 
 const LOG_HEADER_ROW = 2
 const LOG_BODY_START_ROW = 3
