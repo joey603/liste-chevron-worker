@@ -27,8 +27,8 @@ export type Worker = {
 export type CardlessAssignment = 'unique' | 'multiple'
 
 /**
- * עובדים = שיוך לויזיטור פתוח (ירוק/כתום)
- * ספקים = שיוך לויזיטור סגור (לבן)
+ * מבקרים (employee) = שיוך לויזיטור פתוח (ירוק/כתום)
+ * ספקים (supplier) = שיוך לויזיטור סגור (לבן)
  */
 export type CardlessRole = 'employee' | 'supplier'
 

@@ -694,7 +694,7 @@ export default function App() {
   const [sidebarRoster, setSidebarRoster] = useState<'workers' | 'visitors'>(
     'workers',
   )
-  /** Dans ויזיטורים : עובדים (ouvert) / ספקים (fermé) */
+  /** Dans ויזיטורים : מבקרים (ouvert) / ספקים (fermé) */
   const [cardlessAffiliateTab, setCardlessAffiliateTab] = useState<
     CardlessRole
   >('employee')
@@ -1874,7 +1874,7 @@ export default function App() {
     const role = cardlessRoleOf(person)
     const open = isVisitorNumberOpen(data, visitorNumber)
     if (role === 'employee' && !open) {
-      setToast({ message: `ויזיטור ${visitorNumber} סגור — לעובדים בחרו ויזיטור פתוח` })
+      setToast({ message: `ויזיטור ${visitorNumber} סגור — למבקרים בחרו ויזיטור פתוח` })
       return
     }
     if (role === 'supplier' && open) {
@@ -3168,7 +3168,7 @@ export default function App() {
             <div
               className="sidebar-roster-badges cardless-role-badges"
               role="tablist"
-              aria-label="עובדים או ספקים"
+              aria-label="מבקרים או ספקים"
             >
               <button
                 type="button"
@@ -3183,7 +3183,7 @@ export default function App() {
                   setCardlessAffiliateTab('employee')
                 }}
               >
-                עובדים
+                מבקרים
               </button>
               <button
                 type="button"
@@ -4426,7 +4426,7 @@ export default function App() {
             <h3>
               {cardlessAffiliateTab === 'supplier'
                 ? 'ספק חדש לשיוך ויזיטור'
-                : 'עובד חדש לשיוך ויזיטור'}
+                : 'מבקר חדש לשיוך ויזיטור'}
             </h3>
             <form onSubmit={createNewCardless}>
               <div className="row-2">
@@ -4590,7 +4590,7 @@ export default function App() {
                       })
                     }
                   >
-                    עובדים
+                    מבקרים
                   </button>
                   <button
                     type="button"
@@ -4612,7 +4612,7 @@ export default function App() {
                 <p className="settings-note" style={{ marginTop: 6 }}>
                   {cardlessRoleOf(editingCardless) === 'supplier'
                     ? 'ספקים משויכים לויזיטור סגור (לבן)'
-                    : 'עובדים משויכים לויזיטור פתוח (ירוק / כתום)'}
+                    : 'מבקרים משויכים לויזיטור פתוח (ירוק / כתום)'}
                 </p>
               </div>
               <div className="field">
