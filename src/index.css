@@ -5152,8 +5152,13 @@ button.camera-xls-tab:hover:not(.is-disabled):not(.is-active) {
 }
 
 .cardless-section > .roster-title,
-.cardless-section > .cardless-empty {
+.cardless-section > .cardless-empty,
+.cardless-section > .cardless-role-badges {
   flex-shrink: 0;
+}
+
+.cardless-role-badges {
+  margin: 0 0 6px;
 }
 
 .cardless-list-with-alpha {

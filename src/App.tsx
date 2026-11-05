@@ -45,6 +45,8 @@ import {
   BannedPerson,
   CardlessAssignment,
   CardlessPerson,
+  CardlessRole,
+  cardlessRoleOf,
   PersonEntry,
   VISITOR_COUNT,
   VisitorAccess,
@@ -692,6 +694,10 @@ export default function App() {
   const [sidebarRoster, setSidebarRoster] = useState<'workers' | 'visitors'>(
     'workers',
   )
+  /** Dans ויזיטורים : עובדים (ouvert) / ספקים (fermé) */
+  const [cardlessAffiliateTab, setCardlessAffiliateTab] = useState<
+    CardlessRole
+  >('employee')
   /** Badge « חדשים » masqué après clic sur l’onglet (le violet reste jusqu’à entrée). */
   const [hideWorkersNewBadge, setHideWorkersNewBadge] = useState(false)
   const [hideVisitorsNewBadge, setHideVisitorsNewBadge] = useState(false)
@@ -1031,10 +1037,12 @@ export default function App() {
 
   const sortedCardlessPeople = useMemo(() => {
     if (!data) return []
-    return [...data.cardlessPeople].sort((a, b) =>
-      cardlessDisplayName(a).localeCompare(cardlessDisplayName(b), 'he'),
-    )
-  }, [data])
+    return [...data.cardlessPeople]
+      .filter((c) => cardlessRoleOf(c) === cardlessAffiliateTab)
+      .sort((a, b) =>
+        cardlessDisplayName(a).localeCompare(cardlessDisplayName(b), 'he'),
+      )
+  }, [data, cardlessAffiliateTab])
 
   const cardlessLettersPresent = useMemo(() => {
     const set = new Set<string>()
@@ -1538,6 +1546,7 @@ export default function App() {
             temporary: false,
             expiresAt: null,
             assignment: 'unique',
+            role: 'employee',
             newFromExcel: true,
           })
           addedVisitors += 1
@@ -1756,6 +1765,7 @@ export default function App() {
       temporary,
       expiresAt: temporary ? endOfTodayMidnight() : null,
       assignment: newCardlessAssignment,
+      role: cardlessAffiliateTab,
     }
     const display = cardlessDisplayName(person)
     const assignLabel =
@@ -1834,6 +1844,7 @@ export default function App() {
       firstName,
       lastName,
       assignment,
+      role: cardlessRoleOf(editingCardless),
       temporary,
       expiresAt: temporary ? endOfTodayMidnight() : null,
     }
@@ -1860,8 +1871,16 @@ export default function App() {
       clearCardlessSelection()
       return
     }
-    if (!isVisitorNumberOpen(data, visitorNumber)) {
-      setToast({ message: `ויזיטור ${visitorNumber} סגור` })
+    const role = cardlessRoleOf(person)
+    const open = isVisitorNumberOpen(data, visitorNumber)
+    if (role === 'employee' && !open) {
+      setToast({ message: `ויזיטור ${visitorNumber} סגור — לעובדים בחרו ויזיטור פתוח` })
+      return
+    }
+    if (role === 'supplier' && open) {
+      setToast({
+        message: `ויזיטור ${visitorNumber} פתוח — לספקים בחרו ויזיטור סגור (לבן)`,
+      })
       return
     }
     if (isVisitorPresent(data, visitorNumber)) {
@@ -2782,7 +2801,7 @@ export default function App() {
                   type="button"
                   className={`btn btn-edit ${manageMode === 'edit' ? 'mode-active' : ''}`}
                   onClick={onEditModeClick}
-                  disabled={(data?.cardlessPeople.length ?? 0) === 0}
+                  disabled={sortedCardlessPeople.length === 0}
                 >
                   <IconEdit />
                   <span>עריכה</span>
@@ -2791,7 +2810,7 @@ export default function App() {
                   type="button"
                   className={`btn btn-danger ${manageMode === 'delete' ? 'mode-active' : ''}`}
                   onClick={onDeleteModeClick}
-                  disabled={(data?.cardlessPeople.length ?? 0) === 0}
+                  disabled={sortedCardlessPeople.length === 0}
                 >
                   <IconTrash />
                   <span>מחיקה</span>
@@ -3076,13 +3095,18 @@ export default function App() {
                       ? 'visitor-open-temp'
                       : ''
                 const affiliating = selectedCardlessId != null
-                const selectableForAffiliate =
-                  affiliating && open && !present
-                const dimmedVisitor =
-                  affiliating && !selectableForAffiliate
                 const selectedPerson = affiliating
                   ? data.cardlessPeople.find((c) => c.id === selectedCardlessId)
                   : null
+                const affiliateRole = selectedPerson
+                  ? cardlessRoleOf(selectedPerson)
+                  : cardlessAffiliateTab
+                const selectableForAffiliate =
+                  affiliating &&
+                  !present &&
+                  (affiliateRole === 'supplier' ? !open : open)
+                const dimmedVisitor =
+                  affiliating && !selectableForAffiliate
                 return (
                   <button
                     key={n}
@@ -3097,11 +3121,13 @@ export default function App() {
                           clearCardlessSelection()
                           return
                         }
-                        if (!open || present) {
+                        if (present || !selectableForAffiliate) {
                           setToast({
                             message: present
                               ? `ויזיטור ${n} כבר באתר`
-                              : `ויזיטור ${n} סגור — בחרו ויזיטור פתוח`,
+                              : affiliateRole === 'supplier'
+                                ? `ויזיטור ${n} — לספקים בחרו ויזיטור סגור (לבן)`
+                                : `ויזיטור ${n} סגור — בחרו ויזיטור פתוח`,
                           })
                           return
                         }
@@ -3119,7 +3145,9 @@ export default function App() {
                           ? `שייך ל־${selectedPerson ? cardlessDisplayName(selectedPerson) : 'השם שנבחר'}`
                           : present
                             ? 'כבר באתר'
-                            : 'לא ניתן לבחור — בחרו ויזיטור פתוח פנוי'
+                            : affiliateRole === 'supplier'
+                              ? 'לא ניתן — לספקים בחרו ויזיטור סגור (לבן)'
+                              : 'לא ניתן לבחור — בחרו ויזיטור פתוח פנוי'
                         : present
                           ? 'כבר באתר'
                           : open && slot.access === 'open_temp'
@@ -3137,18 +3165,59 @@ export default function App() {
           </div>
 
           <div className="cardless-section">
-            <h3 className="roster-title">שמות לשיוך ויזיטור</h3>
-            {data.cardlessPeople.length > 0 ? (
+            <div
+              className="sidebar-roster-badges cardless-role-badges"
+              role="tablist"
+              aria-label="עובדים או ספקים"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={cardlessAffiliateTab === 'employee'}
+                className={`sidebar-roster-badge ${
+                  cardlessAffiliateTab === 'employee' ? 'active' : ''
+                }`}
+                onClick={() => {
+                  clearManageMode()
+                  clearCardlessSelection()
+                  setCardlessAffiliateTab('employee')
+                }}
+              >
+                עובדים
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={cardlessAffiliateTab === 'supplier'}
+                className={`sidebar-roster-badge ${
+                  cardlessAffiliateTab === 'supplier' ? 'active' : ''
+                }`}
+                onClick={() => {
+                  clearManageMode()
+                  clearCardlessSelection()
+                  setCardlessAffiliateTab('supplier')
+                }}
+              >
+                ספקים
+              </button>
+            </div>
+            {sortedCardlessPeople.length > 0 ? (
               <p className="cardless-empty">
                 {selectedCardlessId
-                  ? 'בחרו עכשיו ויזיטור פתוח מהרשת למעלה'
-                  : 'בחרו שם, ואז ויזיטור פתוח מהרשת'}
+                  ? cardlessAffiliateTab === 'supplier'
+                    ? 'בחרו עכשיו ויזיטור סגור (לבן) מהרשת למעלה'
+                    : 'בחרו עכשיו ויזיטור פתוח מהרשת למעלה'
+                  : cardlessAffiliateTab === 'supplier'
+                    ? 'בחרו שם, ואז ויזיטור סגור (לבן) מהרשת'
+                    : 'בחרו שם, ואז ויזיטור פתוח מהרשת'}
               </p>
             ) : null}
-            {data.cardlessPeople.length === 0 ? (
+            {sortedCardlessPeople.length === 0 ? (
               <div className="roster-scroll cardless-scroll">
                 <p className="cardless-empty">
-                  אין שמות. לחצו על «+ שם חדש», בחרו את השם ואז ויזיטור פתוח מהרשת.
+                  {cardlessAffiliateTab === 'supplier'
+                    ? 'אין ספקים. לחצו על «+ שם חדש», בחרו את השם ואז ויזיטור סגור (לבן).'
+                    : 'אין שמות. לחצו על «+ שם חדש», בחרו את השם ואז ויזיטור פתוח מהרשת.'}
                 </p>
               </div>
             ) : (
@@ -4354,7 +4423,11 @@ export default function App() {
           }}
         >
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>שם לשיוך ויזיטור</h3>
+            <h3>
+              {cardlessAffiliateTab === 'supplier'
+                ? 'ספק חדש לשיוך ויזיטור'
+                : 'עובד חדש לשיוך ויזיטור'}
+            </h3>
             <form onSubmit={createNewCardless}>
               <div className="row-2">
                 <div className="field">
@@ -4499,6 +4572,48 @@ export default function App() {
                     autoComplete="off"
                   />
                 </div>
+              </div>
+              <div className="field">
+                <label>רשימה</label>
+                <div className="type-toggle">
+                  <button
+                    type="button"
+                    className={`type-toggle-btn ${
+                      cardlessRoleOf(editingCardless) === 'employee'
+                        ? 'active'
+                        : ''
+                    }`}
+                    onClick={() =>
+                      setEditingCardless({
+                        ...editingCardless,
+                        role: 'employee',
+                      })
+                    }
+                  >
+                    עובדים
+                  </button>
+                  <button
+                    type="button"
+                    className={`type-toggle-btn ${
+                      cardlessRoleOf(editingCardless) === 'supplier'
+                        ? 'active'
+                        : ''
+                    }`}
+                    onClick={() =>
+                      setEditingCardless({
+                        ...editingCardless,
+                        role: 'supplier',
+                      })
+                    }
+                  >
+                    ספקים
+                  </button>
+                </div>
+                <p className="settings-note" style={{ marginTop: 6 }}>
+                  {cardlessRoleOf(editingCardless) === 'supplier'
+                    ? 'ספקים משויכים לויזיטור סגור (לבן)'
+                    : 'עובדים משויכים לויזיטור פתוח (ירוק / כתום)'}
+                </p>
               </div>
               <div className="field">
                 <label>סוג שיוך</label>

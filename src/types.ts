@@ -26,6 +26,12 @@ export type Worker = {
 /** ייחודי = נחסם ברשימה בזמן שהוא באתר · מרובה = ניתן לשייך לכמה ויזיטורים */
 export type CardlessAssignment = 'unique' | 'multiple'
 
+/**
+ * עובדים = שיוך לויזיטור פתוח (ירוק/כתום)
+ * ספקים = שיוך לויזיטור סגור (לבן)
+ */
+export type CardlessRole = 'employee' | 'supplier'
+
 /** שם ללא כרטיס — ממתין לשיוך ויזיטור */
 export type CardlessPerson = {
   id: string
@@ -35,8 +41,18 @@ export type CardlessPerson = {
   temporary: boolean
   expiresAt: string | null
   assignment: CardlessAssignment
+  /** עובד (פתוח) או ספק (סגור) */
+  role?: CardlessRole
   /** נוסף מ־Excel — סגול עד כניסה לאתר */
   newFromExcel?: boolean
+}
+
+export function normalizeCardlessRole(raw: unknown): CardlessRole {
+  return raw === 'supplier' ? 'supplier' : 'employee'
+}
+
+export function cardlessRoleOf(person: CardlessPerson): CardlessRole {
+  return normalizeCardlessRole(person.role)
 }
 
 export type PersonEntry = {
@@ -534,8 +550,9 @@ export function isWorkerPresent(data: AppData, workerId: string): boolean {
 
 /**
  * התראות כניסה/יציאה:
- * - מספר בלבד → שולחים על כולם
+ * - מספר בלבד → שולחים על כולם (חוץ מויזיטור בלי שם)
  * - מספר + עובד למעקב → שולחים על כולם חוץ מהעובד הזה
+ * - ויזיטור ללא שם משויך (מספר בלבד) → לא שולחים
  */
 export function hasTelegramWatch(data: AppData): boolean {
   const token = data.settings.telegramBotToken?.trim() ?? ''
@@ -550,12 +567,20 @@ export function hasTelegramEmergency(data: AppData): boolean {
   return token.length > 20 && chatId.length > 0
 }
 
+/** ויזיטור שנלחץ מהרשת בלי שיוך שם — אין שליחת Telegram */
+export function isAnonymousVisitor(person: PersonEntry): boolean {
+  return (
+    person.kind === 'visitor' && visitorAffiliatedName(person).length === 0
+  )
+}
+
 export function shouldNotifyAbsenceWatch(
   data: AppData,
   person?: PersonEntry,
 ): boolean {
   if (!data.settings.absenceWatchEnabled) return false
   if (!hasTelegramWatch(data)) return false
+  if (person && isAnonymousVisitor(person)) return false
   const workerId = data.settings.absenceWatchWorkerId?.trim() ?? ''
   if (workerId && person?.workerId && person.workerId === workerId) return false
   return true
@@ -993,6 +1018,9 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
       c.assignment === 'unique' || c.assignment === 'multiple'
         ? c.assignment
         : ('multiple' as const),
+    role: normalizeCardlessRole(
+      (c as CardlessPerson & { role?: unknown }).role,
+    ),
     newFromExcel: c.newFromExcel === true,
   }))
   const people = Array.isArray(raw?.people)
