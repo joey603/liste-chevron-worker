@@ -5157,20 +5157,28 @@ button.camera-xls-tab:hover:not(.is-disabled):not(.is-active) {
   flex-shrink: 0;
 }
 
-.cardless-role-badges {
-  margin: 0 0 6px;
-  gap: 4px;
-  padding: 3px;
-  border-radius: 10px;
+.cardless-role-badges.sidebar-roster-badges {
+  margin: 0 0 4px;
+  gap: 3px;
+  padding: 2px;
+  border-radius: 8px;
+  border-width: 1px;
 }
 
 .cardless-role-badges .sidebar-roster-badge {
-  min-height: 26px;
-  padding: 4px 8px;
-  border-radius: 8px;
-  font-size: 0.82rem;
+  min-height: 0;
+  height: auto;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 0.7rem;
   font-weight: 650;
-  letter-spacing: 0.01em;
+  letter-spacing: 0;
+  line-height: 1.2;
+  box-shadow: none;
+}
+
+.cardless-role-badges .sidebar-roster-badge.active {
+  box-shadow: none;
 }
 
 .cardless-list-with-alpha {
