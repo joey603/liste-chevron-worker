@@ -5159,6 +5159,18 @@ button.camera-xls-tab:hover:not(.is-disabled):not(.is-active) {
 
 .cardless-role-badges {
   margin: 0 0 6px;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+}
+
+.cardless-role-badges .sidebar-roster-badge {
+  min-height: 26px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
 }
 
 .cardless-list-with-alpha {
