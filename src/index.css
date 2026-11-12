@@ -1635,6 +1635,15 @@ button.emergency-status-button:hover {
   font-size: 0.78rem;
 }
 
+.info-credentials-panel input[dir='auto'],
+.info-credentials-panel textarea[dir='auto'],
+.info-credentials-panel .info-credential-value[dir='auto'],
+.info-credentials-panel .info-credential-notes[dir='auto'],
+.info-credentials-panel .banned-name [dir='auto'] {
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+
 .info-password-field {
   display: flex;
   gap: 6px;

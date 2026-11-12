@@ -148,9 +148,10 @@ export default function InfoCredentialsPanel({
             id={`${options.idPrefix}-title`}
             value={value.title}
             onChange={(e) => setValue({ ...value, title: e.target.value })}
-            placeholder="למשל מחשב מצלמות, Gmail, Wi‑Fi"
+            placeholder="Cameras PC / מחשב מצלמות…"
             autoFocus
             autoComplete="off"
+            dir="auto"
           />
         </div>
         <div className="field">
@@ -162,6 +163,7 @@ export default function InfoCredentialsPanel({
             value={value.username}
             onChange={(e) => setValue({ ...value, username: e.target.value })}
             autoComplete="off"
+            dir="auto"
           />
         </div>
         <div className="field">
@@ -177,6 +179,7 @@ export default function InfoCredentialsPanel({
                 setValue({ ...value, password: e.target.value })
               }
               autoComplete="new-password"
+              dir="auto"
             />
             <button
               type="button"
@@ -194,7 +197,8 @@ export default function InfoCredentialsPanel({
             value={value.notes}
             onChange={(e) => setValue({ ...value, notes: e.target.value })}
             rows={3}
-            placeholder="קישור, טלפון, קוד, הערה…"
+            placeholder="Note / הערה…"
+            dir="auto"
           />
         </div>
       </>
@@ -249,14 +253,14 @@ export default function InfoCredentialsPanel({
                 <article key={entry.id} className="banned-row info-credential-row">
                   <div className="banned-main">
                     <div className="banned-name">
-                      <span className="person-index">{index + 1}.</span>
-                      {infoCredentialDisplayTitle(entry)}
+                      <span className="person-index">{index + 1}.</span>{' '}
+                      <span dir="auto">{infoCredentialDisplayTitle(entry)}</span>
                     </div>
                     <div className="info-credential-fields">
                       {entry.username ? (
                         <div className="info-credential-line">
                           <span className="info-credential-label">משתמש</span>
-                          <span className="info-credential-value" dir="ltr">
+                          <span className="info-credential-value" dir="auto">
                             {entry.username}
                           </span>
                           <button
@@ -273,7 +277,7 @@ export default function InfoCredentialsPanel({
                       {entry.password ? (
                         <div className="info-credential-line">
                           <span className="info-credential-label">סיסמה</span>
-                          <span className="info-credential-value" dir="ltr">
+                          <span className="info-credential-value" dir="auto">
                             {revealed ? entry.password : '••••••••'}
                           </span>
                           <button
@@ -295,7 +299,10 @@ export default function InfoCredentialsPanel({
                         </div>
                       ) : null}
                       {entry.notes ? (
-                        <div className="banned-reason info-credential-notes">
+                        <div
+                          className="banned-reason info-credential-notes"
+                          dir="auto"
+                        >
                           {entry.notes}
                         </div>
                       ) : null}
