@@ -8,6 +8,7 @@ import type { CameraReport } from './cameraReport'
 import { normalizeCameraReport } from './cameraReport'
 import type { CameraReportsArchive } from './cameraReportArchive'
 import { formatShiftDate } from './shiftReport'
+import { normalizeAuthorizedExpiresOn } from './authorizedExpiry'
 
 export type EntryKind = 'named' | 'visitor'
 
@@ -263,6 +264,8 @@ export type AuthorizedPerson = {
   /** סוג מה־Excel: קבוע / וויזיטור */
   kind: AuthorizedKind
   notes: string
+  /** YYYY-MM-DD — מורשה עד סוף היום (ריק = ללא תפוגה) */
+  expiresOn?: string
   updatedAt: string
 }
 
@@ -429,6 +432,17 @@ export type ListeApi = {
     filePath: string
     people: AuthorizedPerson[]
   }) => Promise<{ ok: boolean; error?: string }>
+  purgeExpiredAuthorizedListExcel?: (
+    filePath: string,
+  ) => Promise<
+    | {
+        ok: true
+        people: AuthorizedPerson[]
+        removed: number
+        wrote: boolean
+      }
+    | { ok: false; error?: string }
+  >
   getAuthorizedListExcelMtime?: (
     filePath: string,
   ) => Promise<number | null>
@@ -1117,6 +1131,9 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
         notes === 'ויזיטור'
           ? ''
           : notes,
+      expiresOn: normalizeAuthorizedExpiresOn(
+        (p as AuthorizedPerson & { expiresOn?: unknown }).expiresOn,
+      ),
       updatedAt:
         typeof p?.updatedAt === 'string'
           ? p.updatedAt

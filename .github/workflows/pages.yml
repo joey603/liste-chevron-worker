@@ -36,6 +36,16 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build:web
+      - name: Build authorized-list site
+        working-directory: authorized-list-site
+        env:
+          # URL Apps Script …/exec (secret GitHub optionnel)
+          VITE_API_URL: ${{ secrets.AUTHORIZED_LIST_API_URL }}
+        run: |
+          npm ci
+          npm run build
+          mkdir -p ../dist/authorized
+          cp -r dist/. ../dist/authorized/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

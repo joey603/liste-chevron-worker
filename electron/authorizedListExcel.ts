@@ -13,18 +13,21 @@ export type AuthorizedPersonExcelRow = {
   idNumber: string
   kind: AuthorizedKind
   notes: string
+  /** YYYY-MM-DD — autorisé jusqu’à la fin de ce jour (vide = pas d’expiration) */
+  expiresOn: string
   updatedAt: string
 }
 
 const HEADER_ROW = 1
 const DATA_START_ROW = 2
 
-/** Format actuel : שם פרטי | שם משפחה | סוג | הערות */
+/** Format : שם פרטי | שם משפחה | סוג | הערות | תאריך סיום */
 const COL = {
   firstName: 1, // A
   lastName: 2, // B
   kind: 3, // C
   notes: 4, // D
+  expiresOn: 5, // E
 } as const
 
 function cellText(value: ExcelJS.CellValue): string {
@@ -42,6 +45,37 @@ function cellText(value: ExcelJS.CellValue): string {
     }
   }
   return ''
+}
+
+function localDateKey(date = new Date()): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+export function normalizeExpiresOn(raw: ExcelJS.CellValue | unknown): string {
+  if (raw == null || raw === '') return ''
+  if (raw instanceof Date && !Number.isNaN(raw.getTime())) {
+    return localDateKey(raw)
+  }
+  const text = String(raw).trim()
+  if (!text) return ''
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(text)
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`
+  const he = /^(\d{1,2})[./](\d{1,2})[./](\d{4})$/.exec(text)
+  if (he) {
+    return `${he[3]}-${he[2].padStart(2, '0')}-${he[1].padStart(2, '0')}`
+  }
+  const parsed = new Date(text)
+  if (!Number.isNaN(parsed.getTime())) return localDateKey(parsed)
+  return ''
+}
+
+export function isExpiresOnPast(expiresOn: string, now = new Date()): boolean {
+  const day = normalizeExpiresOn(expiresOn)
+  if (!day) return false
+  return day < localDateKey(now)
 }
 
 function makeId(): string {
@@ -101,15 +135,17 @@ type ColumnMap = {
   lastName: number
   kind: number
   notes: number
+  expiresOn: number
 }
 
-/** Détecte les colonnes (format court ou anciens formats avec # / ת.ז. / הערות). */
+/** Détecte les colonnes (format court ou anciens formats). */
 function detectColumns(sheet: ExcelJS.Worksheet): ColumnMap {
   const header = sheet.getRow(HEADER_ROW)
   let firstName = 0
   let lastName = 0
   let kind = 0
   let notes = 0
+  let expiresOn = 0
 
   header.eachCell({ includeEmpty: false }, (cell, col) => {
     const h = cellText(cell.value).toLowerCase()
@@ -117,25 +153,31 @@ function detectColumns(sheet: ExcelJS.Worksheet): ColumnMap {
     if (/שם\s*פרטי|first/.test(h)) firstName = col
     else if (/שם\s*משפחה|last/.test(h)) lastName = col
     else if (/סוג|type|kind/.test(h)) kind = col
-    else if (/הערות|notes|remark|comment/.test(h)) notes = col
+    else if (/תאריך|סיום|תפוג|expir|until|end\s*date|valid/.test(h)) {
+      expiresOn = col
+    } else if (/הערות|notes|remark|comment/.test(h)) notes = col
   })
 
-  // Format actuel sans en-têtes ambigus
   if (!firstName && !lastName && !kind) {
-    return { firstName: 1, lastName: 2, kind: 3, notes: 4 }
+    return {
+      firstName: 1,
+      lastName: 2,
+      kind: 3,
+      notes: 4,
+      expiresOn: 5,
+    }
   }
 
-  // Ancien format : # | פרטי | משפחה | ת.ז. | סוג | הערות?
   if (!firstName) firstName = 2
   if (!lastName) lastName = 3
   if (!kind) kind = 5
   if (!notes) notes = kind === 5 ? 6 : 4
+  if (!expiresOn) expiresOn = Math.max(notes, kind) + 1
 
-  return { firstName, lastName, kind, notes }
+  return { firstName, lastName, kind, notes, expiresOn }
 }
 
 function ensureHeader(sheet: ExcelJS.Worksheet) {
-  // Effacer d'éventuelles anciennes colonnes
   for (let c = 1; c <= 8; c++) {
     sheet.getCell(HEADER_ROW, c).value = null
   }
@@ -144,6 +186,7 @@ function ensureHeader(sheet: ExcelJS.Worksheet) {
     [COL.lastName, 'שם משפחה'],
     [COL.kind, 'סוג'],
     [COL.notes, 'הערות'],
+    [COL.expiresOn, 'תאריך סיום'],
   ]
   for (const [col, label] of headers) {
     sheet.getCell(HEADER_ROW, col).value = label
@@ -153,6 +196,7 @@ function ensureHeader(sheet: ExcelJS.Worksheet) {
   sheet.getColumn(COL.lastName).width = 16
   sheet.getColumn(COL.kind).width = 12
   sheet.getColumn(COL.notes).width = 28
+  sheet.getColumn(COL.expiresOn).width = 14
 }
 
 function clearDataRows(sheet: ExcelJS.Worksheet) {
@@ -187,8 +231,8 @@ export async function readAuthorizedListExcel(
       const lastName = cellText(row.getCell(cols.lastName).value)
       const kindRaw = cellText(row.getCell(cols.kind).value)
       const notes = cellText(row.getCell(cols.notes).value)
+      const expiresOn = normalizeExpiresOn(row.getCell(cols.expiresOn).value)
       if (!firstName && !lastName) return
-      // Ignorer une ligne d'en-tête dupliquée
       if (firstName === 'שם פרטי' || kindRaw === 'סוג' || notes === 'הערות') {
         return
       }
@@ -200,6 +244,7 @@ export async function readAuthorizedListExcel(
         idNumber: '',
         kind: parseAuthorizedKind(kindRaw),
         notes,
+        expiresOn,
         updatedAt: now,
       })
     })
@@ -243,6 +288,8 @@ export async function writeAuthorizedListExcel(
         p.kind === 'visitor' ? 'visitor' : 'permanent',
       )
       sheet.getCell(row, COL.notes).value = (p.notes ?? '').trim()
+      const expiresOn = normalizeExpiresOn(p.expiresOn ?? '')
+      sheet.getCell(row, COL.expiresOn).value = expiresOn || null
     })
 
     await workbook.xlsx.writeFile(filePath)
@@ -254,6 +301,29 @@ export async function writeAuthorizedListExcel(
     }
     return { ok: false, error: message }
   }
+}
+
+/**
+ * Retire du fichier les lignes dont תאריך סיום est dépassé.
+ * Réécrit le fichier seulement s’il y a des suppressions.
+ */
+export async function purgeExpiredAuthorizedListExcel(
+  filePath: string,
+  now = new Date(),
+): Promise<
+  | { ok: true; people: AuthorizedPersonExcelRow[]; removed: number; wrote: boolean }
+  | { ok: false; error: string }
+> {
+  const read = await readAuthorizedListExcel(filePath)
+  if (!read.ok) return read
+  const kept = read.people.filter((p) => !isExpiresOnPast(p.expiresOn, now))
+  const removed = read.people.length - kept.length
+  if (removed === 0) {
+    return { ok: true, people: kept, removed: 0, wrote: false }
+  }
+  const written = await writeAuthorizedListExcel(filePath, kept)
+  if (!written.ok) return written
+  return { ok: true, people: kept, removed, wrote: true }
 }
 
 /** Crée un fichier Excel modèle vide (pour Drive / le directeur). */

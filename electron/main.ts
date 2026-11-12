@@ -31,6 +31,8 @@ import {
 import {
   createAuthorizedListTemplate,
   getAuthorizedListFileMtime,
+  normalizeExpiresOn,
+  purgeExpiredAuthorizedListExcel,
   readAuthorizedListExcel,
   writeAuthorizedListExcel,
 } from './authorizedListExcel'
@@ -694,6 +696,7 @@ type AuthorizedPerson = {
   idNumber: string
   kind: 'permanent' | 'visitor'
   notes: string
+  expiresOn?: string
   updatedAt: string
 }
 
@@ -1057,6 +1060,9 @@ function normalize(raw: Partial<AppData>): AppData {
               notes === 'ויזיטור'
                 ? ''
                 : notes,
+            expiresOn: normalizeExpiresOn(
+              (p as AuthorizedPerson & { expiresOn?: unknown }).expiresOn,
+            ),
             updatedAt:
               typeof p?.updatedAt === 'string'
                 ? p.updatedAt
@@ -1723,6 +1729,7 @@ app.whenReady().then(() => {
           idNumber?: string
           kind?: 'permanent' | 'visitor' | string
           notes?: string
+          expiresOn?: string
           updatedAt?: string
         }>
       },
@@ -1743,11 +1750,18 @@ app.whenReady().then(() => {
           idNumber: p.idNumber ?? '',
           kind,
           notes: p.notes ?? '',
+          expiresOn: normalizeExpiresOn(p.expiresOn ?? ''),
           updatedAt: p.updatedAt ?? new Date().toISOString(),
         }
       })
       return writeAuthorizedListExcel(String(payload.filePath || ''), rows)
     },
+  )
+
+  ipcMain.handle(
+    'authorizedList:purgeExpired',
+    async (_event, filePath: string) =>
+      purgeExpiredAuthorizedListExcel(String(filePath || '')),
   )
 
   ipcMain.handle(

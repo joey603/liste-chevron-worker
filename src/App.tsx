@@ -98,6 +98,7 @@ import { installWebListeApi } from './webListeApi'
 import { scrubObsoleteWebMailAppData } from './webMailSettings'
 import { isAppsScriptMailConfigured } from './webRelay'
 import { startWebAutoSend } from './webAutoSend'
+import { isAuthorizedExpired } from './authorizedExpiry'
 import chevronLogo from './assets/chevron-logo.png'
 
 installWebListeApi()
@@ -801,7 +802,7 @@ export default function App() {
     return () => window.clearTimeout(t)
   }, [toast])
 
-  // Sync Excel : surveillance continue — sync dès que le fichier change
+  // Sync Excel : mtime + purge des autorisations arrivées à échéance
   useEffect(() => {
     const filePath = data?.settings.authorizedListExcelPath?.trim() ?? ''
     if (!filePath || !window.listeApi?.readAuthorizedListExcel) return
@@ -811,8 +812,18 @@ export default function App() {
 
     const applyPeople = (
       people: NonNullable<typeof data>['authorizedPeople'],
-    ): number => {
-      let addedCount = 0
+    ): {
+      addedWorkers: number
+      addedVisitors: number
+      removedWorkers: number
+      removedVisitors: number
+    } => {
+      let counts = {
+        addedWorkers: 0,
+        addedVisitors: 0,
+        removedWorkers: 0,
+        removedVisitors: 0,
+      }
       const syncedAt = new Date().toISOString()
       setData((prev) => {
         if (!prev) return prev
@@ -821,12 +832,18 @@ export default function App() {
           prev.cardlessPeople,
           people,
         )
-        addedCount = merged.addedWorkers + merged.addedVisitors
+        counts = {
+          addedWorkers: merged.addedWorkers,
+          addedVisitors: merged.addedVisitors,
+          removedWorkers: merged.removedWorkers,
+          removedVisitors: merged.removedVisitors,
+        }
         const next = normalizeData({
           ...prev,
           authorizedPeople: people,
           workers: merged.workers,
           cardlessPeople: merged.cardlessPeople,
+          people: prunePresentAfterAuthorizedSync(prev.people, merged),
           settings: {
             ...prev.settings,
             authorizedListLastSyncedAt: syncedAt,
@@ -835,12 +852,38 @@ export default function App() {
         void saveData(next)
         return next
       })
-      return addedCount
+      return counts
     }
 
-    const checkForChanges = async () => {
-      const mtime =
-        await window.listeApi?.getAuthorizedListExcelMtime?.(filePath)
+    const runSync = async () => {
+      const api = window.listeApi
+      if (!api?.readAuthorizedListExcel) return
+
+      let expiredRemoved = 0
+      let people: NonNullable<typeof data>['authorizedPeople'] | null = null
+
+      if (api.purgeExpiredAuthorizedListExcel) {
+        const purged = await api.purgeExpiredAuthorizedListExcel(filePath)
+        if (cancelled) return
+        if (purged?.ok) {
+          expiredRemoved = purged.removed
+          people = purged.people
+          if (purged.wrote) {
+            const mt = await api.getAuthorizedListExcelMtime?.(filePath)
+            if (typeof mt === 'number') authorizedExcelMtimeRef.current = mt
+          }
+        } else if (purged && !purged.ok && purged.error === 'not_found') {
+          if (!missingWarned) {
+            missingWarned = true
+            setToast({
+              message: 'קובץ ה־Excel לא נמצא — פתחו הגדרות ובחרו קובץ',
+            })
+          }
+          return
+        }
+      }
+
+      const mtime = await api.getAuthorizedListExcelMtime?.(filePath)
       if (cancelled) return
       if (typeof mtime !== 'number') {
         if (!missingWarned) {
@@ -851,28 +894,34 @@ export default function App() {
         }
         return
       }
+
       const prevMtime = authorizedExcelMtimeRef.current
-      if (prevMtime == null) {
-        // Première mesure : mémoriser sans recharger
-        authorizedExcelMtimeRef.current = mtime
+      const firstLoad = prevMtime == null
+      const fileChanged = prevMtime != null && mtime > prevMtime
+      if (!firstLoad && !fileChanged && expiredRemoved === 0) return
+
+      if (!people || fileChanged) {
+        const result = await api.readAuthorizedListExcel(filePath)
+        if (!result?.ok || cancelled) return
+        people = result.people
+      }
+
+      authorizedExcelMtimeRef.current = mtime
+      const counts = applyPeople(people)
+      if (firstLoad && expiredRemoved === 0 && counts.addedWorkers + counts.addedVisitors + counts.removedWorkers + counts.removedVisitors === 0) {
         return
       }
-      if (mtime <= prevMtime) return
-
-      const result = await window.listeApi?.readAuthorizedListExcel?.(filePath)
-      if (!result?.ok || cancelled) return
-      authorizedExcelMtimeRef.current = mtime
-      const added = applyPeople(result.people)
+      const base =
+        expiredRemoved > 0
+          ? `פג תוקף — הוסרו ${expiredRemoved} מה־Excel`
+          : undefined
       setToast({
-        message:
-          added > 0
-            ? `עודכן מה־Excel · נוספו ${added} לסרגל`
-            : `עודכן מה־Excel (${result.people.length})`,
+        message: formatAuthorizedSyncMessage(base, counts, people.length),
       })
     }
 
-    void checkForChanges()
-    const pollId = window.setInterval(() => void checkForChanges(), 4000)
+    void runSync()
+    const pollId = window.setInterval(() => void runSync(), 4000)
     return () => {
       cancelled = true
       window.clearInterval(pollId)
@@ -1500,7 +1549,8 @@ export default function App() {
 
   /**
    * Excel סוג=קבוע → עובדים · סוג=ויזיטור → שמות לשיוך.
-   * Ajoute les nouveaux et déplace si le סוג Excel a changé.
+   * Ajoute les nouveaux, déplace si le סוג a changé, et retire
+   * du sidebar (+ ids) quiconque n’est plus dans le Excel.
    */
   function mergeAuthorizedIntoSidebar(
     workers: Worker[],
@@ -1511,17 +1561,25 @@ export default function App() {
     cardlessPeople: CardlessPerson[]
     addedWorkers: number
     addedVisitors: number
+    removedWorkers: number
+    removedVisitors: number
+    removedWorkerIds: string[]
+    removedCardlessIds: string[]
+    authorizedKeys: Set<string>
   } {
     let nextWorkers = [...workers]
     let nextCardless = [...cardlessPeople]
     let addedWorkers = 0
     let addedVisitors = 0
 
+    const authorizedKeys = new Set<string>()
     for (const person of authorized) {
+      if (isAuthorizedExpired(person.expiresOn)) continue
       const firstName = person.firstName.trim()
       const lastName = person.lastName.trim()
       if (!firstName && !lastName) continue
       const key = authNameKey(firstName, lastName)
+      authorizedKeys.add(key)
       const inWorkers = nextWorkers.some(
         (w) => authNameKey(w.firstName, w.lastName) === key,
       )
@@ -1570,12 +1628,81 @@ export default function App() {
       }
     }
 
+    const removedWorkerIds = nextWorkers
+      .filter((w) => !authorizedKeys.has(authNameKey(w.firstName, w.lastName)))
+      .map((w) => w.id)
+    const removedCardlessIds = nextCardless
+      .filter((c) => !authorizedKeys.has(authNameKey(c.firstName, c.lastName)))
+      .map((c) => c.id)
+    const removedWorkers = removedWorkerIds.length
+    const removedVisitors = removedCardlessIds.length
+
+    if (removedWorkers > 0) {
+      const drop = new Set(removedWorkerIds)
+      nextWorkers = nextWorkers.filter((w) => !drop.has(w.id))
+    }
+    if (removedVisitors > 0) {
+      const drop = new Set(removedCardlessIds)
+      nextCardless = nextCardless.filter((c) => !drop.has(c.id))
+    }
+
     return {
       workers: nextWorkers,
       cardlessPeople: nextCardless,
       addedWorkers,
       addedVisitors,
+      removedWorkers,
+      removedVisitors,
+      removedWorkerIds,
+      removedCardlessIds,
+      authorizedKeys,
     }
+  }
+
+  /** Retire de la liste נוכחים les personnes plus présentes dans le Excel. */
+  function prunePresentAfterAuthorizedSync(
+    people: PersonEntry[],
+    merged: {
+      removedWorkerIds: string[]
+      removedCardlessIds: string[]
+      authorizedKeys: Set<string>
+    },
+  ): PersonEntry[] {
+    const dropWorkers = new Set(merged.removedWorkerIds)
+    const dropCardless = new Set(merged.removedCardlessIds)
+    return people.filter((p) => {
+      if (p.workerId && dropWorkers.has(p.workerId)) return false
+      if (p.cardlessPersonId && dropCardless.has(p.cardlessPersonId)) {
+        return false
+      }
+      if (p.kind === 'named' || p.cardlessPersonId) {
+        const key = authNameKey(p.firstName, p.lastName)
+        if (key !== '|' && !merged.authorizedKeys.has(key)) return false
+      }
+      return true
+    })
+  }
+
+  function formatAuthorizedSyncMessage(
+    base: string | undefined,
+    merged: {
+      addedWorkers: number
+      addedVisitors: number
+      removedWorkers: number
+      removedVisitors: number
+    },
+    peopleCount: number,
+  ): string {
+    const added = merged.addedWorkers + merged.addedVisitors
+    const removed = merged.removedWorkers + merged.removedVisitors
+    const parts: string[] = []
+    if (added > 0) parts.push(`נוספו ${added}`)
+    if (removed > 0) parts.push(`הוסרו ${removed}`)
+    if (parts.length === 0) {
+      return base?.trim() || `עודכן מה־Excel (${peopleCount})`
+    }
+    const tip = parts.join(' · ')
+    return base?.trim() ? `${base} · ${tip}` : `עודכן מה־Excel · ${tip}`
   }
 
   function isAuthorizedOnSharedList(
@@ -3512,8 +3639,9 @@ export default function App() {
             <div className="presence-settings-block">
               <h3>סנכרון רשימת מורשים</h3>
               <p className="shift-settings-note">
-                קובץ משותף ב־Drive — קבוע / ויזיטור. האפליקציה בודקת כל כמה
-                שניות ומסנכרנת אוטומטית כשהקובץ משתנה.
+                קובץ משותף ב־Drive — קבוע / ויזיטור / תאריך סיום (אופציונלי).
+                האפליקציה מסנכרנת אוטומטית; שמות שנמחקו או שפג תוקפם מוסרים גם
+                מהסרגל ומרשימת הנוכחים.
               </p>
               <AuthorizedPeopleSyncBar
                 excelPath={data.settings.authorizedListExcelPath ?? ''}
@@ -3526,18 +3654,21 @@ export default function App() {
                     data.cardlessPeople,
                     people,
                   )
-                  const added =
-                    merged.addedWorkers + merged.addedVisitors
-                  const tip =
-                    added > 0
-                      ? `${message ?? 'נטען מה־Excel'} · נוספו ${added} לסרגל`
-                      : message
+                  const tip = formatAuthorizedSyncMessage(
+                    message,
+                    merged,
+                    people.length,
+                  )
                   void persist(
                     {
                       ...data,
                       authorizedPeople: people,
                       workers: merged.workers,
                       cardlessPeople: merged.cardlessPeople,
+                      people: prunePresentAfterAuthorizedSync(
+                        data.people,
+                        merged,
+                      ),
                       settings: {
                         ...data.settings,
                         authorizedListExcelPath: path,

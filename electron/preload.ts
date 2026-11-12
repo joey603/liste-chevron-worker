@@ -127,6 +127,12 @@ const api = {
     people: unknown[]
   }): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('authorizedList:writeExcel', payload),
+  purgeExpiredAuthorizedListExcel: (
+    filePath: string,
+  ): Promise<
+    | { ok: true; people: unknown[]; removed: number; wrote: boolean }
+    | { ok: false; error?: string }
+  > => ipcRenderer.invoke('authorizedList:purgeExpired', filePath),
   getAuthorizedListExcelMtime: (
     filePath: string,
   ): Promise<number | null> =>
