@@ -1,15 +1,11 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  captureElementToPng,
-  restoreUiInteractivity,
-} from './captureDomToPng'
+import { restoreUiInteractivity } from './captureDomToPng'
 import {
   createId,
   formatDateTime,
   guardDisplayName,
   type GuardRosterEntry,
 } from './types'
-import { sendTelegramPhoto } from './webRelay'
 
 const emptyGuard = {
   firstName: '',
@@ -48,9 +44,7 @@ export default function GuardRosterPanel({
   const [showAdd, setShowAdd] = useState(false)
   const [draft, setDraft] = useState<GuardForm>(emptyGuard)
   const [editing, setEditing] = useState<GuardRosterEntry | null>(null)
-  const [sending, setSending] = useState(false)
   const [excelBusy, setExcelBusy] = useState(false)
-  const captureRef = useRef<HTMLDivElement>(null)
   const excelPathRef = useRef(excelPath)
   const skipNextExcelWriteRef = useRef(false)
   const excelWriteTimer = useRef<number | null>(null)
@@ -178,79 +172,6 @@ export default function GuardRosterPanel({
       notify('הרוסטר נשמר לקובץ ה־Excel')
     } finally {
       setExcelBusy(false)
-    }
-  }
-
-  async function captureRosterImageDataUrl(): Promise<string | null> {
-    const source = captureRef.current
-    if (!source) return null
-
-    try {
-      return await captureElementToPng(source, {
-        minWidth: 720,
-        prepareClone: (clone) => {
-          clone.style.padding = '20px'
-          clone
-            .querySelectorAll<HTMLElement>('.banned-actions, .banned-meta, .toast')
-            .forEach((node) => {
-              node.remove()
-            })
-          clone
-            .querySelectorAll<HTMLElement>('.roster-capture-heading')
-            .forEach((node) => {
-              node.style.display = 'block'
-              node.style.marginBottom = '14px'
-              node.style.fontSize = '1.15rem'
-              node.style.color = '#003b70'
-            })
-          clone
-            .querySelectorAll<HTMLElement>('.banned-list, .roster-list')
-            .forEach((node) => {
-              node.style.overflow = 'visible'
-              node.style.maxHeight = 'none'
-              node.style.height = 'auto'
-            })
-        },
-      })
-    } finally {
-      restoreUiInteractivity()
-    }
-  }
-
-  /** שליחת תמונת הרוסטר לקבוצת Telegram */
-  async function shareRosterOnTelegram() {
-    if (guards.length === 0) {
-      notify('אין שומרים ברוסטר לשליחה')
-      return
-    }
-    setSending(true)
-    try {
-      const dataUrl = await captureRosterImageDataUrl()
-      if (!dataUrl) {
-        notify('שגיאה ביצירת התמונה')
-        return
-      }
-      notify('שולח את התמונה ב־Telegram…')
-      const result = await sendTelegramPhoto(
-        dataUrl,
-        `רוסטר שומרים — ${siteName}`,
-      )
-      if (!result.ok) {
-        if (result.error === 'telegram_not_configured') {
-          notify('הגדירו Token ו-chat_id של Telegram בהגדרות נוכחות')
-        } else if (result.error === 'offline') {
-          notify('אין אינטרנט — לא ניתן לשלוח כרגע')
-        } else {
-          notify('שליחת התמונה נכשלה')
-        }
-        return
-      }
-      notify('התמונה נשלחה ב־Telegram')
-    } catch {
-      notify('שגיאה בשליחת התמונה')
-    } finally {
-      setSending(false)
-      restoreUiInteractivity()
     }
   }
 
@@ -517,16 +438,6 @@ export default function GuardRosterPanel({
             type="button"
             className="btn btn-primary"
             style={{ width: 'auto' }}
-            disabled={sending || sorted.length === 0}
-            onClick={() => void shareRosterOnTelegram()}
-            title="שליחת תמונת הרוסטר לקבוצת Telegram"
-          >
-            {sending ? 'שולח…' : 'שליחה ב־Telegram'}
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            style={{ width: 'auto' }}
             onClick={() => {
               resetDraft()
               setShowAdd(true)
@@ -585,10 +496,7 @@ export default function GuardRosterPanel({
             לחצו על «הוספת שומר/ת» כדי להוסיף.
           </div>
         ) : (
-          <div
-            className="roster-capture-root"
-            ref={captureRef}
-          >
+          <div className="roster-capture-root">
             <div className="roster-capture-heading">
               <strong>רוסטר שומרים — {siteName}</strong>
             </div>

@@ -1,7 +1,6 @@
 import { CSSProperties, FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  captureElementToPng,
   installUiInteractivityWatchdog,
   restoreUiInteractivity,
 } from './captureDomToPng'
@@ -79,7 +78,6 @@ import {
   workerDisplayName,
 } from './types'
 import {
-  sendTelegramPhoto as sendTelegramPhotoNow,
   sendTelegramText as sendTelegramTextNow,
   testTelegram as testTelegramNow,
 } from './webRelay'
@@ -711,7 +709,6 @@ export default function App() {
   const [visitorManageMode, setVisitorManageMode] =
     useState<VisitorAccess>('closed')
   const listRef = useRef<HTMLDivElement>(null)
-  const shareRef = useRef<HTMLDivElement>(null)
   const workersScrollRef = useRef<HTMLDivElement>(null)
   const workersAlphaLettersRef = useRef<HTMLDivElement>(null)
   const cardlessScrollRef = useRef<HTMLDivElement>(null)
@@ -2204,40 +2201,6 @@ export default function App() {
     )
   }
 
-  async function captureListImageDataUrl(): Promise<string | null> {
-    const visiblePage = document.querySelector(
-      '.preview-share-wrap .preview-pdf-page',
-    ) as HTMLElement | null
-    const fallbackRoot = shareRef.current
-    const source =
-      visiblePage ||
-      (fallbackRoot?.querySelector('.preview-pdf-page') as HTMLElement | null) ||
-      fallbackRoot
-
-    if (!source) return null
-
-    try {
-      return await captureElementToPng(source, {
-        minWidth: 900,
-        prepareClone: (clone) => {
-          clone
-            .querySelectorAll<HTMLElement>(
-              '.people.doc-scroll-list, .list-capture, .people',
-            )
-            .forEach((node) => {
-              node.style.overflow = 'visible'
-              node.style.maxHeight = 'none'
-              node.style.height = 'auto'
-              node.style.opacity = '1'
-              node.style.filter = 'none'
-            })
-        },
-      })
-    } finally {
-      restoreUiInteractivity()
-    }
-  }
-
   async function sendEmergencyList() {
     if (!data) return
     if (!hasTelegramEmergency(data)) {
@@ -2259,38 +2222,6 @@ export default function App() {
         return
       }
       setToast({ message: 'רשימת החירום נשלחה ב־Telegram' })
-    } catch {
-      setToast({ message: telegramErrorMessage('failed') })
-    } finally {
-      setBusy(false)
-      restoreUiInteractivity()
-    }
-  }
-
-  async function sendPreviewListPhotoToTelegram() {
-    if (!data) return
-    if (!hasTelegramWatch(data)) {
-      setToast({ message: telegramErrorMessage('telegram_not_configured') })
-      return
-    }
-    setBusy(true)
-    try {
-      const dataUrl = await captureListImageDataUrl()
-      if (!dataUrl) {
-        setToast({ message: 'שגיאה ביצירת התמונה' })
-        return
-      }
-      setToast({ message: 'שולח תמונה ל־Telegram…' })
-      const caption = `${data.settings.siteName} — רשימת נוכחים`
-      const result = await sendTelegramPhotoNow(dataUrl, caption)
-      if (!result.ok) {
-        setToast({ message: telegramErrorMessage(result.error) })
-        if (result.error !== 'offline') {
-          void window.listeApi?.copyImage?.(dataUrl)
-        }
-        return
-      }
-      setToast({ message: 'התמונה נשלחה ב־Telegram' })
     } catch {
       setToast({ message: telegramErrorMessage('failed') })
     } finally {
@@ -4287,14 +4218,6 @@ export default function App() {
                 type="button"
                 className="btn btn-primary"
                 disabled={busy}
-                onClick={() => void sendPreviewListPhotoToTelegram()}
-              >
-                שלח תמונה ל־Telegram
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={busy}
                 onClick={() => void sendPreviewListTextToTelegram()}
               >
                 שלח רשימה (טקסט)
@@ -5235,9 +5158,6 @@ export default function App() {
         </div>
       )}
 
-      <div ref={shareRef} className="list-capture-share" aria-hidden="true">
-        {renderPdfDocument()}
-      </div>
     </div>
   )
 }
