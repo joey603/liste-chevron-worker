@@ -712,6 +712,16 @@ type GuardRosterEntry = {
   addedAt: string
 }
 
+type InfoCredential = {
+  id: string
+  title: string
+  username: string
+  password: string
+  email: string
+  notes: string
+  updatedAt: string
+}
+
 type AppData = {
   settings: AppSettings
   workers: Worker[]
@@ -720,6 +730,7 @@ type AppData = {
   banned: BannedPerson[]
   authorizedPeople: AuthorizedPerson[]
   guards: GuardRosterEntry[]
+  infoCredentials: InfoCredential[]
   shiftReport?: unknown
   shiftReportTexts?: unknown
   shiftReportsArchive?: Record<string, unknown>
@@ -780,6 +791,7 @@ const defaultData = (): AppData => ({
   banned: [],
   authorizedPeople: [],
   guards: [],
+  infoCredentials: [],
 })
 
 function dataPath() {
@@ -1080,6 +1092,26 @@ function normalize(raw: Partial<AppData>): AppData {
               ? g.addedAt
               : new Date().toISOString(),
         }))
+      : [],
+    infoCredentials: Array.isArray(raw.infoCredentials)
+      ? raw.infoCredentials.map((item) => {
+          const obj =
+            item && typeof item === 'object'
+              ? (item as Partial<InfoCredential>)
+              : {}
+          return {
+            id: typeof obj.id === 'string' && obj.id.trim() ? obj.id : makeId(),
+            title: typeof obj.title === 'string' ? obj.title : '',
+            username: typeof obj.username === 'string' ? obj.username : '',
+            password: typeof obj.password === 'string' ? obj.password : '',
+            email: typeof obj.email === 'string' ? obj.email : '',
+            notes: typeof obj.notes === 'string' ? obj.notes : '',
+            updatedAt:
+              typeof obj.updatedAt === 'string' && obj.updatedAt.trim()
+                ? obj.updatedAt
+                : new Date().toISOString(),
+          }
+        })
       : [],
     shiftReport: raw.shiftReport,
     shiftReportTexts: raw.shiftReportTexts,

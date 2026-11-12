@@ -8,6 +8,7 @@ import {
 import ShiftReportPanel from './ShiftReportPanel'
 import CameraReportPanel from './CameraReportPanel'
 import GuardRosterPanel from './GuardRosterPanel'
+import InfoCredentialsPanel from './InfoCredentialsPanel'
 import AuthorizedPeopleSyncBar from './AuthorizedPeopleSyncBar'
 import type { ShiftKind, ShiftReport, ShiftReportTexts } from './shiftReport'
 import type { CameraReport } from './cameraReport'
@@ -292,7 +293,7 @@ function telegramErrorMessage(error?: string): string {
 }
 
 type Toast = { message: string } | null
-type AppTab = 'presence' | 'banned' | 'roster' | 'cameras' | 'shift'
+type AppTab = 'presence' | 'banned' | 'roster' | 'cameras' | 'shift' | 'info'
 type ListSort = 'time_asc' | 'time_desc' | 'name'
 type ListLayout = 'rows' | 'columns'
 type ListKindFilter = 'all' | 'visitors' | 'workers_constant' | 'workers_temporary'
@@ -2624,6 +2625,16 @@ export default function App() {
         <nav className="app-tabs" aria-label="ניווט ראשי">
           <button
             type="button"
+            className={`app-tab ${activeTab === 'info' ? 'active' : ''}`}
+            onClick={() => {
+              clearManageMode()
+              setActiveTab('info')
+            }}
+          >
+            מידע
+          </button>
+          <button
+            type="button"
             className={`app-tab ${activeTab === 'roster' ? 'active' : ''}`}
             onClick={() => {
               clearManageMode()
@@ -4151,6 +4162,17 @@ export default function App() {
               gmailConnectFocusToken={gmailConnectFocusToken}
             />
         </main>
+      )}
+
+      {activeTab === 'info' && data && (
+        <InfoCredentialsPanel
+          entries={data.infoCredentials ?? []}
+          onChange={(infoCredentials, message) =>
+            void persist({ ...data, infoCredentials }, message)
+          }
+          onToast={(message) => setToast({ message })}
+          toastMessage={toast?.message ?? null}
+        />
       )}
       </div>
 

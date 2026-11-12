@@ -1581,6 +1581,78 @@ button.emergency-status-button:hover {
   width: 100%;
 }
 
+.info-credentials-toolbar {
+  margin-bottom: 12px;
+}
+
+.info-credentials-search {
+  margin: 0;
+}
+
+.info-search-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--chevron-blue-dark);
+}
+
+.info-credential-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.info-credential-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.info-credential-label {
+  min-width: 3.5rem;
+  font-weight: 700;
+  color: var(--chevron-blue-dark);
+}
+
+.info-credential-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.88rem;
+  word-break: break-all;
+}
+
+.info-credential-notes {
+  white-space: pre-wrap;
+}
+
+.info-copy-btn {
+  width: auto;
+  padding: 2px 8px;
+  min-height: 28px;
+  font-size: 0.78rem;
+}
+
+.info-password-field {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.info-password-field input {
+  flex: 1;
+  min-width: 0;
+}
+
+.info-password-toggle {
+  width: auto;
+  flex-shrink: 0;
+  padding: 0 10px;
+  min-height: 38px;
+}
+
 .roster-emergency-block {
   margin-top: 4px;
   padding: 10px 12px;

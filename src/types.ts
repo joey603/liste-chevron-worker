@@ -286,6 +286,48 @@ export type GuardRosterEntry = {
   addedAt: string
 }
 
+/** פרטי התחברות / מידע מקומי (סיסמאות, משתמשים, מייל…) */
+export type InfoCredential = {
+  id: string
+  /** כותרת / מערכת (למשל מחשב מצלמות, Gmail) */
+  title: string
+  username: string
+  password: string
+  email: string
+  /** הערות / פרטים נוספים */
+  notes: string
+  updatedAt: string
+}
+
+export function infoCredentialDisplayTitle(entry: InfoCredential): string {
+  const title = entry.title.trim()
+  if (title) return title
+  const username = entry.username.trim()
+  if (username) return username
+  const notes = entry.notes.trim()
+  if (notes) return notes.slice(0, 40)
+  return 'ללא כותרת'
+}
+
+export function normalizeInfoCredentials(raw: unknown): InfoCredential[] {
+  if (!Array.isArray(raw)) return []
+  return raw.map((item) => {
+    const obj = item && typeof item === 'object' ? (item as Partial<InfoCredential>) : {}
+    return {
+      id: typeof obj.id === 'string' && obj.id.trim() ? obj.id : createId(),
+      title: typeof obj.title === 'string' ? obj.title : '',
+      username: typeof obj.username === 'string' ? obj.username : '',
+      password: typeof obj.password === 'string' ? obj.password : '',
+      email: typeof obj.email === 'string' ? obj.email : '',
+      notes: typeof obj.notes === 'string' ? obj.notes : '',
+      updatedAt:
+        typeof obj.updatedAt === 'string' && obj.updatedAt.trim()
+          ? obj.updatedAt
+          : new Date().toISOString(),
+    }
+  })
+}
+
 export type AppData = {
   settings: AppSettings
   workers: Worker[]
@@ -297,6 +339,8 @@ export type AppData = {
   authorizedPeople: AuthorizedPerson[]
   /** רוסטר שומרים */
   guards: GuardRosterEntry[]
+  /** מידע מקומי: משתמשים, סיסמאות, מיילים */
+  infoCredentials: InfoCredential[]
   /** טיוטת דוח משמרת נוכחית */
   shiftReport?: ShiftReport
   /** טקסטים קבועים לדוח משמרת (תזכורות / תקלות / הערות) */
@@ -1107,6 +1151,9 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
     banned,
     authorizedPeople,
     guards,
+    infoCredentials: normalizeInfoCredentials(
+      (raw as Partial<AppData> | null | undefined)?.infoCredentials,
+    ),
     shiftReport: normalizeShiftReport(
       raw?.shiftReport,
       normalizeShiftReportTexts(raw?.shiftReportTexts),
