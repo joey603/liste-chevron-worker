@@ -883,16 +883,17 @@ export default function App() {
         return
       }
       apiErrorWarned = false
+      const expiredRemoved = result.expiredRemoved ?? 0
       const fp = authorizedListFingerprint(result.people, result.updatedAt)
       const firstLoad = authorizedApiFingerprintRef.current == null
       const changed = authorizedApiFingerprintRef.current !== fp
-      if (!firstLoad && !changed && !(result.expiredRemoved > 0)) return
+      if (!firstLoad && !changed && expiredRemoved === 0) return
 
       authorizedApiFingerprintRef.current = fp
       const counts = applyPeople(result.people)
       if (
         firstLoad &&
-        result.expiredRemoved === 0 &&
+        expiredRemoved === 0 &&
         counts.addedWorkers +
           counts.addedVisitors +
           counts.removedWorkers +
@@ -902,8 +903,8 @@ export default function App() {
         return
       }
       const base =
-        result.expiredRemoved > 0
-          ? `פג תוקף — הוסרו ${result.expiredRemoved} מהרשימה`
+        expiredRemoved > 0
+          ? `פג תוקף — הוסרו ${expiredRemoved} מהרשימה`
           : undefined
       setToast({
         message: formatAuthorizedSyncMessage(base, counts, result.people.length),
