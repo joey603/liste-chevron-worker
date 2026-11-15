@@ -1611,8 +1611,9 @@ export default function App() {
   /**
    * Excel/Sheet סוג=קבוע → עובדים · סוג=ויזיטור → שמות לשיוך.
    * Ajoute les nouveaux et déplace si le סוג a changé.
-   * Ne retire que les entrées venues de la sync (newFromExcel) qui ont
-   * disparu / expiré — jamais les personnes ajoutées localement en plus.
+   * Ne retire que les entrées gérées par la Sheet (fromAuthorizedList)
+   * disparues / expirées — jamais les personnes locales seules.
+   * Le violet (newFromExcel) ne s’applique qu’aux VRAIS nouveaux noms.
    */
   function mergeAuthorizedIntoSidebar(
     workers: Worker[],
@@ -1666,13 +1667,14 @@ export default function App() {
             assignment: 'unique',
             role: 'employee',
             newFromExcel: true,
+            fromAuthorizedList: true,
           })
           addedVisitors += 1
         } else {
-          // Marquer comme géré par la Sheet pour pouvoir le retirer si supprimé là-bas
+          // Déjà présent : lié à la Sheet, sans (re)mettre le violet
           nextCardless = nextCardless.map((c) =>
             authNameKey(c.firstName, c.lastName) === key
-              ? { ...c, newFromExcel: true }
+              ? { ...c, fromAuthorizedList: true, newFromExcel: false }
               : c,
           )
         }
@@ -1691,31 +1693,31 @@ export default function App() {
             temporary: false,
             expiresAt: null,
             newFromExcel: true,
+            fromAuthorizedList: true,
           })
           addedWorkers += 1
         } else {
           nextWorkers = nextWorkers.map((w) =>
             authNameKey(w.firstName, w.lastName) === key
-              ? { ...w, newFromExcel: true }
+              ? { ...w, fromAuthorizedList: true, newFromExcel: false }
               : w,
           )
         }
       }
     }
 
-    // Retirer seulement les noms déjà vus sur la Sheet/Excel (newFromExcel),
-    // pas les personnes locales ajoutées uniquement dans Liste Chevron.
+    // Retirer seulement les noms gérés par la Sheet, pas les locaux seuls.
     const removedWorkerIds = nextWorkers
       .filter(
         (w) =>
-          w.newFromExcel === true &&
+          (w.fromAuthorizedList === true || w.newFromExcel === true) &&
           !authorizedKeys.has(authNameKey(w.firstName, w.lastName)),
       )
       .map((w) => w.id)
     const removedCardlessIds = nextCardless
       .filter(
         (c) =>
-          c.newFromExcel === true &&
+          (c.fromAuthorizedList === true || c.newFromExcel === true) &&
           !authorizedKeys.has(authNameKey(c.firstName, c.lastName)),
       )
       .map((c) => c.id)

@@ -22,6 +22,8 @@ export type Worker = {
   expiresAt: string | null
   /** נוסף מ־Excel — סגול עד כניסה לאתר */
   newFromExcel?: boolean
+  /** מנוהל ע״י רשימת מורשים (Sheet) — למחיקה בסנכרון בלי סגול מחדש */
+  fromAuthorizedList?: boolean
 }
 
 /** ייחודי = נחסם ברשימה בזמן שהוא באתר · מרובה = ניתן לשייך לכמה ויזיטורים */
@@ -46,6 +48,8 @@ export type CardlessPerson = {
   role?: CardlessRole
   /** נוסף מ־Excel — סגול עד כניסה לאתר */
   newFromExcel?: boolean
+  /** מנוהל ע״י רשימת מורשים (Sheet) — למחיקה בסנכרון בלי סגול מחדש */
+  fromAuthorizedList?: boolean
 }
 
 export function normalizeCardlessRole(raw: unknown): CardlessRole {
@@ -1075,6 +1079,8 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
     temporary: Boolean(w.temporary),
     expiresAt: w.expiresAt ?? null,
     newFromExcel: w.newFromExcel === true,
+    fromAuthorizedList:
+      w.fromAuthorizedList === true || w.newFromExcel === true,
   }))
   const cardlessPeople = (
     Array.isArray(raw?.cardlessPeople) ? raw.cardlessPeople : []
@@ -1092,6 +1098,8 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
       (c as CardlessPerson & { role?: unknown }).role,
     ),
     newFromExcel: c.newFromExcel === true,
+    fromAuthorizedList:
+      c.fromAuthorizedList === true || c.newFromExcel === true,
   }))
   const people = Array.isArray(raw?.people)
     ? raw.people
