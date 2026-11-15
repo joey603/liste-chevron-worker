@@ -13,6 +13,7 @@ import {
   listPeople,
   upsertPerson,
 } from './api'
+import ExpiresOnPicker from './ExpiresOnPicker'
 import {
   parseRosterImage,
   type ParsedRosterPerson,
@@ -521,22 +522,16 @@ export default function App() {
                             aria-label={`הערה ל-${p.firstName} ${p.lastName}`}
                           />
                         </label>
-                        <label className="field">
-                          <span>תאריך סיום / יציאה</span>
-                          <input
-                            type="date"
-                            value={p.expiresOn}
-                            onChange={(e) =>
-                              updatePhotoDraft(p, {
-                                expiresOn: e.target.value,
-                              })
-                            }
-                            dir="ltr"
-                            disabled={busy}
-                            aria-label={`תאריך סיום ל-${p.firstName} ${p.lastName}`}
-                            id={`photo-expires-${index}`}
-                          />
-                        </label>
+                        <ExpiresOnPicker
+                          id={`photo-expires-${index}`}
+                          label="תאריך סיום / יציאה"
+                          hint=""
+                          value={p.expiresOn}
+                          disabled={busy}
+                          onChange={(expiresOn) =>
+                            updatePhotoDraft(p, { expiresOn })
+                          }
+                        />
                       </div>
                     </li>
                   )
@@ -640,21 +635,16 @@ export default function App() {
                   </button>
                 </div>
               </div>
-              <div className="field">
-                <label htmlFor="expiresOn">תאריך סיום (אופציונלי)</label>
-                <input
-                  id="expiresOn"
-                  type="date"
-                  value={draft.expiresOn}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, expiresOn: e.target.value }))
-                  }
-                  dir="ltr"
-                />
-                <p className="field-hint">
-                  מורשה עד סוף היום הזה. ריק = ללא תפוגה.
-                </p>
-              </div>
+              <ExpiresOnPicker
+                id="expiresOn"
+                label="תאריך סיום (אופציונלי)"
+                hint="מורשה עד סוף היום הזה. ריק = ללא תפוגה."
+                value={draft.expiresOn}
+                disabled={busy}
+                onChange={(expiresOn) =>
+                  setDraft((d) => ({ ...d, expiresOn }))
+                }
+              />
               <div className="field">
                 <label htmlFor="notes">הערות</label>
                 <textarea
