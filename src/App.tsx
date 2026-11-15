@@ -13,6 +13,14 @@ import {
   authorizedListFingerprint,
   fetchAuthorizedListFromApi,
 } from './authorizedListApi'
+import {
+  appendRosterHistory,
+  formatHistoryWhen,
+  historyActionLabel,
+  historyEntriesFromSync,
+  historyKindLabel,
+  type RosterHistoryPerson,
+} from './rosterHistory'
 import type { ShiftKind, ShiftReport, ShiftReportTexts } from './shiftReport'
 import type { CameraReport } from './cameraReport'
 import {
@@ -637,6 +645,7 @@ export default function App() {
   const authorizedExcelMtimeRef = useRef<number | null>(null)
   const authorizedApiFingerprintRef = useRef<string | null>(null)
   const [showPresenceSettings, setShowPresenceSettings] = useState(false)
+  const [showRosterHistory, setShowRosterHistory] = useState(false)
   const [dataFolderName, setDataFolderName] = useState<string | null>(null)
   const [pickingDataFolder, setPickingDataFolder] = useState(false)
   const [gmailConnectFocusToken, setGmailConnectFocusToken] = useState(0)
@@ -855,6 +864,14 @@ export default function App() {
           workers: merged.workers,
           cardlessPeople: merged.cardlessPeople,
           people: prunePresentAfterAuthorizedSync(prev.people, merged),
+          rosterHistory: appendRosterHistory(
+            prev.rosterHistory,
+            historyEntriesFromSync({
+              added: merged.addedPeople,
+              removed: merged.removedPeople,
+            }),
+            syncedAt,
+          ),
           settings: {
             ...prev.settings,
             authorizedListLastSyncedAt: syncedAt,
@@ -1629,11 +1646,15 @@ export default function App() {
     removedWorkerIds: string[]
     removedCardlessIds: string[]
     authorizedKeys: Set<string>
+    addedPeople: RosterHistoryPerson[]
+    removedPeople: RosterHistoryPerson[]
   } {
     let nextWorkers = [...workers]
     let nextCardless = [...cardlessPeople]
     let addedWorkers = 0
     let addedVisitors = 0
+    const addedPeople: RosterHistoryPerson[] = []
+    const removedPeople: RosterHistoryPerson[] = []
 
     const authorizedKeys = new Set<string>()
     for (const person of authorized) {
@@ -1670,6 +1691,7 @@ export default function App() {
             fromAuthorizedList: true,
           })
           addedVisitors += 1
+          addedPeople.push({ firstName, lastName, kind: 'visitor' })
         } else {
           // Déjà présent : lié à la Sheet, sans (re)mettre le violet
           nextCardless = nextCardless.map((c) =>
@@ -1696,6 +1718,7 @@ export default function App() {
             fromAuthorizedList: true,
           })
           addedWorkers += 1
+          addedPeople.push({ firstName, lastName, kind: 'permanent' })
         } else {
           nextWorkers = nextWorkers.map((w) =>
             authNameKey(w.firstName, w.lastName) === key
@@ -1707,20 +1730,32 @@ export default function App() {
     }
 
     // Retirer seulement les noms gérés par la Sheet, pas les locaux seuls.
-    const removedWorkerIds = nextWorkers
-      .filter(
-        (w) =>
-          (w.fromAuthorizedList === true || w.newFromExcel === true) &&
-          !authorizedKeys.has(authNameKey(w.firstName, w.lastName)),
-      )
-      .map((w) => w.id)
-    const removedCardlessIds = nextCardless
-      .filter(
-        (c) =>
-          (c.fromAuthorizedList === true || c.newFromExcel === true) &&
-          !authorizedKeys.has(authNameKey(c.firstName, c.lastName)),
-      )
-      .map((c) => c.id)
+    const workersToRemove = nextWorkers.filter(
+      (w) =>
+        (w.fromAuthorizedList === true || w.newFromExcel === true) &&
+        !authorizedKeys.has(authNameKey(w.firstName, w.lastName)),
+    )
+    const cardlessToRemove = nextCardless.filter(
+      (c) =>
+        (c.fromAuthorizedList === true || c.newFromExcel === true) &&
+        !authorizedKeys.has(authNameKey(c.firstName, c.lastName)),
+    )
+    const removedWorkerIds = workersToRemove.map((w) => w.id)
+    const removedCardlessIds = cardlessToRemove.map((c) => c.id)
+    for (const w of workersToRemove) {
+      removedPeople.push({
+        firstName: w.firstName,
+        lastName: w.lastName,
+        kind: 'permanent',
+      })
+    }
+    for (const c of cardlessToRemove) {
+      removedPeople.push({
+        firstName: c.firstName,
+        lastName: c.lastName,
+        kind: 'visitor',
+      })
+    }
     const removedWorkers = removedWorkerIds.length
     const removedVisitors = removedCardlessIds.length
 
@@ -1743,6 +1778,8 @@ export default function App() {
       removedWorkerIds,
       removedCardlessIds,
       authorizedKeys,
+      addedPeople,
+      removedPeople,
     }
   }
 
@@ -1998,6 +2035,15 @@ export default function App() {
       {
         ...data,
         cardlessPeople: data.cardlessPeople.filter((c) => c.id !== person.id),
+        rosterHistory: appendRosterHistory(data.rosterHistory, [
+          {
+            action: 'removed',
+            source: 'manual',
+            kind: 'visitor',
+            firstName: person.firstName.trim(),
+            lastName: person.lastName.trim(),
+          },
+        ]),
       },
       `${cardlessDisplayName(person)} הוסר מהרשימה`,
     )
@@ -2257,6 +2303,15 @@ export default function App() {
         ...data,
         workers: data.workers.filter((w) => w.id !== worker.id),
         people: data.people.filter((p) => p.workerId !== worker.id),
+        rosterHistory: appendRosterHistory(data.rosterHistory, [
+          {
+            action: 'removed',
+            source: 'manual',
+            kind: 'permanent',
+            firstName: worker.firstName.trim(),
+            lastName: worker.lastName.trim(),
+          },
+        ]),
       },
       'העובד נמחק',
     )
@@ -3537,14 +3592,94 @@ export default function App() {
           <div className="main-header-actions">
             <button
               type="button"
+              className={`btn btn-ghost${showRosterHistory ? ' active' : ''}`}
+              style={{ width: 'auto' }}
+              onClick={() => {
+                setShowPresenceSettings(false)
+                setShowRosterHistory((v) => !v)
+              }}
+            >
+              היסטוריה
+            </button>
+            <button
+              type="button"
               className={`btn btn-ghost${showPresenceSettings ? ' active' : ''}`}
               style={{ width: 'auto' }}
-              onClick={() => setShowPresenceSettings((v) => !v)}
+              onClick={() => {
+                setShowRosterHistory(false)
+                setShowPresenceSettings((v) => !v)
+              }}
             >
               הגדרות
             </button>
           </div>
         </header>
+
+        {showRosterHistory && data ? (
+          <section className="shift-section shift-settings-card presence-settings-card roster-history-card">
+            <div className="presence-settings-block">
+              <h3>היסטוריית רשימה</h3>
+              <p className="shift-settings-note">
+                שמות שנמחקו (ידנית או מסנכרון) ושמות שנוספו מסנכרון — עם תאריך
+                ושעה.
+              </p>
+              {(data.rosterHistory ?? []).length === 0 ? (
+                <p className="shift-settings-note">עדיין אין רשומות בהיסטוריה.</p>
+              ) : (
+                <ul className="roster-history-list">
+                  {(data.rosterHistory ?? []).map((entry) => (
+                    <li
+                      key={entry.id}
+                      className={`roster-history-item is-${entry.action}`}
+                    >
+                      <div className="roster-history-main">
+                        <strong dir="auto">
+                          {`${entry.firstName} ${entry.lastName}`.trim()}
+                        </strong>
+                        <span
+                          className={`roster-history-badge ${entry.action}`}
+                        >
+                          {historyActionLabel(entry)}
+                        </span>
+                        <span className="roster-history-kind">
+                          {historyKindLabel(entry.kind)}
+                        </span>
+                      </div>
+                      <time
+                        className="roster-history-when"
+                        dateTime={entry.at}
+                      >
+                        {formatHistoryWhen(entry.at)}
+                      </time>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {(data.rosterHistory ?? []).length > 0 ? (
+                <div className="presence-settings-actions">
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ width: 'auto' }}
+                    onClick={() => {
+                      if (
+                        !window.confirm('לנקות את כל היסטוריית הרשימה?')
+                      ) {
+                        return
+                      }
+                      void persist(
+                        { ...data, rosterHistory: [] },
+                        'ההיסטוריה נוקתה',
+                      )
+                    }}
+                  >
+                    נקה היסטוריה
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
 
         {showPresenceSettings && data ? (
           <section className="shift-section shift-settings-card presence-settings-card">
@@ -3790,6 +3925,7 @@ export default function App() {
                     merged,
                     people.length,
                   )
+                  const syncedAt = new Date().toISOString()
                   void persist(
                     {
                       ...data,
@@ -3800,10 +3936,18 @@ export default function App() {
                         data.people,
                         merged,
                       ),
+                      rosterHistory: appendRosterHistory(
+                        data.rosterHistory,
+                        historyEntriesFromSync({
+                          added: merged.addedPeople,
+                          removed: merged.removedPeople,
+                        }),
+                        syncedAt,
+                      ),
                       settings: {
                         ...data.settings,
                         authorizedListExcelPath: path,
-                        authorizedListLastSyncedAt: new Date().toISOString(),
+                        authorizedListLastSyncedAt: syncedAt,
                       },
                     },
                     tip,

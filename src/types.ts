@@ -9,6 +9,12 @@ import { normalizeCameraReport } from './cameraReport'
 import type { CameraReportsArchive } from './cameraReportArchive'
 import { formatShiftDate } from './shiftReport'
 import { normalizeAuthorizedExpiresOn } from './authorizedExpiry'
+import {
+  normalizeRosterHistory,
+  type RosterHistoryEntry,
+} from './rosterHistory'
+
+export type { RosterHistoryEntry } from './rosterHistory'
 
 export type EntryKind = 'named' | 'visitor'
 
@@ -348,6 +354,8 @@ export type AppData = {
   banned: BannedPerson[]
   /** רשימת מורשים לכניסה (מסונכרן עם Excel) */
   authorizedPeople: AuthorizedPerson[]
+  /** היסטוריית הוספות/מחיקות ברשימת נוכחות (ידני + סנכרון) */
+  rosterHistory: RosterHistoryEntry[]
   /** רוסטר שומרים */
   guards: GuardRosterEntry[]
   /** מידע מקומי: משתמשים, סיסמאות, מיילים */
@@ -1187,6 +1195,9 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
     people,
     banned,
     authorizedPeople,
+    rosterHistory: normalizeRosterHistory(
+      (raw as Partial<AppData> | null | undefined)?.rosterHistory,
+    ),
     guards,
     infoCredentials: normalizeInfoCredentials(
       (raw as Partial<AppData> | null | undefined)?.infoCredentials,

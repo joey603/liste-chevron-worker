@@ -736,6 +736,7 @@ type AppData = {
   people: PersonEntry[]
   banned: BannedPerson[]
   authorizedPeople: AuthorizedPerson[]
+  rosterHistory?: unknown[]
   guards: GuardRosterEntry[]
   infoCredentials: InfoCredential[]
   shiftReport?: unknown
@@ -797,6 +798,7 @@ const defaultData = (): AppData => ({
   people: [],
   banned: [],
   authorizedPeople: [],
+  rosterHistory: [],
   guards: [],
   infoCredentials: [],
 })
@@ -1086,6 +1088,7 @@ function normalize(raw: Partial<AppData>): AppData {
           }
         })
       : [],
+    rosterHistory: Array.isArray(raw.rosterHistory) ? raw.rosterHistory : [],
     guards: Array.isArray(raw.guards)
       ? raw.guards.map((g) => ({
           id: typeof g?.id === 'string' ? g.id : makeId(),
