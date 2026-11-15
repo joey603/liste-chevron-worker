@@ -271,6 +271,15 @@ button {
   border-bottom: 0;
 }
 
+.photo-skipped {
+  margin-top: 12px;
+}
+
+.photo-preview-skipped {
+  opacity: 0.72;
+  max-height: min(20vh, 160px);
+}
+
 .sr-label {
   position: absolute;
   width: 1px;

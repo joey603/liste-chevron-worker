@@ -46,6 +46,10 @@ const emptyDraft = (): Draft => ({
   expiresOn: '',
 })
 
+function personNameKey(firstName: string, lastName: string): string {
+  return `${firstName.trim().toLowerCase()}|${lastName.trim().toLowerCase()}`
+}
+
 function formatUpdatedAt(iso?: string): string {
   if (!iso) return ''
   try {
@@ -78,6 +82,8 @@ export default function App() {
   const [photoPreview, setPhotoPreview] = useState<ParsedRosterPerson[] | null>(
     null,
   )
+  const [photoNotes, setPhotoNotes] = useState('')
+  const [photoExpiresOn, setPhotoExpiresOn] = useState('')
 
   useEffect(() => {
     const onHash = () => setSecret(readSecretFromLocation())
@@ -204,6 +210,8 @@ export default function App() {
     setPhotoBusy(true)
     setPhotoProgress(0)
     setPhotoPreview(null)
+    setPhotoNotes('')
+    setPhotoExpiresOn('')
     setError(null)
     try {
       const parsed = await parseRosterImage(file, (ratio) =>
@@ -223,19 +231,40 @@ export default function App() {
     }
   }
 
+  const photoSplit = useMemo(() => {
+    if (!photoPreview) {
+      return { toAdd: [] as ParsedRosterPerson[], already: [] as ParsedRosterPerson[] }
+    }
+    const existing = new Set(
+      people.map((p) => personNameKey(p.firstName, p.lastName)),
+    )
+    const toAdd: ParsedRosterPerson[] = []
+    const already: ParsedRosterPerson[] = []
+    for (const person of photoPreview) {
+      const key = personNameKey(person.firstName, person.lastName)
+      if (existing.has(key)) already.push(person)
+      else toAdd.push(person)
+    }
+    return { toAdd, already }
+  }, [photoPreview, people])
+
   async function confirmPhotoImport() {
-    if (!secret || !photoPreview || photoPreview.length === 0) return
+    if (!secret || photoSplit.toAdd.length === 0) return
     setBusy(true)
     let added = 0
     let lastPeople = people
     let lastUpdated = updatedAt
-    for (const person of photoPreview) {
+    const comment = photoNotes.trim()
+    const expiresOn = photoExpiresOn.trim()
+    for (const person of photoSplit.toAdd) {
+      const companyNote = person.company ? `Company: ${person.company}` : ''
+      const notes = [comment, companyNote].filter(Boolean).join(' · ')
       const result = await upsertPerson(secret, {
         firstName: person.firstName,
         lastName: person.lastName,
         kind: person.kind,
-        notes: person.company ? `Company: ${person.company}` : '',
-        expiresOn: '',
+        notes,
+        expiresOn,
       })
       if (!result.ok) {
         setBusy(false)
@@ -249,8 +278,15 @@ export default function App() {
     setPeople(lastPeople)
     setUpdatedAt(lastUpdated)
     setPhotoPreview(null)
+    setPhotoNotes('')
+    setPhotoExpiresOn('')
     setBusy(false)
-    setToast(`נוספו ${added} מהתמונה`)
+    const skipped = photoSplit.already.length
+    setToast(
+      skipped > 0
+        ? `נוספו ${added} · דולגו ${skipped} שכבר ברשימה`
+        : `נוספו ${added} מהתמונה`,
+    )
   }
 
   if (!secret) {
@@ -427,41 +463,98 @@ export default function App() {
           onClick={() => !busy && setPhotoPreview(null)}
         >
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>הוספה מתמונה — {photoPreview.length} שמות</h2>
+            <h2>
+              הוספה מתמונה — {photoSplit.toAdd.length} חדשים
+              {photoSplit.already.length > 0
+                ? ` · ${photoSplit.already.length} כבר ברשימה`
+                : ''}
+            </h2>
             <p className="field-hint">
-              Company = CHEVRON → קבוע · אחרת → ויזיטור
+              Company = CHEVRON → קבוע · אחרת → ויזיטור. שמות שכבר רשומים
+              לא יתווספו שוב.
             </p>
-            <ul className="photo-preview-list">
-              {photoPreview.map((p) => (
-                <li key={`${p.lastName}|${p.firstName}`}>
-                  <strong dir="auto">
-                    {p.firstName} {p.lastName}
-                  </strong>
-                  <span className={`kind-badge ${p.kind}`}>
-                    {kindLabel(p.kind)}
-                  </span>
-                  <span className="notes" dir="ltr">
-                    {p.company}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <div className="field">
+              <label htmlFor="photoNotes">הערה / תגובה (לכולם)</label>
+              <textarea
+                id="photoNotes"
+                rows={2}
+                value={photoNotes}
+                onChange={(e) => setPhotoNotes(e.target.value)}
+                placeholder="אופציונלי…"
+                dir="auto"
+                disabled={busy}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="photoExpiresOn">תאריך סיום / יציאה</label>
+              <input
+                id="photoExpiresOn"
+                type="date"
+                value={photoExpiresOn}
+                onChange={(e) => setPhotoExpiresOn(e.target.value)}
+                dir="ltr"
+                disabled={busy}
+              />
+              <p className="field-hint">
+                חל על כל השמות החדשים. ריק = ללא תפוגה.
+              </p>
+            </div>
+            {photoSplit.toAdd.length > 0 ? (
+              <ul className="photo-preview-list">
+                {photoSplit.toAdd.map((p) => (
+                  <li key={`new:${p.lastName}|${p.firstName}`}>
+                    <strong dir="auto">
+                      {p.firstName} {p.lastName}
+                    </strong>
+                    <span className={`kind-badge ${p.kind}`}>
+                      {kindLabel(p.kind)}
+                    </span>
+                    <span className="notes" dir="ltr">
+                      {p.company}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="field-hint">כל השמות מהתמונה כבר ברשימה.</p>
+            )}
+            {photoSplit.already.length > 0 ? (
+              <div className="photo-skipped">
+                <p className="field-hint">דולגו (כבר רשומים):</p>
+                <ul className="photo-preview-list photo-preview-skipped">
+                  {photoSplit.already.map((p) => (
+                    <li key={`old:${p.lastName}|${p.firstName}`}>
+                      <strong dir="auto">
+                        {p.firstName} {p.lastName}
+                      </strong>
+                      <span className="notes">כבר ברשימה</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             <div className="modal-actions">
               <button
                 type="button"
                 className="btn btn-ghost"
                 disabled={busy}
-                onClick={() => setPhotoPreview(null)}
+                onClick={() => {
+                  setPhotoPreview(null)
+                  setPhotoNotes('')
+                  setPhotoExpiresOn('')
+                }}
               >
                 ביטול
               </button>
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={busy}
+                disabled={busy || photoSplit.toAdd.length === 0}
                 onClick={() => void confirmPhotoImport()}
               >
-                {busy ? 'מוסיף…' : `הוסף את כולם (${photoPreview.length})`}
+                {busy
+                  ? 'מוסיף…'
+                  : `הוסף חדשים (${photoSplit.toAdd.length})`}
               </button>
             </div>
           </div>
