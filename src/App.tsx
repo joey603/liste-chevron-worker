@@ -1668,6 +1668,13 @@ export default function App() {
             newFromExcel: true,
           })
           addedVisitors += 1
+        } else {
+          // Marquer comme géré par la Sheet pour pouvoir le retirer si supprimé là-bas
+          nextCardless = nextCardless.map((c) =>
+            authNameKey(c.firstName, c.lastName) === key
+              ? { ...c, newFromExcel: true }
+              : c,
+          )
         }
       } else {
         // Doit être dans עובדים, pas ויזיטורים
@@ -1686,11 +1693,18 @@ export default function App() {
             newFromExcel: true,
           })
           addedWorkers += 1
+        } else {
+          nextWorkers = nextWorkers.map((w) =>
+            authNameKey(w.firstName, w.lastName) === key
+              ? { ...w, newFromExcel: true }
+              : w,
+          )
         }
       }
     }
 
-    // Uniquement les noms importés via sync, pas la liste locale Chevron
+    // Retirer seulement les noms déjà vus sur la Sheet/Excel (newFromExcel),
+    // pas les personnes locales ajoutées uniquement dans Liste Chevron.
     const removedWorkerIds = nextWorkers
       .filter(
         (w) =>
