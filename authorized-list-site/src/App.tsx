@@ -1,4 +1,11 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import {
   apiErrorMessage,
   deletePerson,
@@ -6,6 +13,10 @@ import {
   listPeople,
   upsertPerson,
 } from './api'
+import {
+  parseRosterImage,
+  type ParsedRosterPerson,
+} from './parseRosterPhoto'
 import { readSecretFromLocation } from './secret'
 import {
   displayName,
@@ -61,6 +72,12 @@ export default function App() {
   const [kindFilter, setKindFilter] = useState<KindFilter>('all')
   const [showForm, setShowForm] = useState(false)
   const [draft, setDraft] = useState<Draft>(emptyDraft)
+  const photoInputRef = useRef<HTMLInputElement>(null)
+  const [photoBusy, setPhotoBusy] = useState(false)
+  const [photoProgress, setPhotoProgress] = useState(0)
+  const [photoPreview, setPhotoPreview] = useState<ParsedRosterPerson[] | null>(
+    null,
+  )
 
   useEffect(() => {
     const onHash = () => setSecret(readSecretFromLocation())
@@ -182,6 +199,60 @@ export default function App() {
     setToast('הרשומה נמחקה')
   }
 
+  async function onPhotoSelected(file: File | undefined) {
+    if (!file || !secret) return
+    setPhotoBusy(true)
+    setPhotoProgress(0)
+    setPhotoPreview(null)
+    setError(null)
+    try {
+      const parsed = await parseRosterImage(file, (ratio) =>
+        setPhotoProgress(Math.round(ratio * 100)),
+      )
+      if (parsed.length === 0) {
+        setToast('לא זוהו שמות בתמונה — נסו צילום ברור יותר של הטבלה')
+        return
+      }
+      setPhotoPreview(parsed)
+    } catch {
+      setToast('קריאת התמונה נכשלה')
+    } finally {
+      setPhotoBusy(false)
+      setPhotoProgress(0)
+      if (photoInputRef.current) photoInputRef.current.value = ''
+    }
+  }
+
+  async function confirmPhotoImport() {
+    if (!secret || !photoPreview || photoPreview.length === 0) return
+    setBusy(true)
+    let added = 0
+    let lastPeople = people
+    let lastUpdated = updatedAt
+    for (const person of photoPreview) {
+      const result = await upsertPerson(secret, {
+        firstName: person.firstName,
+        lastName: person.lastName,
+        kind: person.kind,
+        notes: person.company ? `Company: ${person.company}` : '',
+        expiresOn: '',
+      })
+      if (!result.ok) {
+        setBusy(false)
+        setToast(apiErrorMessage(result.error))
+        return
+      }
+      added += 1
+      lastPeople = result.people ?? lastPeople
+      lastUpdated = result.updatedAt ?? lastUpdated
+    }
+    setPeople(lastPeople)
+    setUpdatedAt(lastUpdated)
+    setPhotoPreview(null)
+    setBusy(false)
+    setToast(`נוספו ${added} מהתמונה`)
+  }
+
   if (!secret) {
     return (
       <div className="app-shell gate">
@@ -216,19 +287,37 @@ export default function App() {
           <button
             type="button"
             className="btn btn-ghost"
-            disabled={loading || busy}
+            disabled={loading || busy || photoBusy}
             onClick={() => void refresh()}
           >
             {loading ? 'טוען…' : 'רענון'}
           </button>
           <button
             type="button"
+            className="btn btn-ghost"
+            disabled={busy || photoBusy}
+            onClick={() => photoInputRef.current?.click()}
+          >
+            {photoBusy
+              ? `קורא תמונה… ${photoProgress}%`
+              : '📷 הוספה מתמונה'}
+          </button>
+          <button
+            type="button"
             className="btn btn-primary"
-            disabled={busy}
+            disabled={busy || photoBusy}
             onClick={openAdd}
           >
             + הוספה
           </button>
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="sr-only"
+            onChange={(e) => void onPhotoSelected(e.target.files?.[0])}
+          />
         </div>
       </header>
 
@@ -331,6 +420,53 @@ export default function App() {
       </main>
 
       {toast ? <div className="toast">{toast}</div> : null}
+
+      {photoPreview ? (
+        <div
+          className="modal-backdrop"
+          onClick={() => !busy && setPhotoPreview(null)}
+        >
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>הוספה מתמונה — {photoPreview.length} שמות</h2>
+            <p className="field-hint">
+              Company = CHEVRON → קבוע · אחרת → ויזיטור
+            </p>
+            <ul className="photo-preview-list">
+              {photoPreview.map((p) => (
+                <li key={`${p.lastName}|${p.firstName}`}>
+                  <strong dir="auto">
+                    {p.firstName} {p.lastName}
+                  </strong>
+                  <span className={`kind-badge ${p.kind}`}>
+                    {kindLabel(p.kind)}
+                  </span>
+                  <span className="notes" dir="ltr">
+                    {p.company}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={busy}
+                onClick={() => setPhotoPreview(null)}
+              >
+                ביטול
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={busy}
+                onClick={() => void confirmPhotoImport()}
+              >
+                {busy ? 'מוסיף…' : `הוסף את כולם (${photoPreview.length})`}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {showForm ? (
         <div

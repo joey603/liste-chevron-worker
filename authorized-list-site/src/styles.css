@@ -236,6 +236,41 @@ button {
   background: var(--surface);
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.photo-preview-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  max-height: min(40vh, 320px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.photo-preview-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.photo-preview-list li:last-child {
+  border-bottom: 0;
+}
+
 .sr-label {
   position: absolute;
   width: 1px;

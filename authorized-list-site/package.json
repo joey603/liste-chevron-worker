@@ -12,7 +12,8 @@
   "dependencies": {
     "exceljs": "^4.4.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "tesseract.js": "^5.1.1"
   },
   "devDependencies": {
     "@types/react": "^19.0.10",
