@@ -38,6 +38,11 @@ type Draft = {
   expiresOn: string
 }
 
+type PhotoDraft = ParsedRosterPerson & {
+  notes: string
+  expiresOn: string
+}
+
 const emptyDraft = (): Draft => ({
   firstName: '',
   lastName: '',
@@ -79,11 +84,7 @@ export default function App() {
   const photoInputRef = useRef<HTMLInputElement>(null)
   const [photoBusy, setPhotoBusy] = useState(false)
   const [photoProgress, setPhotoProgress] = useState(0)
-  const [photoPreview, setPhotoPreview] = useState<ParsedRosterPerson[] | null>(
-    null,
-  )
-  const [photoNotes, setPhotoNotes] = useState('')
-  const [photoExpiresOn, setPhotoExpiresOn] = useState('')
+  const [photoPreview, setPhotoPreview] = useState<PhotoDraft[] | null>(null)
 
   useEffect(() => {
     const onHash = () => setSecret(readSecretFromLocation())
@@ -210,8 +211,6 @@ export default function App() {
     setPhotoBusy(true)
     setPhotoProgress(0)
     setPhotoPreview(null)
-    setPhotoNotes('')
-    setPhotoExpiresOn('')
     setError(null)
     try {
       const parsed = await parseRosterImage(file, (ratio) =>
@@ -221,7 +220,13 @@ export default function App() {
         setToast('לא זוהו שמות בתמונה — נסו צילום ברור יותר של הטבלה')
         return
       }
-      setPhotoPreview(parsed)
+      setPhotoPreview(
+        parsed.map((p) => ({
+          ...p,
+          notes: '',
+          expiresOn: '',
+        })),
+      )
     } catch {
       setToast('קריאת התמונה נכשלה')
     } finally {
@@ -233,13 +238,13 @@ export default function App() {
 
   const photoSplit = useMemo(() => {
     if (!photoPreview) {
-      return { toAdd: [] as ParsedRosterPerson[], already: [] as ParsedRosterPerson[] }
+      return { toAdd: [] as PhotoDraft[], already: [] as PhotoDraft[] }
     }
     const existing = new Set(
       people.map((p) => personNameKey(p.firstName, p.lastName)),
     )
-    const toAdd: ParsedRosterPerson[] = []
-    const already: ParsedRosterPerson[] = []
+    const toAdd: PhotoDraft[] = []
+    const already: PhotoDraft[] = []
     for (const person of photoPreview) {
       const key = personNameKey(person.firstName, person.lastName)
       if (existing.has(key)) already.push(person)
@@ -248,23 +253,36 @@ export default function App() {
     return { toAdd, already }
   }, [photoPreview, people])
 
+  function updatePhotoDraft(
+    person: PhotoDraft,
+    patch: Partial<Pick<PhotoDraft, 'notes' | 'expiresOn'>>,
+  ) {
+    setPhotoPreview((prev) => {
+      if (!prev) return prev
+      const key = personNameKey(person.firstName, person.lastName)
+      return prev.map((row) =>
+        personNameKey(row.firstName, row.lastName) === key
+          ? { ...row, ...patch }
+          : row,
+      )
+    })
+  }
+
   async function confirmPhotoImport() {
     if (!secret || photoSplit.toAdd.length === 0) return
     setBusy(true)
     let added = 0
     let lastPeople = people
     let lastUpdated = updatedAt
-    const comment = photoNotes.trim()
-    const expiresOn = photoExpiresOn.trim()
     for (const person of photoSplit.toAdd) {
       const companyNote = person.company ? `Company: ${person.company}` : ''
-      const notes = [comment, companyNote].filter(Boolean).join(' · ')
+      const notes = [person.notes.trim(), companyNote].filter(Boolean).join(' · ')
       const result = await upsertPerson(secret, {
         firstName: person.firstName,
         lastName: person.lastName,
         kind: person.kind,
         notes,
-        expiresOn,
+        expiresOn: person.expiresOn.trim(),
       })
       if (!result.ok) {
         setBusy(false)
@@ -278,8 +296,6 @@ export default function App() {
     setPeople(lastPeople)
     setUpdatedAt(lastUpdated)
     setPhotoPreview(null)
-    setPhotoNotes('')
-    setPhotoExpiresOn('')
     setBusy(false)
     const skipped = photoSplit.already.length
     setToast(
@@ -470,50 +486,61 @@ export default function App() {
                 : ''}
             </h2>
             <p className="field-hint">
-              Company = CHEVRON → קבוע · אחרת → ויזיטור. שמות שכבר רשומים
-              לא יתווספו שוב.
+              Company = CHEVRON → קבוע · אחרת → ויזיטור. לכל אדם אפשר
+              הערה ותאריך סיום שונים. שמות שכבר רשומים לא יתווספו שוב.
             </p>
-            <div className="field">
-              <label htmlFor="photoNotes">הערה / תגובה (לכולם)</label>
-              <textarea
-                id="photoNotes"
-                rows={2}
-                value={photoNotes}
-                onChange={(e) => setPhotoNotes(e.target.value)}
-                placeholder="אופציונלי…"
-                dir="auto"
-                disabled={busy}
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="photoExpiresOn">תאריך סיום / יציאה</label>
-              <input
-                id="photoExpiresOn"
-                type="date"
-                value={photoExpiresOn}
-                onChange={(e) => setPhotoExpiresOn(e.target.value)}
-                dir="ltr"
-                disabled={busy}
-              />
-              <p className="field-hint">
-                חל על כל השמות החדשים. ריק = ללא תפוגה.
-              </p>
-            </div>
             {photoSplit.toAdd.length > 0 ? (
               <ul className="photo-preview-list">
-                {photoSplit.toAdd.map((p) => (
-                  <li key={`new:${p.lastName}|${p.firstName}`}>
-                    <strong dir="auto">
-                      {p.firstName} {p.lastName}
-                    </strong>
-                    <span className={`kind-badge ${p.kind}`}>
-                      {kindLabel(p.kind)}
-                    </span>
-                    <span className="notes" dir="ltr">
-                      {p.company}
-                    </span>
-                  </li>
-                ))}
+                {photoSplit.toAdd.map((p, index) => {
+                  const key = personNameKey(p.firstName, p.lastName)
+                  return (
+                    <li key={`new:${key}`} className="photo-draft-row">
+                      <div className="photo-draft-head">
+                        <strong dir="auto">
+                          {p.firstName} {p.lastName}
+                        </strong>
+                        <span className={`kind-badge ${p.kind}`}>
+                          {kindLabel(p.kind)}
+                        </span>
+                        <span className="notes" dir="ltr">
+                          {p.company}
+                        </span>
+                      </div>
+                      <div className="photo-draft-fields">
+                        <label className="field">
+                          <span>הערה</span>
+                          <input
+                            type="text"
+                            value={p.notes}
+                            onChange={(e) =>
+                              updatePhotoDraft(p, { notes: e.target.value })
+                            }
+                            placeholder="אופציונלי…"
+                            dir="auto"
+                            disabled={busy}
+                            aria-label={`הערה ל-${p.firstName} ${p.lastName}`}
+                          />
+                        </label>
+                        <label className="field">
+                          <span>תאריך סיום / יציאה</span>
+                          <input
+                            type="date"
+                            value={p.expiresOn}
+                            onChange={(e) =>
+                              updatePhotoDraft(p, {
+                                expiresOn: e.target.value,
+                              })
+                            }
+                            dir="ltr"
+                            disabled={busy}
+                            aria-label={`תאריך סיום ל-${p.firstName} ${p.lastName}`}
+                            id={`photo-expires-${index}`}
+                          />
+                        </label>
+                      </div>
+                    </li>
+                  )
+                })}
               </ul>
             ) : (
               <p className="field-hint">כל השמות מהתמונה כבר ברשימה.</p>
@@ -538,11 +565,7 @@ export default function App() {
                 type="button"
                 className="btn btn-ghost"
                 disabled={busy}
-                onClick={() => {
-                  setPhotoPreview(null)
-                  setPhotoNotes('')
-                  setPhotoExpiresOn('')
-                }}
+                onClick={() => setPhotoPreview(null)}
               >
                 ביטול
               </button>
