@@ -1,8 +1,5 @@
 import type { AuthorizedPerson } from './types'
 
-export const DEFAULT_AUTHORIZED_LIST_API_URL =
-  'https://script.google.com/macros/s/AKfycbz08vN8Ur1QeKFEjNyCtYrSR1lU7fraqT3DoUjws1LakoRCSKc5SBrGY0jMXViseG0/exec'
-
 type ApiPerson = {
   id?: string
   firstName?: string

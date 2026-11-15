@@ -11,7 +11,6 @@ import InfoCredentialsPanel from './InfoCredentialsPanel'
 import AuthorizedPeopleSyncBar from './AuthorizedPeopleSyncBar'
 import {
   authorizedListFingerprint,
-  DEFAULT_AUTHORIZED_LIST_API_URL,
   fetchAuthorizedListFromApi,
 } from './authorizedListApi'
 import type { ShiftKind, ShiftReport, ShiftReportTexts } from './shiftReport'
@@ -3715,7 +3714,7 @@ export default function App() {
                     autoComplete="off"
                     spellCheck={false}
                     value={data.settings.authorizedListApiUrl ?? ''}
-                    placeholder={DEFAULT_AUTHORIZED_LIST_API_URL}
+                    placeholder="https://script.google.com/macros/s/…/exec"
                     onChange={(e) =>
                       void persist({
                         ...data,
