@@ -123,24 +123,12 @@ export default function App() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    const collator = new Intl.Collator(['he', 'en'], {
-      sensitivity: 'base',
-      numeric: true,
-    })
-    return [...people]
+    return people
       .filter((p) => (kindFilter === 'all' ? true : p.kind === kindFilter))
       .filter((p) => {
         if (!q) return true
         const hay = `${p.firstName} ${p.lastName} ${p.notes}`.toLowerCase()
         return hay.includes(q)
-      })
-      .sort((a, b) => {
-        const byLast = collator.compare(
-          a.lastName.trim(),
-          b.lastName.trim(),
-        )
-        if (byLast !== 0) return byLast
-        return collator.compare(a.firstName.trim(), b.firstName.trim())
       })
   }, [people, search, kindFilter])
 
@@ -420,9 +408,6 @@ export default function App() {
               {label} ({count})
             </button>
           ))}
-          <span className="chip sort-hint" title="מיון לפי שם משפחה ואז שם פרטי">
-            מיון א׳–ב׳
-          </span>
         </div>
       </div>
 

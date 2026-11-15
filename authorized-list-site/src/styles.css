@@ -415,14 +415,6 @@ button {
   border-color: rgba(0, 87, 168, 0.35);
 }
 
-.chip.sort-hint {
-  cursor: default;
-  background: #f3e5f5;
-  color: #6a1b9a;
-  border-color: rgba(106, 27, 154, 0.3);
-  pointer-events: none;
-}
-
 .list-panel {
   background: var(--surface);
   border: 1px solid var(--line);
