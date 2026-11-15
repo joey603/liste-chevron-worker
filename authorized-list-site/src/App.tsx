@@ -14,6 +14,7 @@ import {
   type AuthorizedKind,
   type AuthorizedPerson,
 } from './types'
+import chevronLogo from './assets/chevron-logo.png'
 
 type KindFilter = 'all' | AuthorizedKind
 
@@ -185,6 +186,7 @@ export default function App() {
     return (
       <div className="app-shell gate">
         <div className="gate-card">
+          <img src={chevronLogo} alt="Chevron" className="gate-logo" />
           <h1>רשימת מורשים</h1>
           <p>
             הגישה לאתר זה היא באמצעות קישור סודי בלבד.
@@ -198,16 +200,19 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <header className="top">
-        <div className="brand">
-          <h1>רשימת מורשים</h1>
-          <p>
-            {counts.all} אנשים
-            {updatedAt ? ` · עודכן ${formatUpdatedAt(updatedAt)}` : ''}
-            {isDemoMode() ? ' · מצב הדגמה מקומי' : ''}
-          </p>
+      <header className="top" dir="ltr">
+        <div className="brand-row">
+          <img src={chevronLogo} alt="Chevron" className="brand-logo" />
+          <div className="brand" dir="rtl">
+            <h1>רשימת מורשים</h1>
+            <p>
+              {counts.all} אנשים
+              {updatedAt ? ` · עודכן ${formatUpdatedAt(updatedAt)}` : ''}
+              {isDemoMode() ? ' · מצב הדגמה מקומי' : ''}
+            </p>
+          </div>
         </div>
-        <div className="top-actions">
+        <div className="top-actions" dir="rtl">
           <button
             type="button"
             className="btn btn-ghost"
