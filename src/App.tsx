@@ -1609,9 +1609,10 @@ export default function App() {
   }
 
   /**
-   * Excel סוג=קבוע → עובדים · סוג=ויזיטור → שמות לשיוך.
-   * Ajoute les nouveaux, déplace si le סוג a changé, et retire
-   * du sidebar (+ ids) quiconque n’est plus dans le Excel.
+   * Excel/Sheet סוג=קבוע → עובדים · סוג=ויזיטור → שמות לשיוך.
+   * Ajoute les nouveaux et déplace si le סוג a changé.
+   * Ne retire que les entrées venues de la sync (newFromExcel) qui ont
+   * disparu / expiré — jamais les personnes ajoutées localement en plus.
    */
   function mergeAuthorizedIntoSidebar(
     workers: Worker[],
@@ -1689,11 +1690,20 @@ export default function App() {
       }
     }
 
+    // Uniquement les noms importés via sync, pas la liste locale Chevron
     const removedWorkerIds = nextWorkers
-      .filter((w) => !authorizedKeys.has(authNameKey(w.firstName, w.lastName)))
+      .filter(
+        (w) =>
+          w.newFromExcel === true &&
+          !authorizedKeys.has(authNameKey(w.firstName, w.lastName)),
+      )
       .map((w) => w.id)
     const removedCardlessIds = nextCardless
-      .filter((c) => !authorizedKeys.has(authNameKey(c.firstName, c.lastName)))
+      .filter(
+        (c) =>
+          c.newFromExcel === true &&
+          !authorizedKeys.has(authNameKey(c.firstName, c.lastName)),
+      )
       .map((c) => c.id)
     const removedWorkers = removedWorkerIds.length
     const removedVisitors = removedCardlessIds.length
@@ -1720,7 +1730,7 @@ export default function App() {
     }
   }
 
-  /** Retire de la liste נוכחים les personnes plus présentes dans le Excel. */
+  /** Retire de נוכחים seulement les ids retirés par la sync (pas toute la liste locale). */
   function prunePresentAfterAuthorizedSync(
     people: PersonEntry[],
     merged: {
@@ -1731,14 +1741,11 @@ export default function App() {
   ): PersonEntry[] {
     const dropWorkers = new Set(merged.removedWorkerIds)
     const dropCardless = new Set(merged.removedCardlessIds)
+    if (dropWorkers.size === 0 && dropCardless.size === 0) return people
     return people.filter((p) => {
       if (p.workerId && dropWorkers.has(p.workerId)) return false
       if (p.cardlessPersonId && dropCardless.has(p.cardlessPersonId)) {
         return false
-      }
-      if (p.kind === 'named' || p.cardlessPersonId) {
-        const key = authNameKey(p.firstName, p.lastName)
-        if (key !== '|' && !merged.authorizedKeys.has(key)) return false
       }
       return true
     })
