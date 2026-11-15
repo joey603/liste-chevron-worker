@@ -8,9 +8,13 @@ document.documentElement.classList.toggle('is-windows', isWindows)
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    void navigator.serviceWorker.register('./sw.js').catch(() => {
-      /* install as app still works without SW on some Edge builds */
-    })
+    void navigator.serviceWorker
+      .register(`./sw.js?v=${encodeURIComponent(__APP_VERSION__)}`, {
+        updateViaCache: 'none',
+      })
+      .catch(() => {
+        /* install as app still works without SW on some Edge builds */
+      })
   })
 }
 
