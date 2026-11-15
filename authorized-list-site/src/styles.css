@@ -495,8 +495,16 @@ button {
   font-weight: 700;
   padding: 2px 8px;
   border-radius: 999px;
-  background: rgba(46, 125, 50, 0.12);
-  color: #2e7d32;
+}
+
+.expires-badge.unlimited {
+  background: rgba(0, 87, 168, 0.1);
+  color: var(--blue);
+}
+
+.expires-badge.timed {
+  background: rgba(230, 126, 34, 0.14);
+  color: #b35c00;
 }
 
 .field-hint {

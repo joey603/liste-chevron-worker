@@ -437,10 +437,14 @@ export default function App() {
                       {kindLabel(person.kind)}
                     </span>
                     {person.expiresOn ? (
-                      <span className="expires-badge">
+                      <span className="expires-badge timed">
                         עד {formatExpiresOnHe(person.expiresOn)}
                       </span>
-                    ) : null}
+                    ) : (
+                      <span className="expires-badge unlimited">
+                        ללא הגבלת זמן
+                      </span>
+                    )}
                     {person.notes ? (
                       <span className="notes" dir="auto">
                         {person.notes}

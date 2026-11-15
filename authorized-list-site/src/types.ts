@@ -52,6 +52,12 @@ export function isExpired(expiresOn: string, now = new Date()): boolean {
 export function formatExpiresOnHe(expiresOn: string): string {
   const day = normalizeExpiresOn(expiresOn)
   if (!day) return ''
-  const [y, m, d] = day.split('-')
-  return `${d}/${m}/${y}`
+  const [y, m, d] = day.split('-').map(Number)
+  const date = new Date(y, m - 1, d, 12, 0, 0)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleDateString('he-IL', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
 }
