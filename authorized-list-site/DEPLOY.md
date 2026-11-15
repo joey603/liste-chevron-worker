@@ -51,4 +51,8 @@ https://joey603.github.io/liste-chevron-worker/authorized/#/s/ACCESS_SECRET
 
 ## Liste Chevron (app présence)
 
-Dans les réglages, lier le **même** fichier Excel (Drive Desktop / chemin Windows du vrai fichier), pas le fichier d’exemple.
+Dans הגדרות → סנכרון רשימת מורשים :
+1. Coller l’URL `…/exec` (Apps Script — URL)
+2. Coller le même `ACCESS_SECRET` que dans le lien du site
+
+L’app lit alors la **même Google Sheet** que le site (toutes les ~4 s).

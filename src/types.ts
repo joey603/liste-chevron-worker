@@ -100,6 +100,10 @@ export type AppSettings = {
   guardRosterExcelPath?: string
   /** נתיב קובץ Excel רשימת מורשים לכניסה (Drive / Share) */
   authorizedListExcelPath?: string
+  /** URL Apps Script …/exec — אותה API כמו אתר רשימת מורשים */
+  authorizedListApiUrl?: string
+  /** ACCESS_SECRET של סקריפט רשימת מורשים */
+  authorizedListApiSecret?: string
   /** שעת סנכרון יומית של רשימת המורשים מה־Excel (HH:MM) */
   authorizedListSyncTime?: string
   /** תאריך/שעה של הסנכרון האחרון מה־Excel (ISO) */
@@ -956,6 +960,14 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
     authorizedListExcelPath:
       typeof rawSettings?.authorizedListExcelPath === 'string'
         ? rawSettings.authorizedListExcelPath.trim()
+        : '',
+    authorizedListApiUrl:
+      typeof rawSettings?.authorizedListApiUrl === 'string'
+        ? rawSettings.authorizedListApiUrl.trim()
+        : '',
+    authorizedListApiSecret:
+      typeof rawSettings?.authorizedListApiSecret === 'string'
+        ? rawSettings.authorizedListApiSecret.trim()
         : '',
     authorizedListSyncTime:
       typeof rawSettings?.authorizedListSyncTime === 'string' &&

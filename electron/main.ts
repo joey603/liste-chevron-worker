@@ -655,6 +655,8 @@ type AppSettings = {
   cameraReportSaveFolder?: string
   guardRosterExcelPath?: string
   authorizedListExcelPath?: string
+  authorizedListApiUrl?: string
+  authorizedListApiSecret?: string
   authorizedListSyncTime?: string
   authorizedListLastSyncedAt?: string
   directorEmail?: string
@@ -915,6 +917,14 @@ function normalize(raw: Partial<AppData>): AppData {
     authorizedListExcelPath:
       typeof raw.settings?.authorizedListExcelPath === 'string'
         ? raw.settings.authorizedListExcelPath.trim()
+        : '',
+    authorizedListApiUrl:
+      typeof raw.settings?.authorizedListApiUrl === 'string'
+        ? raw.settings.authorizedListApiUrl.trim()
+        : '',
+    authorizedListApiSecret:
+      typeof raw.settings?.authorizedListApiSecret === 'string'
+        ? raw.settings.authorizedListApiSecret.trim()
         : '',
     authorizedListSyncTime:
       typeof raw.settings?.authorizedListSyncTime === 'string' &&

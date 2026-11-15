@@ -9,6 +9,11 @@ import CameraReportPanel from './CameraReportPanel'
 import GuardRosterPanel from './GuardRosterPanel'
 import InfoCredentialsPanel from './InfoCredentialsPanel'
 import AuthorizedPeopleSyncBar from './AuthorizedPeopleSyncBar'
+import {
+  authorizedListFingerprint,
+  DEFAULT_AUTHORIZED_LIST_API_URL,
+  fetchAuthorizedListFromApi,
+} from './authorizedListApi'
 import type { ShiftKind, ShiftReport, ShiftReportTexts } from './shiftReport'
 import type { CameraReport } from './cameraReport'
 import {
@@ -631,6 +636,7 @@ export default function App() {
     proceed: () => Promise<void>
   } | null>(null)
   const authorizedExcelMtimeRef = useRef<number | null>(null)
+  const authorizedApiFingerprintRef = useRef<string | null>(null)
   const [showPresenceSettings, setShowPresenceSettings] = useState(false)
   const [dataFolderName, setDataFolderName] = useState<string | null>(null)
   const [pickingDataFolder, setPickingDataFolder] = useState(false)
@@ -802,13 +808,19 @@ export default function App() {
     return () => window.clearTimeout(t)
   }, [toast])
 
-  // Sync Excel : mtime + purge des autorisations arrivées à échéance
+  // Sync רשימת מורשים : API Sheet (prioritaire) ou Excel local
   useEffect(() => {
+    const apiUrl = data?.settings.authorizedListApiUrl?.trim() ?? ''
+    const apiSecret = data?.settings.authorizedListApiSecret?.trim() ?? ''
+    const useApi = Boolean(apiUrl && apiSecret)
     const filePath = data?.settings.authorizedListExcelPath?.trim() ?? ''
-    if (!filePath || !window.listeApi?.readAuthorizedListExcel) return
+    if (!useApi && (!filePath || !window.listeApi?.readAuthorizedListExcel)) {
+      return
+    }
 
     let cancelled = false
     let missingWarned = false
+    let apiErrorWarned = false
 
     const applyPeople = (
       people: NonNullable<typeof data>['authorizedPeople'],
@@ -855,7 +867,50 @@ export default function App() {
       return counts
     }
 
-    const runSync = async () => {
+    const runApiSync = async () => {
+      const result = await fetchAuthorizedListFromApi(apiUrl, apiSecret)
+      if (cancelled) return
+      if (!result.ok) {
+        if (!apiErrorWarned) {
+          apiErrorWarned = true
+          setToast({
+            message:
+              result.error === 'unauthorized'
+                ? 'סוד רשימת מורשים שגוי — בדקו בהגדרות'
+                : 'סנכרון רשימת מורשים מהענן נכשל',
+          })
+        }
+        return
+      }
+      apiErrorWarned = false
+      const fp = authorizedListFingerprint(result.people, result.updatedAt)
+      const firstLoad = authorizedApiFingerprintRef.current == null
+      const changed = authorizedApiFingerprintRef.current !== fp
+      if (!firstLoad && !changed && !(result.expiredRemoved > 0)) return
+
+      authorizedApiFingerprintRef.current = fp
+      const counts = applyPeople(result.people)
+      if (
+        firstLoad &&
+        result.expiredRemoved === 0 &&
+        counts.addedWorkers +
+          counts.addedVisitors +
+          counts.removedWorkers +
+          counts.removedVisitors ===
+          0
+      ) {
+        return
+      }
+      const base =
+        result.expiredRemoved > 0
+          ? `פג תוקף — הוסרו ${result.expiredRemoved} מהרשימה`
+          : undefined
+      setToast({
+        message: formatAuthorizedSyncMessage(base, counts, result.people.length),
+      })
+    }
+
+    const runExcelSync = async () => {
       const api = window.listeApi
       if (!api?.readAuthorizedListExcel) return
 
@@ -920,13 +975,19 @@ export default function App() {
       })
     }
 
+    const runSync = () => (useApi ? runApiSync() : runExcelSync())
+
     void runSync()
     const pollId = window.setInterval(() => void runSync(), 4000)
     return () => {
       cancelled = true
       window.clearInterval(pollId)
     }
-  }, [data?.settings.authorizedListExcelPath])
+  }, [
+    data?.settings.authorizedListApiUrl,
+    data?.settings.authorizedListApiSecret,
+    data?.settings.authorizedListExcelPath,
+  ])
 
   useEffect(() => {
     const api = window.listeApi
@@ -3639,9 +3700,56 @@ export default function App() {
             <div className="presence-settings-block">
               <h3>סנכרון רשימת מורשים</h3>
               <p className="shift-settings-note">
-                קובץ משותף ב־Drive — קבוע / ויזיטור / תאריך סיום (אופציונלי).
-                האפליקציה מסנכרנת אוטומטית; שמות שנמחקו או שפג תוקפם מוסרים גם
-                מהסרגל ומרשימת הנוכחים.
+                מומלץ: אותו Apps Script כמו אתר רשימת מורשים (Google Sheet).
+                אם ה־URL והסוד מוגדרים — הסנכרון מהענן עדיף על קובץ Excel
+                מקומי. שמות שנמחקו או שפג תוקפם מוסרים גם מהסרגל ומרשימת
+                הנוכחים.
+              </p>
+              <div className="shift-settings-grid">
+                <label className="shift-field shift-settings-path">
+                  <span>Apps Script — URL (רשימת מורשים)</span>
+                  <input
+                    type="url"
+                    dir="ltr"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={data.settings.authorizedListApiUrl ?? ''}
+                    placeholder={DEFAULT_AUTHORIZED_LIST_API_URL}
+                    onChange={(e) =>
+                      void persist({
+                        ...data,
+                        settings: {
+                          ...data.settings,
+                          authorizedListApiUrl: e.target.value.trim(),
+                        },
+                      })
+                    }
+                  />
+                </label>
+                <label className="shift-field">
+                  <span>Apps Script — סוד (ACCESS_SECRET)</span>
+                  <input
+                    type="password"
+                    dir="ltr"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={data.settings.authorizedListApiSecret ?? ''}
+                    placeholder="אותו סוד כמו בקישור האתר"
+                    onChange={(e) =>
+                      void persist({
+                        ...data,
+                        settings: {
+                          ...data.settings,
+                          authorizedListApiSecret: e.target.value.trim(),
+                        },
+                      })
+                    }
+                  />
+                </label>
+              </div>
+              <p className="shift-settings-note">
+                גיבוי אופציונלי: קובץ Excel מקומי / Drive Desktop (רק אם אין
+                API).
               </p>
               <AuthorizedPeopleSyncBar
                 excelPath={data.settings.authorizedListExcelPath ?? ''}

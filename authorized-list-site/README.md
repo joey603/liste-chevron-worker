@@ -63,4 +63,8 @@ Donnez **uniquement** ce lien aux personnes autorisées. Quiconque possède le l
 
 ## Lien avec Liste Chevron
 
-Phase 1 : Liste Chevron continue d’utiliser son Excel local / Drive Desktop. Ce site lit/écrit la **Google Sheet**. Une synchronisation Sheet ↔ Excel pourra être ajoutée plus tard.
+Dans Liste Chevron → הגדרות → סנכרון רשימת מורשים, renseigner :
+- **Apps Script — URL** = la même URL `…/exec`
+- **ACCESS_SECRET** = le même secret que dans le lien du site
+
+L’app synchronise alors la Sheet (plus besoin de l’Excel local pour ça).
