@@ -1671,6 +1671,8 @@ export default function App() {
         (c) => authNameKey(c.firstName, c.lastName) === key,
       )
 
+      const alreadyInRoster = inWorkers || inCardless
+
       if (person.kind === 'visitor') {
         // Doit être dans ויזיטורים, pas עובדים
         if (inWorkers) {
@@ -1679,6 +1681,7 @@ export default function App() {
           )
         }
         if (!inCardless) {
+          // Violet seulement si le nom n'existait nulle part dans le roster
           nextCardless.push({
             id: createId(),
             firstName,
@@ -1687,11 +1690,13 @@ export default function App() {
             expiresAt: null,
             assignment: 'unique',
             role: 'employee',
-            newFromExcel: true,
+            newFromExcel: !alreadyInRoster,
             fromAuthorizedList: true,
           })
-          addedVisitors += 1
-          addedPeople.push({ firstName, lastName, kind: 'visitor' })
+          if (!alreadyInRoster) {
+            addedVisitors += 1
+            addedPeople.push({ firstName, lastName, kind: 'visitor' })
+          }
         } else {
           // Déjà présent : lié à la Sheet, sans (re)mettre le violet
           nextCardless = nextCardless.map((c) =>
@@ -1714,11 +1719,13 @@ export default function App() {
             lastName,
             temporary: false,
             expiresAt: null,
-            newFromExcel: true,
+            newFromExcel: !alreadyInRoster,
             fromAuthorizedList: true,
           })
-          addedWorkers += 1
-          addedPeople.push({ firstName, lastName, kind: 'permanent' })
+          if (!alreadyInRoster) {
+            addedWorkers += 1
+            addedPeople.push({ firstName, lastName, kind: 'permanent' })
+          }
         } else {
           nextWorkers = nextWorkers.map((w) =>
             authNameKey(w.firstName, w.lastName) === key
@@ -1728,6 +1735,55 @@ export default function App() {
         }
       }
     }
+
+    // Dédupliquer + préférer la fiche sans violet (déjà connue)
+    const dedupeRoster = <
+      T extends {
+        firstName: string
+        lastName: string
+        newFromExcel?: boolean
+      },
+    >(
+      list: T[],
+    ): T[] => {
+      const map = new Map<string, T>()
+      const passthrough: T[] = []
+      for (const item of list) {
+        const key = authNameKey(item.firstName, item.lastName)
+        if (key === '|') {
+          passthrough.push(item)
+          continue
+        }
+        const prev = map.get(key)
+        if (!prev) {
+          map.set(key, item)
+          continue
+        }
+        if (prev.newFromExcel && !item.newFromExcel) map.set(key, item)
+      }
+      return [...map.values(), ...passthrough]
+    }
+    nextWorkers = dedupeRoster(nextWorkers)
+    nextCardless = dedupeRoster(nextCardless)
+
+    // Violet uniquement pour les ajouts de CETTE sync — pas les noms déjà connus
+    const newlyAddedKeys = new Set(
+      addedPeople.map((p) => authNameKey(p.firstName, p.lastName)),
+    )
+    nextWorkers = nextWorkers.map((w) => {
+      const key = authNameKey(w.firstName, w.lastName)
+      if (w.newFromExcel && authorizedKeys.has(key) && !newlyAddedKeys.has(key)) {
+        return { ...w, newFromExcel: false }
+      }
+      return w
+    })
+    nextCardless = nextCardless.map((c) => {
+      const key = authNameKey(c.firstName, c.lastName)
+      if (c.newFromExcel && authorizedKeys.has(key) && !newlyAddedKeys.has(key)) {
+        return { ...c, newFromExcel: false }
+      }
+      return c
+    })
 
     // Retirer seulement les noms gérés par la Sheet, pas les locaux seuls.
     const workersToRemove = nextWorkers.filter(

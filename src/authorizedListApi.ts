@@ -37,16 +37,17 @@ function mapPerson(raw: ApiPerson, syncedAt: string): AuthorizedPerson | null {
   }
 }
 
+/** Empreinte du contenu seulement (pas updatedAt) — évite de resynchroniser à chaque touch Sheet. */
 export function authorizedListFingerprint(
   people: AuthorizedPerson[],
-  updatedAt?: string,
+  _updatedAt?: string,
 ): string {
-  if (updatedAt) return `at:${updatedAt}|n:${people.length}`
   return people
     .map(
       (p) =>
-        `${p.id}|${p.firstName}|${p.lastName}|${p.kind}|${p.expiresOn ?? ''}|${p.notes}`,
+        `${p.id}|${p.firstName.trim().toLowerCase()}|${p.lastName.trim().toLowerCase()}|${p.kind}|${p.expiresOn ?? ''}|${p.notes}`,
     )
+    .sort()
     .join(';')
 }
 
