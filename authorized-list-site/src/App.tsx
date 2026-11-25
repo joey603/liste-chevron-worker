@@ -364,7 +364,6 @@ export default function App() {
             ref={photoInputRef}
             type="file"
             accept="image/*"
-            capture="environment"
             className="sr-only"
             onChange={(e) => void onPhotoSelected(e.target.files?.[0])}
           />
