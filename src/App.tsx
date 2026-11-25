@@ -1131,6 +1131,8 @@ export default function App() {
   useEffect(() => {
     if (newExcelVisitorsCount > prevNewExcelVisitorsRef.current) {
       setHideVisitorsNewBadge(false)
+      // Les ajouts sync ויזיטור vont dans מבקרים (pas ספקים)
+      setCardlessAffiliateTab('employee')
     }
     prevNewExcelVisitorsRef.current = newExcelVisitorsCount
   }, [newExcelVisitorsCount])
@@ -1671,17 +1673,15 @@ export default function App() {
         (c) => authNameKey(c.firstName, c.lastName) === key,
       )
 
-      const alreadyInRoster = inWorkers || inCardless
-
       if (person.kind === 'visitor') {
-        // Doit être dans ויזיטורים, pas עובדים
+        // Doit être dans ויזיטורים (מבקרים), pas עובדים
         if (inWorkers) {
           nextWorkers = nextWorkers.filter(
             (w) => authNameKey(w.firstName, w.lastName) !== key,
           )
         }
         if (!inCardless) {
-          // Violet seulement si le nom n'existait nulle part dans le roster
+          // Nouveau sur l’onglet ויזיטורים → violet + badge compteur
           nextCardless.push({
             id: createId(),
             firstName,
@@ -1690,15 +1690,13 @@ export default function App() {
             expiresAt: null,
             assignment: 'unique',
             role: 'employee',
-            newFromExcel: !alreadyInRoster,
+            newFromExcel: true,
             fromAuthorizedList: true,
           })
-          if (!alreadyInRoster) {
-            addedVisitors += 1
-            addedPeople.push({ firstName, lastName, kind: 'visitor' })
-          }
+          addedVisitors += 1
+          addedPeople.push({ firstName, lastName, kind: 'visitor' })
         } else {
-          // Déjà présent : lié à la Sheet, sans (re)mettre le violet
+          // Déjà dans ויזיטורים : lié à la Sheet, sans remettre le violet
           nextCardless = nextCardless.map((c) =>
             authNameKey(c.firstName, c.lastName) === key
               ? { ...c, fromAuthorizedList: true, newFromExcel: false }
@@ -1719,13 +1717,11 @@ export default function App() {
             lastName,
             temporary: false,
             expiresAt: null,
-            newFromExcel: !alreadyInRoster,
+            newFromExcel: true,
             fromAuthorizedList: true,
           })
-          if (!alreadyInRoster) {
-            addedWorkers += 1
-            addedPeople.push({ firstName, lastName, kind: 'permanent' })
-          }
+          addedWorkers += 1
+          addedPeople.push({ firstName, lastName, kind: 'permanent' })
         } else {
           nextWorkers = nextWorkers.map((w) =>
             authNameKey(w.firstName, w.lastName) === key
@@ -1759,7 +1755,8 @@ export default function App() {
           map.set(key, item)
           continue
         }
-        if (prev.newFromExcel && !item.newFromExcel) map.set(key, item)
+        // Garder la fiche « nouveau » (violet) si l’une des deux l’est
+        if (!prev.newFromExcel && item.newFromExcel) map.set(key, item)
       }
       return [...map.values(), ...passthrough]
     }
