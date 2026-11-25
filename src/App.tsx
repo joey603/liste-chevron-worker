@@ -550,7 +550,22 @@ function readLocalStorageParts(): {
 async function loadData(): Promise<AppData> {
   if (isElectronApp()) return normalizeData(await window.listeApi.getData())
 
-  webDataDir = await getStoredDataFolder()
+  // localStorage d’abord — ne jamais bloquer « טוען » sur la permission dossier
+  let fromLocalStorage: AppData | null = null
+  try {
+    const { mainRaw, localRaw } = readLocalStorageParts()
+    if (mainRaw != null) {
+      fromLocalStorage = scrubObsoleteWebMailAppData(
+        normalizeData(
+          mergeShiftIntoMain((mainRaw as object) ?? {}, localRaw),
+        ),
+      )
+    }
+  } catch {
+    fromLocalStorage = null
+  }
+
+  webDataDir = await getStoredDataFolder(false)
   if (webDataDir) {
     try {
       await ensureAppSubfolders(webDataDir)
@@ -564,35 +579,19 @@ async function loadData(): Promise<AppData> {
           normalizeData(withWebSaveFolders(merged)),
         )
       }
-      // Dossier choisi mais encore vide → reprendre localStorage si présent
-      const fromLs = readLocalStorageParts()
-      if (fromLs.mainRaw != null) {
-        const merged = mergeShiftIntoMain(
-          (fromLs.mainRaw as object) ?? {},
-          fromLs.localRaw,
-        )
-        const normalized = scrubObsoleteWebMailAppData(
-          normalizeData(withWebSaveFolders(merged)),
-        )
+      if (fromLocalStorage) {
+        const normalized = withWebSaveFolders(fromLocalStorage)
         await saveData(normalized)
         return normalized
       }
       return scrubObsoleteWebMailAppData(withWebSaveFolders(normalizeData(null)))
     } catch {
-      /* fallback below */
+      /* fallback localStorage / vide */
     }
   }
 
-  try {
-    const { mainRaw, localRaw } = readLocalStorageParts()
-    const merged = mergeShiftIntoMain(
-      (mainRaw as object) ?? {},
-      localRaw,
-    )
-    return scrubObsoleteWebMailAppData(normalizeData(merged))
-  } catch {
-    return scrubObsoleteWebMailAppData(browserFallback())
-  }
+  if (fromLocalStorage) return fromLocalStorage
+  return scrubObsoleteWebMailAppData(browserFallback())
 }
 
 async function saveData(data: AppData): Promise<void> {
@@ -743,14 +742,26 @@ export default function App() {
   dataRef.current = data
 
   useEffect(() => {
-    void loadData().then((loaded) => {
-      const next = normalizeData(loaded)
-      setData(next)
-      // Réécrit le JSON sans les champs SMTP / Cloudflare / OAuth obsolètes
-      if (!isElectronApp()) void saveData(next)
-    })
+    let cancelled = false
+    void loadData()
+      .then((loaded) => {
+        if (cancelled) return
+        const next = normalizeData(loaded)
+        setData(next)
+        // Réécrit le JSON sans les champs SMTP / Cloudflare / OAuth obsolètes
+        if (!isElectronApp()) void saveData(next)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setData(scrubObsoleteWebMailAppData(browserFallback()))
+      })
     if (isWebFolderSupported()) {
-      void getStoredDataFolderName().then((name) => setDataFolderName(name))
+      void getStoredDataFolderName().then((name) => {
+        if (!cancelled) setDataFolderName(name)
+      })
+    }
+    return () => {
+      cancelled = true
     }
   }, [])
 

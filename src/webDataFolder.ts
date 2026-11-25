@@ -112,31 +112,46 @@ export function looksLikeOsPath(path: string | null | undefined): boolean {
   return /^[A-Za-z]:[\\/]/.test(p) || p.startsWith('\\\\') || p.startsWith('/')
 }
 
+/**
+ * @param interactive Si false (démarrage auto), ne pas appeler requestPermission —
+ * sinon le navigateur peut rester bloqué sur la boîte de dialogue pendant « טוען ».
+ */
 async function ensurePermission(
   handle: DirHandle,
   mode: 'read' | 'readwrite',
+  interactive = false,
 ): Promise<boolean> {
   const opts = { mode } as FileSystemHandlePermissionDescriptor
   const current = await handle.queryPermission(opts)
   if (current === 'granted') return true
-  const next = await handle.requestPermission(opts)
-  return next === 'granted'
+  if (!interactive) return false
+  try {
+    const next = await handle.requestPermission(opts)
+    return next === 'granted'
+  } catch {
+    return false
+  }
 }
 
-async function getStoredHandle(key: string): Promise<DirHandle | null> {
+async function getStoredHandle(
+  key: string,
+  interactive = false,
+): Promise<DirHandle | null> {
   if (!isWebFolderSupported()) return null
   try {
     const handle = await idbGet(key)
     if (!handle) return null
-    if (!(await ensurePermission(handle, 'readwrite'))) return null
+    if (!(await ensurePermission(handle, 'readwrite', interactive))) return null
     return handle
   } catch {
     return null
   }
 }
 
-export async function getStoredDataFolder(): Promise<DirHandle | null> {
-  return getStoredHandle(IDB_KEY)
+export async function getStoredDataFolder(
+  interactive = false,
+): Promise<DirHandle | null> {
+  return getStoredHandle(IDB_KEY, interactive)
 }
 
 export async function getStoredDataFolderName(): Promise<string | null> {
@@ -163,7 +178,7 @@ export async function pickDataFolder(): Promise<
       mode: 'readwrite',
       startIn: 'documents',
     })
-    if (!(await ensurePermission(handle, 'readwrite'))) {
+    if (!(await ensurePermission(handle, 'readwrite', true))) {
       return { ok: false, error: 'permission_denied' }
     }
     await idbSet(IDB_KEY, handle)
@@ -202,7 +217,7 @@ export async function pickExportFolder(
       mode: 'readwrite',
       startIn: 'desktop',
     })
-    if (!(await ensurePermission(handle, 'readwrite'))) {
+    if (!(await ensurePermission(handle, 'readwrite', true))) {
       return { ok: false, error: 'permission_denied' }
     }
     await idbSet(exportFolderIdbKey(kind), handle)
