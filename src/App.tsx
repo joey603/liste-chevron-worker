@@ -3063,12 +3063,23 @@ export default function App() {
               } else if (open && slot.access === 'open_temp') {
                 accentClass = 'is-visitor-temp'
               }
-            } else if (person.kind === 'named' && person.workerId && data) {
+            }
+            let rosterExpiresOn = ''
+            if (person.kind === 'named' && person.workerId && data) {
               const worker = data.workers.find((w) => w.id === person.workerId)
               if (worker?.temporary) {
                 accentClass = 'is-temporary'
+                rosterExpiresOn = rosterExpiresOnOf(worker)
               } else if (worker) {
                 isFixedWorker = true
+              }
+            } else if (person.cardlessPersonId && data) {
+              const cardless = data.cardlessPeople.find(
+                (c) => c.id === person.cardlessPersonId,
+              )
+              if (cardless?.temporary) {
+                accentClass = accentClass || 'is-temporary'
+                rosterExpiresOn = rosterExpiresOnOf(cardless)
               }
             }
             const lateFixed =
@@ -3103,7 +3114,13 @@ export default function App() {
                   <span className={lateFixed ? 'time-late' : undefined}>
                     {timeText}
                   </span>
-                  {accentClass === 'is-temporary' ? ' · זמני' : ''}
+                  {rosterExpiresOn ? (
+                    <span className="expires-badge timed">
+                      עד {formatAuthorizedExpiresOnHe(rosterExpiresOn)}
+                    </span>
+                  ) : accentClass === 'is-temporary' ? (
+                    ' · זמני'
+                  ) : null}
                   {accentClass === 'is-visitor-temp' ? ' · הרשאה זמנית' : ''}
                   {accentClass === 'is-visitor-open' ? ' · הרשאה קבועה' : ''}
                 </div>
@@ -3539,6 +3556,11 @@ export default function App() {
                           {excelAuthorized ? (
                             <span className="auth-badge auth-ok">מאושר</span>
                           ) : null}
+                          {rosterExpiresOnOf(worker) ? (
+                            <span className="expires-badge timed">
+                              עד {formatAuthorizedExpiresOnHe(rosterExpiresOnOf(worker))}
+                            </span>
+                          ) : null}
                           <span className="pick-hint">
                             {manageMode === 'edit'
                               ? 'עריכה'
@@ -3548,9 +3570,7 @@ export default function App() {
                                   ? 'באתר'
                                   : worker.newFromExcel
                                     ? 'חדש מ־Excel'
-                                    : rosterExpiresOnOf(worker)
-                                      ? `עד ${formatAuthorizedExpiresOnHe(rosterExpiresOnOf(worker))}`
-                                      : 'לחצו'}
+                                    : 'לחצו'}
                           </span>
                         </button>
                         {excelNotes ? (
@@ -3860,6 +3880,14 @@ export default function App() {
                             {excelAuthorized ? (
                               <span className="auth-badge auth-ok">מאושר</span>
                             ) : null}
+                            {rosterExpiresOnOf(person) ? (
+                              <span className="expires-badge timed">
+                                עד{' '}
+                                {formatAuthorizedExpiresOnHe(
+                                  rosterExpiresOnOf(person),
+                                )}
+                              </span>
+                            ) : null}
                             <span className="pick-hint">
                               {manageMode === 'edit'
                                 ? 'עריכה'
@@ -3871,9 +3899,7 @@ export default function App() {
                                       ? 'נבחר'
                                       : person.newFromExcel
                                         ? 'חדש מ־Excel'
-                                        : rosterExpiresOnOf(person)
-                                          ? `עד ${formatAuthorizedExpiresOnHe(rosterExpiresOnOf(person))}`
-                                          : 'לחצו'}
+                                        : 'לחצו'}
                             </span>
                           </button>
                         </div>

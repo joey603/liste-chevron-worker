@@ -4767,6 +4767,32 @@ button.camera-xls-tab:hover:not(.is-disabled):not(.is-active) {
   color: var(--temp-text);
 }
 
+.expires-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.expires-badge.timed {
+  background: #ede7f6;
+  color: #4a148c;
+  border: 1px solid rgba(74, 20, 140, 0.4);
+}
+
+.pick-btn .expires-badge {
+  margin-top: 2px;
+}
+
+.person-meta .expires-badge {
+  margin-inline-start: 6px;
+  vertical-align: middle;
+}
+
 .expires-picker-label {
   display: block;
   margin-bottom: 6px;
