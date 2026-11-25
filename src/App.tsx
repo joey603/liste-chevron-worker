@@ -547,23 +547,28 @@ function readLocalStorageParts(): {
   return { mainRaw, localRaw }
 }
 
-async function loadData(): Promise<AppData> {
-  if (isElectronApp()) return normalizeData(await window.listeApi.getData())
-
-  // localStorage d’abord — ne jamais bloquer « טוען » sur la permission dossier
-  let fromLocalStorage: AppData | null = null
+/** Données navigateur sans attendre IndexedDB / permission dossier. */
+function bootWebData(): AppData {
   try {
     const { mainRaw, localRaw } = readLocalStorageParts()
     if (mainRaw != null) {
-      fromLocalStorage = scrubObsoleteWebMailAppData(
+      return scrubObsoleteWebMailAppData(
         normalizeData(
           mergeShiftIntoMain((mainRaw as object) ?? {}, localRaw),
         ),
       )
     }
   } catch {
-    fromLocalStorage = null
+    /* stockage illisible */
   }
+  return scrubObsoleteWebMailAppData(browserFallback())
+}
+
+async function loadData(): Promise<AppData> {
+  if (isElectronApp()) return normalizeData(await window.listeApi.getData())
+
+  // Afficher tout de suite. Le dossier est relu plus tard, en arrière-plan.
+  const fromLocalStorage = bootWebData()
 
   webDataDir = await getStoredDataFolder(false)
   if (webDataDir) {
@@ -613,7 +618,12 @@ async function saveData(data: AppData): Promise<void> {
   localStorage.setItem('liste-chevron-data', mainJson)
 
   if (!webDataDir) {
-    webDataDir = await getStoredDataFolder()
+    webDataDir = await Promise.race([
+      getStoredDataFolder(false),
+      new Promise<null>((resolve) => {
+        window.setTimeout(() => resolve(null), 2000)
+      }),
+    ])
   }
   if (webDataDir) {
     try {
@@ -625,7 +635,9 @@ async function saveData(data: AppData): Promise<void> {
 }
 
 export default function App() {
-  const [data, setData] = useState<AppData | null>(null)
+  const [data, setData] = useState<AppData | null>(() =>
+    isElectronApp() ? null : bootWebData(),
+  )
   const [showNewWorker, setShowNewWorker] = useState(false)
   const [newWorker, setNewWorker] = useState(emptyNamed)
   const [newWorkerExpiresOn, setNewWorkerExpiresOn] = useState('')

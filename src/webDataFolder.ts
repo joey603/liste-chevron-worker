@@ -32,6 +32,7 @@ type DirHandle = FileSystemDirectoryHandle
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('idb_timeout')), 2500)
     const req = indexedDB.open(IDB_NAME, 1)
     req.onupgradeneeded = () => {
       const db = req.result
@@ -39,8 +40,14 @@ function openDb(): Promise<IDBDatabase> {
         db.createObjectStore(IDB_STORE)
       }
     }
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error ?? new Error('idb_open_failed'))
+    req.onsuccess = () => {
+      clearTimeout(timer)
+      resolve(req.result)
+    }
+    req.onerror = () => {
+      clearTimeout(timer)
+      reject(req.error ?? new Error('idb_open_failed'))
+    }
   })
 }
 
@@ -122,7 +129,17 @@ async function ensurePermission(
   interactive = false,
 ): Promise<boolean> {
   const opts = { mode } as FileSystemHandlePermissionDescriptor
-  const current = await handle.queryPermission(opts)
+  let current: PermissionState = 'prompt'
+  try {
+    current = await Promise.race([
+      handle.queryPermission(opts),
+      new Promise<PermissionState>((_, reject) => {
+        setTimeout(() => reject(new Error('permission_timeout')), 1500)
+      }),
+    ])
+  } catch {
+    return false
+  }
   if (current === 'granted') return true
   if (!interactive) return false
   try {
