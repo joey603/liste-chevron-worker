@@ -1436,8 +1436,25 @@ export default function App() {
 
   async function persist(next: AppData, message?: string) {
     setData(next)
+    dataRef.current = next
     await saveData(next)
     if (message) setToast({ message })
+  }
+
+  /** Patch settings depuis dataRef — évite d’écraser עובד למעקב si on bascule כבוי/פעיל trop vite. */
+  async function patchSettings(
+    patch: Partial<AppData['settings']>,
+    message?: string,
+  ) {
+    const prev = dataRef.current
+    if (!prev) return
+    await persist(
+      {
+        ...prev,
+        settings: { ...prev.settings, ...patch },
+      },
+      message,
+    )
   }
 
   function notifyAbsenceWatch(
@@ -4505,8 +4522,8 @@ export default function App() {
             <div className="presence-settings-block">
               <h3>התראות כניסה / יציאה</h3>
               <p className="shift-settings-note">
-                כשפעיל — כניסה ויציאה נשלחות לקבוצת Telegram. העובד למעקב לא
-                מקבל הודעה.
+                כשפעיל — כניסה ויציאה נשלחות לקבוצת Telegram. העובד למעקב נשמר
+                גם כשהמצב כבוי, עד שתבחרו אחר.
               </p>
               <label className="shift-field presence-watch-enable">
                 <span>שליחה אוטומטית</span>
@@ -4517,13 +4534,7 @@ export default function App() {
                       data.settings.absenceWatchEnabled ? '' : 'active'
                     }`}
                     onClick={() =>
-                      void persist({
-                        ...data,
-                        settings: {
-                          ...data.settings,
-                          absenceWatchEnabled: false,
-                        },
-                      })
+                      void patchSettings({ absenceWatchEnabled: false })
                     }
                   >
                     כבוי
@@ -4534,13 +4545,7 @@ export default function App() {
                       data.settings.absenceWatchEnabled ? 'active' : ''
                     }`}
                     onClick={() =>
-                      void persist({
-                        ...data,
-                        settings: {
-                          ...data.settings,
-                          absenceWatchEnabled: true,
-                        },
-                      })
+                      void patchSettings({ absenceWatchEnabled: true })
                     }
                   >
                     פעיל
@@ -4553,10 +4558,8 @@ export default function App() {
                   <select
                     value={data.settings.absenceWatchWorkerId ?? ''}
                     onChange={(e) => {
-                      const absenceWatchWorkerId = e.target.value
-                      void persist({
-                        ...data,
-                        settings: { ...data.settings, absenceWatchWorkerId },
+                      void patchSettings({
+                        absenceWatchWorkerId: e.target.value,
                       })
                     }}
                   >
@@ -4587,6 +4590,9 @@ export default function App() {
               {!data.settings.absenceWatchEnabled ? (
                 <p className="shift-settings-test-hint">
                   השליחה האוטומטית כבויה — אין הודעה בכניסה או ביציאה.
+                  {(data.settings.absenceWatchWorkerId ?? '').trim()
+                    ? ' העובד למעקב נשמר לבפעילה הבאה.'
+                    : ''}
                 </p>
               ) : !hasTelegramWatch(data) ? (
                 <p className="shift-settings-test-hint">

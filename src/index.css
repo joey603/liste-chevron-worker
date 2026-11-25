@@ -1871,7 +1871,8 @@ button.emergency-status-button:hover {
 
 .presence-watch-grid {
   margin-top: 8px;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
+  max-width: 420px;
 }
 
 .presence-last-sync {
