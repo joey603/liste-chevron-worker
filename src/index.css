@@ -4767,6 +4767,52 @@ button.camera-xls-tab:hover:not(.is-disabled):not(.is-active) {
   color: var(--temp-text);
 }
 
+.expires-picker-label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.expires-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.expires-chip {
+  border: 1px solid var(--line);
+  background: #f5f8fb;
+  color: var(--chevron-blue-dark);
+  border-radius: 999px;
+  min-height: 36px;
+  padding: 6px 12px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.expires-chip.active {
+  background: rgba(0, 87, 168, 0.14);
+  border-color: rgba(0, 87, 168, 0.4);
+  color: var(--chevron-blue-dark);
+}
+
+.expires-chip:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.expires-picker input[type='date'] {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fff;
+}
+
 .type-toggle {
   display: grid;
   grid-template-columns: 1fr 1fr;

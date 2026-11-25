@@ -14,6 +14,12 @@ import {
   fetchAuthorizedListFromApi,
   upsertAuthorizedPersonToApi,
 } from './authorizedListApi'
+import ExpiresOnPicker from './ExpiresOnPicker'
+import {
+  applyRosterExpiresOn,
+  formatAuthorizedExpiresOnHe,
+  rosterExpiresOnOf,
+} from './authorizedExpiry'
 import {
   appendRosterHistory,
   formatHistoryWhen,
@@ -623,10 +629,10 @@ export default function App() {
   const [data, setData] = useState<AppData | null>(null)
   const [showNewWorker, setShowNewWorker] = useState(false)
   const [newWorker, setNewWorker] = useState(emptyNamed)
-  const [newWorkerTemporary, setNewWorkerTemporary] = useState(false)
+  const [newWorkerExpiresOn, setNewWorkerExpiresOn] = useState('')
   const [showNewCardless, setShowNewCardless] = useState(false)
   const [newCardless, setNewCardless] = useState(emptyNamed)
-  const [newCardlessTemporary, setNewCardlessTemporary] = useState(false)
+  const [newCardlessExpiresOn, setNewCardlessExpiresOn] = useState('')
   const [newCardlessAssignment, setNewCardlessAssignment] =
     useState<CardlessAssignment>('unique')
   const [manageMode, setManageMode] = useState<'none' | 'edit' | 'delete'>('none')
@@ -1685,14 +1691,14 @@ export default function App() {
             (w) => authNameKey(w.firstName, w.lastName) !== key,
           )
         }
+        const expiry = applyRosterExpiresOn(person.expiresOn)
         if (!inCardless) {
           // Nouveau sur l’onglet ויזיטורים → violet + badge compteur
           nextCardless.push({
             id: createId(),
             firstName,
             lastName,
-            temporary: false,
-            expiresAt: null,
+            ...expiry,
             assignment: 'unique',
             role: 'employee',
             newFromExcel: true,
@@ -1704,12 +1710,18 @@ export default function App() {
           // Déjà dans ויזיטורים : lié à la Sheet, sans remettre le violet
           nextCardless = nextCardless.map((c) =>
             authNameKey(c.firstName, c.lastName) === key
-              ? { ...c, fromAuthorizedList: true, newFromExcel: false }
+              ? {
+                  ...c,
+                  ...expiry,
+                  fromAuthorizedList: true,
+                  newFromExcel: false,
+                }
               : c,
           )
         }
       } else {
         // Doit être dans עובדים, pas ויזיטורים
+        const expiry = applyRosterExpiresOn(person.expiresOn)
         if (inCardless) {
           nextCardless = nextCardless.filter(
             (c) => authNameKey(c.firstName, c.lastName) !== key,
@@ -1720,8 +1732,7 @@ export default function App() {
             id: createId(),
             firstName,
             lastName,
-            temporary: false,
-            expiresAt: null,
+            ...expiry,
             newFromExcel: true,
             fromAuthorizedList: true,
           })
@@ -1730,7 +1741,12 @@ export default function App() {
         } else {
           nextWorkers = nextWorkers.map((w) =>
             authNameKey(w.firstName, w.lastName) === key
-              ? { ...w, fromAuthorizedList: true, newFromExcel: false }
+              ? {
+                  ...w,
+                  ...expiry,
+                  fromAuthorizedList: true,
+                  newFromExcel: false,
+                }
               : w,
           )
         }
@@ -2032,12 +2048,12 @@ export default function App() {
 
   function resetNewWorkerForm() {
     setNewWorker(emptyNamed)
-    setNewWorkerTemporary(false)
+    setNewWorkerExpiresOn('')
   }
 
   function resetNewCardlessForm() {
     setNewCardless(emptyNamed)
-    setNewCardlessTemporary(false)
+    setNewCardlessExpiresOn('')
     setNewCardlessAssignment('unique')
   }
 
@@ -2061,26 +2077,43 @@ export default function App() {
       return
     }
 
-    const temporary = newCardlessTemporary
+    const expiry = applyRosterExpiresOn(newCardlessExpiresOn)
     const person: CardlessPerson = {
       id: createId(),
       firstName,
       lastName,
-      temporary,
-      expiresAt: temporary ? endOfTodayMidnight() : null,
+      ...expiry,
       assignment: newCardlessAssignment,
       role: cardlessAffiliateTab,
+      fromAuthorizedList: Boolean(expiry.expiresOn),
     }
     const display = cardlessDisplayName(person)
     const assignLabel =
       newCardlessAssignment === 'unique' ? 'יחיד' : 'מרובה'
+    const sheetPeople = expiry.expiresOn
+      ? await syncAuthorizedPersonToSheet(
+          firstName,
+          lastName,
+          'visitor',
+          expiry.expiresOn,
+        )
+      : undefined
     await persist(
       {
         ...data,
         cardlessPeople: [person, ...data.cardlessPeople],
+        ...(sheetPeople
+          ? {
+              authorizedPeople: sheetPeople,
+              settings: {
+                ...data.settings,
+                authorizedListLastSyncedAt: new Date().toISOString(),
+              },
+            }
+          : {}),
       },
-      temporary
-        ? `${display} נוסף (${assignLabel} · נמחק בחצות)`
+      expiry.expiresOn
+        ? `${display} נוסף (${assignLabel} · עד ${formatAuthorizedExpiresOnHe(expiry.expiresOn)})`
         : `${display} נוסף (${assignLabel})`,
     )
     setShowNewCardless(false)
@@ -2126,11 +2159,12 @@ export default function App() {
     setSelectedCardlessId((prev) => (prev === person.id ? null : person.id))
   }
 
-  /** Écrit le סוג dans la Sheet pour que le prochain sync ne remette pas l’ancien kind. */
-  async function syncRosterKindToAuthorizedSheet(
+  /** Écrit kind + expiresOn dans la Sheet pour que le sync ne remette pas l’ancien état. */
+  async function syncAuthorizedPersonToSheet(
     firstName: string,
     lastName: string,
     kind: 'permanent' | 'visitor',
+    expiresOn = '',
   ): Promise<AuthorizedPerson[] | undefined> {
     const apiUrl = data?.settings.authorizedListApiUrl?.trim() ?? ''
     const secret = data?.settings.authorizedListApiSecret?.trim() ?? ''
@@ -2145,7 +2179,7 @@ export default function App() {
       lastName,
       kind,
       notes: existing?.notes ?? '',
-      expiresOn: existing?.expiresOn ?? '',
+      expiresOn,
     })
     if (!result.ok) {
       setToast({
@@ -2169,6 +2203,8 @@ export default function App() {
       return
     }
 
+    const expiry = applyRosterExpiresOn(rosterExpiresOnOf(editingCardless))
+
     // Conversion ויזיטור → עובד
     if (editingRosterKind === 'worker') {
       const duplicateWorker = data.workers.some(
@@ -2180,13 +2216,11 @@ export default function App() {
         setToast({ message: 'עובד עם שם זה כבר קיים' })
         return
       }
-      const temporary = Boolean(editingCardless.temporary)
       const worker: Worker = {
         id: createId(),
         firstName,
         lastName,
-        temporary,
-        expiresAt: temporary ? endOfTodayMidnight() : null,
+        ...expiry,
         newFromExcel: false,
         fromAuthorizedList: true,
       }
@@ -2202,10 +2236,11 @@ export default function App() {
             }
           : p,
       )
-      const sheetPeople = await syncRosterKindToAuthorizedSheet(
+      const sheetPeople = await syncAuthorizedPersonToSheet(
         firstName,
         lastName,
         'permanent',
+        expiry.expiresOn,
       )
       await persist(
         {
@@ -2264,21 +2299,43 @@ export default function App() {
       editingCardless.assignment === 'multiple'
         ? editingCardless.assignment
         : 'multiple'
-    const temporary = Boolean(editingCardless.temporary)
     const updated: CardlessPerson = {
       ...editingCardless,
       firstName,
       lastName,
       assignment,
       role: cardlessRoleOf(editingCardless),
-      temporary,
-      expiresAt: temporary ? endOfTodayMidnight() : null,
+      ...expiry,
+      fromAuthorizedList:
+        Boolean(editingCardless.fromAuthorizedList) || Boolean(expiry.expiresOn),
     }
     const nextCardless = data.cardlessPeople.map((c) =>
       c.id === editingCardless.id ? updated : c,
     )
+    const shouldSyncSheet =
+      Boolean(updated.fromAuthorizedList) || Boolean(expiry.expiresOn)
+    const sheetPeople = shouldSyncSheet
+      ? await syncAuthorizedPersonToSheet(
+          firstName,
+          lastName,
+          'visitor',
+          expiry.expiresOn,
+        )
+      : undefined
     await persist(
-      { ...data, cardlessPeople: nextCardless },
+      {
+        ...data,
+        cardlessPeople: nextCardless,
+        ...(sheetPeople
+          ? {
+              authorizedPeople: sheetPeople,
+              settings: {
+                ...data.settings,
+                authorizedListLastSyncedAt: new Date().toISOString(),
+              },
+            }
+          : {}),
+      },
       'השם עודכן',
     )
     setEditingCardless(null)
@@ -2366,15 +2423,15 @@ export default function App() {
       return
     }
 
-    const temporary = newWorkerTemporary
+    const expiry = applyRosterExpiresOn(newWorkerExpiresOn)
     const display = `${firstName} ${lastName}`.trim()
     await withEntryAuthorization(firstName, lastName, async () => {
       const worker: Worker = {
         id: createId(),
         firstName,
         lastName,
-        temporary,
-        expiresAt: temporary ? endOfTodayMidnight() : null,
+        ...expiry,
+        fromAuthorizedList: Boolean(expiry.expiresOn),
       }
       const entry: PersonEntry = {
         id: createId(),
@@ -2387,14 +2444,31 @@ export default function App() {
         enteredAt: new Date().toISOString(),
         exitedAt: null,
       }
+      const sheetPeople = expiry.expiresOn
+        ? await syncAuthorizedPersonToSheet(
+            firstName,
+            lastName,
+            'permanent',
+            expiry.expiresOn,
+          )
+        : undefined
       await persist(
         {
           ...data,
           workers: [...data.workers, worker],
           people: [entry, ...data.people],
+          ...(sheetPeople
+            ? {
+                authorizedPeople: sheetPeople,
+                settings: {
+                  ...data.settings,
+                  authorizedListLastSyncedAt: new Date().toISOString(),
+                },
+              }
+            : {}),
         },
-        temporary
-          ? `${display} נוסף (זמני עד חצות)`
+        expiry.expiresOn
+          ? `${display} נוסף (עד ${formatAuthorizedExpiresOnHe(expiry.expiresOn)})`
           : `${display} נוסף (קבוע)`,
       )
       notifyAbsenceWatch(data, entry, 'enter')
@@ -2426,6 +2500,8 @@ export default function App() {
       return
     }
 
+    const expiry = applyRosterExpiresOn(rosterExpiresOnOf(editingWorker))
+
     // Conversion עובד → ויזיטור (מבקרים)
     if (editingRosterKind === 'visitor') {
       const duplicateCardless = data.cardlessPeople.some(
@@ -2437,13 +2513,11 @@ export default function App() {
         setToast({ message: 'שם זה כבר קיים ברשימת הויזיטורים' })
         return
       }
-      const temporary = Boolean(editingWorker.temporary)
       const cardless: CardlessPerson = {
         id: createId(),
         firstName,
         lastName,
-        temporary,
-        expiresAt: temporary ? endOfTodayMidnight() : null,
+        ...expiry,
         assignment: 'unique',
         role: 'employee',
         newFromExcel: false,
@@ -2460,10 +2534,11 @@ export default function App() {
             }
           : p,
       )
-      const sheetPeople = await syncRosterKindToAuthorizedSheet(
+      const sheetPeople = await syncAuthorizedPersonToSheet(
         firstName,
         lastName,
         'visitor',
+        expiry.expiresOn,
       )
       await persist(
         {
@@ -2514,13 +2589,13 @@ export default function App() {
       return
     }
 
-    const temporary = Boolean(editingWorker.temporary)
     const updated: Worker = {
       ...editingWorker,
       firstName,
       lastName,
-      temporary,
-      expiresAt: temporary ? endOfTodayMidnight() : null,
+      ...expiry,
+      fromAuthorizedList:
+        Boolean(editingWorker.fromAuthorizedList) || Boolean(expiry.expiresOn),
     }
     const nextWorkers = data.workers.map((w) =>
       w.id === editingWorker.id ? updated : w,
@@ -2528,8 +2603,31 @@ export default function App() {
     const nextPeople = data.people.map((p) =>
       p.workerId === editingWorker.id ? { ...p, firstName, lastName } : p,
     )
+    const shouldSyncSheet =
+      Boolean(updated.fromAuthorizedList) || Boolean(expiry.expiresOn)
+    const sheetPeople = shouldSyncSheet
+      ? await syncAuthorizedPersonToSheet(
+          firstName,
+          lastName,
+          'permanent',
+          expiry.expiresOn,
+        )
+      : undefined
     await persist(
-      { ...data, workers: nextWorkers, people: nextPeople },
+      {
+        ...data,
+        workers: nextWorkers,
+        people: nextPeople,
+        ...(sheetPeople
+          ? {
+              authorizedPeople: sheetPeople,
+              settings: {
+                ...data.settings,
+                authorizedListLastSyncedAt: new Date().toISOString(),
+              },
+            }
+          : {}),
+      },
       'העובד עודכן',
     )
     setEditingWorker(null)
@@ -3427,8 +3525,8 @@ export default function App() {
                                   ? 'באתר'
                                   : worker.newFromExcel
                                     ? 'חדש מ־Excel'
-                                    : worker.temporary
-                                      ? 'זמני · עד חצות'
+                                    : rosterExpiresOnOf(worker)
+                                      ? `עד ${formatAuthorizedExpiresOnHe(rosterExpiresOnOf(worker))}`
                                       : 'לחצו'}
                           </span>
                         </button>
@@ -3750,8 +3848,8 @@ export default function App() {
                                       ? 'נבחר'
                                       : person.newFromExcel
                                         ? 'חדש מ־Excel'
-                                        : person.temporary
-                                          ? 'זמני · עד חצות'
+                                        : rosterExpiresOnOf(person)
+                                          ? `עד ${formatAuthorizedExpiresOnHe(rosterExpiresOnOf(person))}`
                                           : 'לחצו'}
                             </span>
                           </button>
@@ -4970,30 +5068,13 @@ export default function App() {
                   />
                 </div>
               </div>
-              <div className="field">
-                <label>סוג עובד</label>
-                <div className="type-toggle">
-                  <button
-                    type="button"
-                    className={`type-toggle-btn ${!newWorkerTemporary ? 'active' : ''}`}
-                    onClick={() => setNewWorkerTemporary(false)}
-                  >
-                    קבוע
-                  </button>
-                  <button
-                    type="button"
-                    className={`type-toggle-btn ${newWorkerTemporary ? 'active' : ''}`}
-                    onClick={() => setNewWorkerTemporary(true)}
-                  >
-                    זמני
-                  </button>
-                </div>
-                <p className="settings-note" style={{ marginTop: 6 }}>
-                  {newWorkerTemporary
-                    ? 'הכרטיס יימחק בחצות היום'
-                    : 'הכרטיס נשאר ברשימה הקבועה'}
-                </p>
-              </div>
+              <ExpiresOnPicker
+                id="newWorkerExpiresOn"
+                label="תאריך סיום (אופציונלי)"
+                hint="מורשה עד סוף היום הזה — אז יימחק מהרשימה ומה־Sheet. ריק = ללא תפוגה."
+                value={newWorkerExpiresOn}
+                onChange={setNewWorkerExpiresOn}
+              />
               <div className="modal-actions">
                 <button
                   type="button"
@@ -5086,30 +5167,13 @@ export default function App() {
                     : 'ניתן לשייך את אותו שם לכמה ויזיטורים'}
                 </p>
               </div>
-              <div className="field">
-                <label>תוקף השם</label>
-                <div className="type-toggle">
-                  <button
-                    type="button"
-                    className={`type-toggle-btn ${!newCardlessTemporary ? 'active' : ''}`}
-                    onClick={() => setNewCardlessTemporary(false)}
-                  >
-                    קבוע
-                  </button>
-                  <button
-                    type="button"
-                    className={`type-toggle-btn ${newCardlessTemporary ? 'active' : ''}`}
-                    onClick={() => setNewCardlessTemporary(true)}
-                  >
-                    עד חצות
-                  </button>
-                </div>
-                <p className="settings-note" style={{ marginTop: 6 }}>
-                  {newCardlessTemporary
-                    ? 'השם יימחק מרשימת השיוך בחצות'
-                    : 'השם נשאר ברשימת השיוך'}
-                </p>
-              </div>
+              <ExpiresOnPicker
+                id="newCardlessExpiresOn"
+                label="תאריך סיום (אופציונלי)"
+                hint="מורשה עד סוף היום הזה — אז יימחק מהרשימה ומה־Sheet. ריק = ללא תפוגה."
+                value={newCardlessExpiresOn}
+                onChange={setNewCardlessExpiresOn}
+              />
               <div className="modal-actions">
                 <button
                   type="button"
@@ -5285,42 +5349,18 @@ export default function App() {
                 </p>
               </div>
               )}
-              <div className="field">
-                <label>תוקף השם</label>
-                <div className="type-toggle">
-                  <button
-                    type="button"
-                    className={`type-toggle-btn ${!editingCardless.temporary ? 'active' : ''}`}
-                    onClick={() =>
-                      setEditingCardless({
-                        ...editingCardless,
-                        temporary: false,
-                        expiresAt: null,
-                      })
-                    }
-                  >
-                    קבוע
-                  </button>
-                  <button
-                    type="button"
-                    className={`type-toggle-btn ${editingCardless.temporary ? 'active' : ''}`}
-                    onClick={() =>
-                      setEditingCardless({
-                        ...editingCardless,
-                        temporary: true,
-                        expiresAt: endOfTodayMidnight(),
-                      })
-                    }
-                  >
-                    עד חצות
-                  </button>
-                </div>
-                <p className="settings-note" style={{ marginTop: 6 }}>
-                  {editingCardless.temporary
-                    ? 'השם יימחק מרשימת השיוך בחצות'
-                    : 'השם נשאר ברשימת השיוך'}
-                </p>
-              </div>
+              <ExpiresOnPicker
+                id="editCardlessExpiresOn"
+                label="תאריך סיום (אופציונלי)"
+                hint="מורשה עד סוף היום הזה — אז יימחק מהרשימה ומה־Sheet. ריק = ללא תפוגה."
+                value={rosterExpiresOnOf(editingCardless)}
+                onChange={(expiresOn) =>
+                  setEditingCardless({
+                    ...editingCardless,
+                    ...applyRosterExpiresOn(expiresOn),
+                  })
+                }
+              />
               <div className="modal-actions">
                 <button
                   type="button"
@@ -5411,42 +5451,18 @@ export default function App() {
                     : 'נשאר ברשימת העובדים'}
                 </p>
               </div>
-              <div className="field">
-                <label>סוג עובד</label>
-                <div className="type-toggle">
-                  <button
-                    type="button"
-                    className={`type-toggle-btn ${!editingWorker.temporary ? 'active' : ''}`}
-                    onClick={() =>
-                      setEditingWorker({
-                        ...editingWorker,
-                        temporary: false,
-                        expiresAt: null,
-                      })
-                    }
-                  >
-                    קבוע
-                  </button>
-                  <button
-                    type="button"
-                    className={`type-toggle-btn ${editingWorker.temporary ? 'active' : ''}`}
-                    onClick={() =>
-                      setEditingWorker({
-                        ...editingWorker,
-                        temporary: true,
-                        expiresAt: endOfTodayMidnight(),
-                      })
-                    }
-                  >
-                    זמני
-                  </button>
-                </div>
-                <p className="settings-note" style={{ marginTop: 6 }}>
-                  {editingWorker.temporary
-                    ? 'הכרטיס יימחק בחצות היום'
-                    : 'הכרטיס נשאר ברשימה הקבועה'}
-                </p>
-              </div>
+              <ExpiresOnPicker
+                id="editWorkerExpiresOn"
+                label="תאריך סיום (אופציונלי)"
+                hint="מורשה עד סוף היום הזה — אז יימחק מהרשימה ומה־Sheet. ריק = ללא תפוגה."
+                value={rosterExpiresOnOf(editingWorker)}
+                onChange={(expiresOn) =>
+                  setEditingWorker({
+                    ...editingWorker,
+                    ...applyRosterExpiresOn(expiresOn),
+                  })
+                }
+              />
               <div className="modal-actions">
                 <button
                   type="button"

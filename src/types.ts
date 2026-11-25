@@ -8,7 +8,11 @@ import type { CameraReport } from './cameraReport'
 import { normalizeCameraReport } from './cameraReport'
 import type { CameraReportsArchive } from './cameraReportArchive'
 import { formatShiftDate } from './shiftReport'
-import { normalizeAuthorizedExpiresOn } from './authorizedExpiry'
+import {
+  isAuthorizedExpired,
+  normalizeAuthorizedExpiresOn,
+  rosterExpiresOnOf,
+} from './authorizedExpiry'
 import {
   normalizeRosterHistory,
   type RosterHistoryEntry,
@@ -26,6 +30,8 @@ export type Worker = {
   temporary: boolean
   /** תאריך/שעת תפוגה (חצות של אותו יום) */
   expiresAt: string | null
+  /** YYYY-MM-DD — כמו באתר מורשים (ריק = ללא תפוגה) */
+  expiresOn?: string
   /** נוסף מ־Excel — סגול עד כניסה לאתר */
   newFromExcel?: boolean
   /** מנוהל ע״י רשימת מורשים (Sheet) — למחיקה בסנכרון בלי סגול מחדש */
@@ -49,6 +55,8 @@ export type CardlessPerson = {
   /** נמחק בחצות */
   temporary: boolean
   expiresAt: string | null
+  /** YYYY-MM-DD — כמו באתר מורשים (ריק = ללא תפוגה) */
+  expiresOn?: string
   assignment: CardlessAssignment
   /** עובד (פתוח) או ספק (סגור) */
   role?: CardlessRole
@@ -869,11 +877,15 @@ export function endOfTodayMidnight(): string {
 }
 
 export function isWorkerExpired(w: Worker, now = new Date()): boolean {
+  const day = rosterExpiresOnOf(w)
+  if (day && isAuthorizedExpired(day, now)) return true
   if (!w.temporary || !w.expiresAt) return false
   return new Date(w.expiresAt).getTime() <= now.getTime()
 }
 
 export function isCardlessExpired(c: CardlessPerson, now = new Date()): boolean {
+  const day = rosterExpiresOnOf(c)
+  if (day && isAuthorizedExpired(day, now)) return true
   if (!c.temporary || !c.expiresAt) return false
   return new Date(c.expiresAt).getTime() <= now.getTime()
 }
@@ -1080,35 +1092,43 @@ export function normalizeData(raw: Partial<AppData> | null | undefined): AppData
     seenExcelNotes: normalizeSeenExcelNotes(rawSettings?.seenExcelNotes),
   }
   settings.directorPhone = settings.emergencyPhones[0]?.phone ?? ''
-  const workers = (Array.isArray(raw?.workers) ? raw.workers : []).map((w) => ({
-    id: w.id,
-    firstName: w.firstName,
-    lastName: w.lastName,
-    temporary: Boolean(w.temporary),
-    expiresAt: w.expiresAt ?? null,
-    newFromExcel: w.newFromExcel === true,
-    fromAuthorizedList:
-      w.fromAuthorizedList === true || w.newFromExcel === true,
-  }))
+  const workers = (Array.isArray(raw?.workers) ? raw.workers : []).map((w) => {
+    const expiresOn = rosterExpiresOnOf(w as Worker)
+    return {
+      id: w.id,
+      firstName: w.firstName,
+      lastName: w.lastName,
+      temporary: Boolean(w.temporary) || Boolean(expiresOn),
+      expiresAt: w.expiresAt ?? null,
+      expiresOn,
+      newFromExcel: w.newFromExcel === true,
+      fromAuthorizedList:
+        w.fromAuthorizedList === true || w.newFromExcel === true,
+    }
+  })
   const cardlessPeople = (
     Array.isArray(raw?.cardlessPeople) ? raw.cardlessPeople : []
-  ).map((c) => ({
-    id: c.id,
-    firstName: c.firstName,
-    lastName: c.lastName,
-    temporary: Boolean(c.temporary),
-    expiresAt: c.expiresAt ?? null,
-    assignment:
-      c.assignment === 'unique' || c.assignment === 'multiple'
-        ? c.assignment
-        : ('multiple' as const),
-    role: normalizeCardlessRole(
-      (c as CardlessPerson & { role?: unknown }).role,
-    ),
-    newFromExcel: c.newFromExcel === true,
-    fromAuthorizedList:
-      c.fromAuthorizedList === true || c.newFromExcel === true,
-  }))
+  ).map((c) => {
+    const expiresOn = rosterExpiresOnOf(c as CardlessPerson)
+    return {
+      id: c.id,
+      firstName: c.firstName,
+      lastName: c.lastName,
+      temporary: Boolean(c.temporary) || Boolean(expiresOn),
+      expiresAt: c.expiresAt ?? null,
+      expiresOn,
+      assignment:
+        c.assignment === 'unique' || c.assignment === 'multiple'
+          ? c.assignment
+          : ('multiple' as const),
+      role: normalizeCardlessRole(
+        (c as CardlessPerson & { role?: unknown }).role,
+      ),
+      newFromExcel: c.newFromExcel === true,
+      fromAuthorizedList:
+        c.fromAuthorizedList === true || c.newFromExcel === true,
+    }
+  })
   const people = Array.isArray(raw?.people)
     ? raw.people
         .filter((p) => !p.exitedAt)

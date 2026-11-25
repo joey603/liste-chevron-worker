@@ -47,3 +47,53 @@ export function formatAuthorizedExpiresOnHe(expiresOn: string): string {
   const [y, m, d] = day.split('-')
   return `${d}/${m}/${y}`
 }
+
+/** Aujourd’hui + N jours → YYYY-MM-DD (midi local). */
+export function dateFromTodayPlusDays(days: number): string {
+  const d = new Date()
+  d.setHours(12, 0, 0, 0)
+  d.setDate(d.getDate() + days)
+  return localDateKey(d)
+}
+
+/** Minuit juste après le jour expiresOn (fin de validité inclusive). */
+export function endOfExpiresOnMidnight(expiresOn: string): string | null {
+  const day = normalizeAuthorizedExpiresOn(expiresOn)
+  if (!day) return null
+  const [y, m, d] = day.split('-').map(Number)
+  const dt = new Date(y, m - 1, d)
+  dt.setHours(24, 0, 0, 0)
+  return dt.toISOString()
+}
+
+/** Champs roster locaux dérivés d’une date Sheet (YYYY-MM-DD). */
+export function applyRosterExpiresOn(expiresOn: string | null | undefined): {
+  expiresOn: string
+  temporary: boolean
+  expiresAt: string | null
+} {
+  const day = normalizeAuthorizedExpiresOn(expiresOn)
+  if (!day) return { expiresOn: '', temporary: false, expiresAt: null }
+  return {
+    expiresOn: day,
+    temporary: true,
+    expiresAt: endOfExpiresOnMidnight(day),
+  }
+}
+
+/** Affichage / édition : expiresOn, sinon dérivé de temporary+expiresAt. */
+export function rosterExpiresOnOf(person: {
+  expiresOn?: string | null
+  temporary?: boolean
+  expiresAt?: string | null
+}): string {
+  const direct = normalizeAuthorizedExpiresOn(person.expiresOn)
+  if (direct) return direct
+  if (person.temporary && person.expiresAt) {
+    const t = new Date(person.expiresAt)
+    if (!Number.isNaN(t.getTime())) {
+      return localDateKey(new Date(t.getTime() - 1))
+    }
+  }
+  return ''
+}
