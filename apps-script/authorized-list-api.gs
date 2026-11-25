@@ -285,13 +285,32 @@ function writePersonRow_(sheet, col, row, person) {
   }
 }
 
+function normalizeNameKey_(s) {
+  return cellText_(s).toLowerCase().replace(/\s+/g, ' ')
+}
+
 function upsertPerson_(sheet, col, person) {
   var row = parseRowId_(person && person.id)
   if (row >= DATA_START) {
     var existing = rowToPerson_(sheet, col, row)
     if (existing) return writePersonRow_(sheet, col, row, person)
   }
+  // Même nom déjà dans la Sheet → mise à jour (évite les doublons si id manquant)
+  var wantFirst = normalizeNameKey_(person && person.firstName)
+  var wantLast = normalizeNameKey_(person && person.lastName)
   var last = Math.max(sheet.getLastRow(), DATA_START - 1)
+  if (wantFirst || wantLast) {
+    for (var r = DATA_START; r <= last; r++) {
+      var cur = rowToPerson_(sheet, col, r)
+      if (!cur) continue
+      if (
+        normalizeNameKey_(cur.firstName) === wantFirst &&
+        normalizeNameKey_(cur.lastName) === wantLast
+      ) {
+        return writePersonRow_(sheet, col, r, person)
+      }
+    }
+  }
   var newRow = last + 1
   if (newRow < DATA_START) newRow = DATA_START
   return writePersonRow_(sheet, col, newRow, person || {})

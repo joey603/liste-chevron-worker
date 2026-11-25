@@ -12,6 +12,7 @@ import AuthorizedPeopleSyncBar from './AuthorizedPeopleSyncBar'
 import {
   authorizedListFingerprint,
   fetchAuthorizedListFromApi,
+  upsertAuthorizedPersonToApi,
 } from './authorizedListApi'
 import {
   appendRosterHistory,
@@ -633,6 +634,10 @@ export default function App() {
   const [editingCardless, setEditingCardless] = useState<CardlessPerson | null>(
     null,
   )
+  /** Pendant l’édition : עובד (workers) ou ויזיטור (cardless מבקרים) */
+  const [editingRosterKind, setEditingRosterKind] = useState<
+    'worker' | 'visitor'
+  >('worker')
   const [selectedCardlessId, setSelectedCardlessId] = useState<string | null>(
     null,
   )
@@ -2105,6 +2110,7 @@ export default function App() {
   async function onCardlessNameClick(person: CardlessPerson) {
     if (!data) return
     if (manageMode === 'edit') {
+      setEditingRosterKind('visitor')
       setEditingCardless({ ...person })
       return
     }
@@ -2120,6 +2126,39 @@ export default function App() {
     setSelectedCardlessId((prev) => (prev === person.id ? null : person.id))
   }
 
+  /** Écrit le סוג dans la Sheet pour que le prochain sync ne remette pas l’ancien kind. */
+  async function syncRosterKindToAuthorizedSheet(
+    firstName: string,
+    lastName: string,
+    kind: 'permanent' | 'visitor',
+  ): Promise<AuthorizedPerson[] | undefined> {
+    const apiUrl = data?.settings.authorizedListApiUrl?.trim() ?? ''
+    const secret = data?.settings.authorizedListApiSecret?.trim() ?? ''
+    if (!apiUrl || !secret) return undefined
+
+    const existing = (data?.authorizedPeople ?? []).find(
+      (p) => authNameKey(p.firstName, p.lastName) === authNameKey(firstName, lastName),
+    )
+    const result = await upsertAuthorizedPersonToApi(apiUrl, secret, {
+      id: existing?.id,
+      firstName,
+      lastName,
+      kind,
+      notes: existing?.notes ?? '',
+      expiresOn: existing?.expiresOn ?? '',
+    })
+    if (!result.ok) {
+      setToast({
+        message:
+          result.error === 'offline'
+            ? 'נשמר מקומית — אין חיבור לסנכרון Sheet'
+            : 'נשמר מקומית — עדכון Sheet נכשל (הסנכרון עלול להחזיר)',
+      })
+      return undefined
+    }
+    return result.people
+  }
+
   async function saveEditedCardless(e: FormEvent) {
     e.preventDefault()
     if (!data || !editingCardless) return
@@ -2127,6 +2166,85 @@ export default function App() {
     const lastName = editingCardless.lastName.trim()
     if (!firstName) {
       setToast({ message: 'שם פרטי חובה' })
+      return
+    }
+
+    // Conversion ויזיטור → עובד
+    if (editingRosterKind === 'worker') {
+      const duplicateWorker = data.workers.some(
+        (w) =>
+          w.firstName.toLowerCase() === firstName.toLowerCase() &&
+          w.lastName.toLowerCase() === lastName.toLowerCase(),
+      )
+      if (duplicateWorker) {
+        setToast({ message: 'עובד עם שם זה כבר קיים' })
+        return
+      }
+      const temporary = Boolean(editingCardless.temporary)
+      const worker: Worker = {
+        id: createId(),
+        firstName,
+        lastName,
+        temporary,
+        expiresAt: temporary ? endOfTodayMidnight() : null,
+        newFromExcel: false,
+        fromAuthorizedList: true,
+      }
+      const nextPeople = data.people.map((p) =>
+        p.cardlessPersonId === editingCardless.id
+          ? {
+              ...p,
+              firstName,
+              lastName,
+              workerId: worker.id,
+              cardlessPersonId: null,
+              kind: 'named' as const,
+            }
+          : p,
+      )
+      const sheetPeople = await syncRosterKindToAuthorizedSheet(
+        firstName,
+        lastName,
+        'permanent',
+      )
+      await persist(
+        {
+          ...data,
+          workers: [...data.workers, worker],
+          cardlessPeople: data.cardlessPeople.filter(
+            (c) => c.id !== editingCardless.id,
+          ),
+          people: nextPeople,
+          ...(sheetPeople
+            ? {
+                authorizedPeople: sheetPeople,
+                settings: {
+                  ...data.settings,
+                  authorizedListLastSyncedAt: new Date().toISOString(),
+                },
+              }
+            : {}),
+          rosterHistory: appendRosterHistory(data.rosterHistory, [
+            {
+              action: 'added',
+              source: 'manual',
+              kind: 'permanent',
+              firstName,
+              lastName,
+            },
+            {
+              action: 'removed',
+              source: 'manual',
+              kind: 'visitor',
+              firstName: editingCardless.firstName.trim(),
+              lastName: editingCardless.lastName.trim(),
+            },
+          ]),
+        },
+        'הועבר לרשימת עובדים',
+      )
+      setEditingCardless(null)
+      clearCardlessSelection()
       return
     }
 
@@ -2287,6 +2405,7 @@ export default function App() {
 
   async function onWorkerCardClick(worker: Worker) {
     if (manageMode === 'edit') {
+      setEditingRosterKind('worker')
       setEditingWorker({ ...worker })
       return
     }
@@ -2304,6 +2423,83 @@ export default function App() {
     const lastName = editingWorker.lastName.trim()
     if (!firstName) {
       setToast({ message: 'שם פרטי חובה' })
+      return
+    }
+
+    // Conversion עובד → ויזיטור (מבקרים)
+    if (editingRosterKind === 'visitor') {
+      const duplicateCardless = data.cardlessPeople.some(
+        (c) =>
+          c.firstName.toLowerCase() === firstName.toLowerCase() &&
+          c.lastName.toLowerCase() === lastName.toLowerCase(),
+      )
+      if (duplicateCardless) {
+        setToast({ message: 'שם זה כבר קיים ברשימת הויזיטורים' })
+        return
+      }
+      const temporary = Boolean(editingWorker.temporary)
+      const cardless: CardlessPerson = {
+        id: createId(),
+        firstName,
+        lastName,
+        temporary,
+        expiresAt: temporary ? endOfTodayMidnight() : null,
+        assignment: 'unique',
+        role: 'employee',
+        newFromExcel: false,
+        fromAuthorizedList: true,
+      }
+      const nextPeople = data.people.map((p) =>
+        p.workerId === editingWorker.id
+          ? {
+              ...p,
+              firstName,
+              lastName,
+              workerId: null,
+              cardlessPersonId: cardless.id,
+            }
+          : p,
+      )
+      const sheetPeople = await syncRosterKindToAuthorizedSheet(
+        firstName,
+        lastName,
+        'visitor',
+      )
+      await persist(
+        {
+          ...data,
+          workers: data.workers.filter((w) => w.id !== editingWorker.id),
+          cardlessPeople: [...data.cardlessPeople, cardless],
+          people: nextPeople,
+          ...(sheetPeople
+            ? {
+                authorizedPeople: sheetPeople,
+                settings: {
+                  ...data.settings,
+                  authorizedListLastSyncedAt: new Date().toISOString(),
+                },
+              }
+            : {}),
+          rosterHistory: appendRosterHistory(data.rosterHistory, [
+            {
+              action: 'added',
+              source: 'manual',
+              kind: 'visitor',
+              firstName,
+              lastName,
+            },
+            {
+              action: 'removed',
+              source: 'manual',
+              kind: 'permanent',
+              firstName: editingWorker.firstName.trim(),
+              lastName: editingWorker.lastName.trim(),
+            },
+          ]),
+        },
+        'הועבר לרשימת ויזיטורים',
+      )
+      setEditingWorker(null)
       return
     }
 
@@ -4978,6 +5174,35 @@ export default function App() {
                 </div>
               </div>
               <div className="field">
+                <label>סוג ברשימה</label>
+                <div className="type-toggle">
+                  <button
+                    type="button"
+                    className={`type-toggle-btn ${
+                      editingRosterKind === 'worker' ? 'active' : ''
+                    }`}
+                    onClick={() => setEditingRosterKind('worker')}
+                  >
+                    עובד
+                  </button>
+                  <button
+                    type="button"
+                    className={`type-toggle-btn ${
+                      editingRosterKind === 'visitor' ? 'active' : ''
+                    }`}
+                    onClick={() => setEditingRosterKind('visitor')}
+                  >
+                    ויזיטור
+                  </button>
+                </div>
+                <p className="settings-note" style={{ marginTop: 6 }}>
+                  {editingRosterKind === 'worker'
+                    ? 'יועבר לרשימת עובדים — גם בקובץ הסנכרון (Sheet)'
+                    : 'נשאר ברשימת ויזיטורים / מבקרים'}
+                </p>
+              </div>
+              {editingRosterKind === 'visitor' && (
+              <div className="field">
                 <label>רשימה</label>
                 <div className="type-toggle">
                   <button
@@ -5019,6 +5244,8 @@ export default function App() {
                     : 'מבקרים משויכים לויזיטור פתוח (ירוק / כתום)'}
                 </p>
               </div>
+              )}
+              {editingRosterKind === 'visitor' && (
               <div className="field">
                 <label>סוג שיוך</label>
                 <div className="type-toggle">
@@ -5057,6 +5284,7 @@ export default function App() {
                     : 'ניתן לשייך את אותו שם לכמה ויזיטורים'}
                 </p>
               </div>
+              )}
               <div className="field">
                 <label>תוקף השם</label>
                 <div className="type-toggle">
@@ -5154,6 +5382,34 @@ export default function App() {
                     autoComplete="off"
                   />
                 </div>
+              </div>
+              <div className="field">
+                <label>סוג ברשימה</label>
+                <div className="type-toggle">
+                  <button
+                    type="button"
+                    className={`type-toggle-btn ${
+                      editingRosterKind === 'worker' ? 'active' : ''
+                    }`}
+                    onClick={() => setEditingRosterKind('worker')}
+                  >
+                    עובד
+                  </button>
+                  <button
+                    type="button"
+                    className={`type-toggle-btn ${
+                      editingRosterKind === 'visitor' ? 'active' : ''
+                    }`}
+                    onClick={() => setEditingRosterKind('visitor')}
+                  >
+                    ויזיטור
+                  </button>
+                </div>
+                <p className="settings-note" style={{ marginTop: 6 }}>
+                  {editingRosterKind === 'visitor'
+                    ? 'יועבר לרשימת ויזיטורים (מבקרים) — גם בקובץ הסנכרון (Sheet)'
+                    : 'נשאר ברשימת העובדים'}
+                </p>
               </div>
               <div className="field">
                 <label>סוג עובד</label>

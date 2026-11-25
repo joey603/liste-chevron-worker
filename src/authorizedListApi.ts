@@ -51,11 +51,56 @@ export function authorizedListFingerprint(
     .join(';')
 }
 
-/** Lecture de la רשימת מורשים via Apps Script (même source que le site). */
-export async function fetchAuthorizedListFromApi(
+type ApiMutationResult =
+  | {
+      ok: true
+      people: AuthorizedPerson[]
+      person?: AuthorizedPerson | null
+      updatedAt?: string
+    }
+  | { ok: false; error: string }
+
+function parsePeopleResponse(
+  data: {
+    ok?: boolean
+    error?: string
+    people?: ApiPerson[]
+    person?: ApiPerson | null
+    updatedAt?: string
+    expiredRemoved?: number
+  } | null,
+): ApiListResult | ApiMutationResult {
+  if (!data || typeof data !== 'object') {
+    return { ok: false, error: 'api_failed' }
+  }
+  if (!data.ok) {
+    return { ok: false, error: String(data.error || 'api_failed') }
+  }
+
+  const syncedAt =
+    typeof data.updatedAt === 'string' && data.updatedAt.trim()
+      ? data.updatedAt.trim()
+      : new Date().toISOString()
+  const people = (Array.isArray(data.people) ? data.people : [])
+    .map((p) => mapPerson(p, syncedAt))
+    .filter((p): p is AuthorizedPerson => Boolean(p))
+  const person = data.person ? mapPerson(data.person, syncedAt) : null
+
+  return {
+    ok: true,
+    people,
+    person,
+    updatedAt: syncedAt,
+    expiredRemoved:
+      typeof data.expiredRemoved === 'number' ? data.expiredRemoved : 0,
+  }
+}
+
+async function postAuthorizedListApi(
   apiUrl: string,
   secret: string,
-): Promise<ApiListResult> {
+  body: Record<string, unknown>,
+): Promise<ApiListResult | ApiMutationResult> {
   const url = apiUrl.trim()
   const key = secret.trim()
   if (!url || !key) {
@@ -66,40 +111,63 @@ export async function fetchAuthorizedListFromApi(
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ secret: key, action: 'list' }),
+      body: JSON.stringify({ secret: key, ...body }),
       redirect: 'follow',
     })
     const data = (await res.json().catch(() => null)) as {
       ok?: boolean
       error?: string
       people?: ApiPerson[]
+      person?: ApiPerson | null
       updatedAt?: string
       expiredRemoved?: number
     } | null
-
-    if (!data || typeof data !== 'object') {
-      return { ok: false, error: 'api_failed' }
-    }
-    if (!data.ok) {
-      return { ok: false, error: String(data.error || 'api_failed') }
-    }
-
-    const syncedAt =
-      typeof data.updatedAt === 'string' && data.updatedAt.trim()
-        ? data.updatedAt.trim()
-        : new Date().toISOString()
-    const people = (Array.isArray(data.people) ? data.people : [])
-      .map((p) => mapPerson(p, syncedAt))
-      .filter((p): p is AuthorizedPerson => Boolean(p))
-
-    return {
-      ok: true,
-      people,
-      updatedAt: syncedAt,
-      expiredRemoved:
-        typeof data.expiredRemoved === 'number' ? data.expiredRemoved : 0,
-    }
+    return parsePeopleResponse(data)
   } catch {
     return { ok: false, error: 'offline' }
   }
+}
+
+/** Lecture de la רשימת מורשים via Apps Script (même source que le site). */
+export async function fetchAuthorizedListFromApi(
+  apiUrl: string,
+  secret: string,
+): Promise<ApiListResult> {
+  const result = await postAuthorizedListApi(apiUrl, secret, { action: 'list' })
+  if (!result.ok) return result
+  return {
+    ok: true,
+    people: result.people,
+    updatedAt: result.updatedAt,
+    expiredRemoved:
+      'expiredRemoved' in result && typeof result.expiredRemoved === 'number'
+        ? result.expiredRemoved
+        : 0,
+  }
+}
+
+/** Met à jour / crée une personne (kind עובד/ויזיטור) dans la Sheet synchronisée. */
+export async function upsertAuthorizedPersonToApi(
+  apiUrl: string,
+  secret: string,
+  person: {
+    id?: string
+    firstName: string
+    lastName: string
+    kind: 'permanent' | 'visitor'
+    notes?: string
+    expiresOn?: string
+  },
+): Promise<ApiMutationResult> {
+  return postAuthorizedListApi(apiUrl, secret, {
+    action: 'upsert',
+    person: {
+      id: person.id?.trim() || undefined,
+      firstName: person.firstName.trim(),
+      lastName: person.lastName.trim(),
+      kind: person.kind,
+      notes: person.notes?.trim() ?? '',
+      expiresOn: person.expiresOn?.trim() ?? '',
+    },
+  })
 }
